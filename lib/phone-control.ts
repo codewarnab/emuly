@@ -8,16 +8,23 @@ import { createPhoneSetup } from "./phone-setup.ts";
 import { syncError, type SyncError } from "./sync-error.ts";
 
 // Share mutation guards across requests and development hot reloads.
-// Hot reload keeps globalThis, so a service built by older code can lack new methods. Rebuild it then.
-const global = globalThis as unknown as { __phoneControl?: ReturnType<typeof createPhoneService> };
+// Hot reload keeps globalThis but runs this module again, so a service built by older code
+// (an older setup script, missing methods) is rebuilt when the module's build mark changes.
+const build = Symbol("phone-control build");
+const global = globalThis as unknown as { __phoneControl?: ReturnType<typeof createPhoneService>; __phoneControlBuild?: symbol;
+  __latestPhoneControl?: () => ReturnType<typeof createPhoneService> };
 export function phoneControl() {
-  if (global.__phoneControl && !("remove" in global.__phoneControl)) global.__phoneControl = undefined;
+  if (global.__phoneControlBuild !== build) { global.__phoneControl = undefined; global.__phoneControlBuild = build; }
   return global.__phoneControl ??= createPhoneService({
     database: db(), github: createGitHubClient({ database: db(), accessToken: getAccessToken }), encrypt: seal,
     setup: createPhoneSetup({ token: userId => getAccessToken(userId) }),
     maxPhones: process.env.PHONELINK_MAX_PHONES ? Number(process.env.PHONELINK_MAX_PHONES) : undefined,
   });
 }
+
+// The poller starts once and keeps its first import; it calls through this, so it uses the newest code after a hot reload.
+global.__latestPhoneControl = phoneControl;
+export const latestPhoneControl = () => (global.__latestPhoneControl ?? phoneControl)();
 
 export async function syncPhoneState(userId: number): Promise<SyncError | null> {
   try { await phoneControl().sync(userId); return null; }
