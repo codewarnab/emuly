@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "./database.ts";
 import { createGitHubClient, GitHubError, type Codespace } from "./github.ts";
-import { createPhoneService, PhoneInputError } from "./phone-mutations.ts";
+import { createPhoneService, PhoneInputError, UNCONFIRMED_CREATION_EXPIRY_MS } from "./phone-mutations.ts";
 import { RateLimitError } from "./rate-limit.ts";
 import { readUsage, saveAllowance } from "./usage.ts";
 import { createPhoneApi } from "./phone-api.ts";
@@ -74,6 +74,8 @@ test("create records intent before HTTP, chooses an available machine, sends tim
     const row = f.database.prepare("SELECT state, codespace_name FROM phones WHERE id = ?").get(body.display_name);
     assert.equal(row?.state, "pending");
     assert.equal(row?.codespace_name, `pending:${body.display_name}`);
+    assert.equal(f.database.prepare("SELECT outcome FROM phone_creations WHERE phone_id = ?").get(body.display_name)?.outcome,
+      "unconfirmed");
     assert.equal(f.database.prepare("SELECT kind FROM events WHERE phone_id = ? ORDER BY id LIMIT 1").get(body.display_name)?.kind, "action");
     bodies.push(body);
     return Response.json({ ...space(`github-generated-${++creates}`, "Provisioning"), id: creates });
@@ -115,9 +117,168 @@ test("GitHub refusal preserves its message, records the failure, and does not re
     const phone = f.database.prepare("SELECT state, state_detail FROM phones").get()!;
     assert.equal(phone.state, "error");
     assert.equal(phone.state_detail, "Your Codespaces spending limit has been reached.");
+    assert.equal(f.database.prepare("SELECT outcome FROM phone_creations").get()?.outcome, "failed");
     assert.deepEqual(f.database.prepare("SELECT kind FROM events ORDER BY id").all().map(row => row.kind), ["action", "error"]);
     await assert.rejects(f.service.create(1, input), RateLimitError);
     assert.equal(posts, 1);
+    f.advance(60_000);
+    await assert.rejects(f.service.create(1, input), GitHubError);
+    assert.equal(posts, 2);
+  } finally { f.close(); }
+});
+
+test("creation reserves its operation before machine lookup and blocks overlapping attempts", async () => {
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let posts = 0;
+  const f = fixture(async (url, init) => {
+    if (String(url).endsWith("/machines")) {
+      entered.resolve();
+      await release.promise;
+      return Response.json({ machines: [] });
+    }
+    if (init?.method === "POST") posts++;
+    return Response.json({ codespaces: [] });
+  });
+  let creating: Promise<void> | undefined;
+  try {
+    creating = assert.rejects(f.service.create(1, input), /machine is unavailable/);
+    await entered.promise;
+    f.advance(60_000);
+    await assert.rejects(f.service.create(1, input), /unconfirmed/);
+    assert.equal(f.database.prepare("SELECT count(*) AS n FROM phones").get()?.n, 1);
+    release.resolve();
+    await creating;
+    assert.equal(f.database.prepare("SELECT outcome FROM phone_creations").get()?.outcome, "failed");
+    assert.equal(posts, 0);
+  } finally { release.resolve(); await creating; f.close(); }
+});
+
+test("interrupted creation survives a restart, blocks replacement, and recovers the submitted display name across pages", async () => {
+  let displayName = "";
+  let posts = 0;
+  let visible = false;
+  let listingFails = false;
+  const stopped: string[] = [];
+  const f = fixture(async (url, init) => {
+    const target = new URL(String(url));
+    if (target.pathname.endsWith("/machines")) return Response.json({ machines: [machine] });
+    if (target.pathname.endsWith("/stop")) {
+      stopped.push(target.pathname);
+      return new Response(null, { status: 202 });
+    }
+    if (init?.method === "POST") {
+      posts++;
+      displayName = JSON.parse(String(init.body)).display_name;
+      throw new Error("Response timed out after GitHub created the Codespace");
+    }
+    const recovered = { ...space("github-recovered", "Available"), display_name: displayName };
+    if (target.pathname !== "/user/codespaces") return Response.json(recovered);
+    if (listingFails) return Response.json({ message: "Try later" }, { status: 503 });
+    if (target.searchParams.get("page") === "1") {
+      return Response.json({ codespaces: [{ ...space("foreign"), display_name: "phone-bbbb" }] },
+        { headers: { link: '<https://api.github.com/user/codespaces?per_page=100&page=2>; rel="next"' } });
+    }
+    return Response.json({ codespaces: visible ? [recovered] : [] });
+  });
+  try {
+    await assert.rejects(f.service.create(1, input), /Response timed out/);
+    const before = f.database.prepare("SELECT id, runner_secret FROM phones").get()!;
+    assert.equal(f.database.prepare("SELECT outcome FROM phone_creations").get()?.outcome, "unconfirmed");
+    f.add("phone-bbbb", 2, "pending:phone-bbbb");
+    f.database.prepare(`INSERT INTO phone_creations VALUES ('phone-bbbb', 'phone-bbbb', 'unconfirmed', '2026-11-07')`).run();
+    f.advance(60_000);
+    const restarted = createPhoneService({ database: f.database, github: f.github, encrypt: value => seal(value, key),
+      clock: () => Date.parse("2026-11-07T00:01:00Z") });
+    await assert.rejects(restarted.create(1, input), /unconfirmed/);
+    assert.equal(posts, 1);
+    assert.equal(f.database.prepare("SELECT state FROM phones WHERE id = ?").get(before.id)?.state, "error");
+    listingFails = true;
+    await assert.rejects(restarted.create(1, input), GitHubError);
+    assert.equal(posts, 1);
+    listingFails = false;
+    visible = true;
+    await restarted.sync(1);
+    const row = f.database.prepare("SELECT * FROM phones WHERE id = ?").get(before.id)!;
+    assert.equal(row.codespace_name, "github-recovered");
+    assert.equal(row.codespace_id, "41");
+    assert.equal(row.state, "booting");
+    assert.deepEqual(row.runner_secret, before.runner_secret);
+    assert.equal(f.database.prepare("SELECT outcome FROM phone_creations WHERE phone_id = ?").get(before.id)?.outcome, "confirmed");
+    assert.equal(f.database.prepare("SELECT outcome FROM phone_creations WHERE phone_id = 'phone-bbbb'").get()?.outcome, "unconfirmed");
+    await restarted.stop(1, String(before.id));
+    assert.deepEqual(stopped, ["/user/codespaces/github-recovered/stop"]);
+    assert.equal(posts, 1);
+  } finally { f.close(); }
+});
+
+test("sync recovers a pending creation after a server error but refuses ambiguous display names", async () => {
+  let displayName = "";
+  let ambiguous = true;
+  const f = fixture(async (url, init) => {
+    if (String(url).endsWith("/machines")) return Response.json({ machines: [machine] });
+    if (init?.method === "POST") {
+      displayName = JSON.parse(String(init.body)).display_name;
+      return Response.json({ message: "Gateway timeout" }, { status: 504 });
+    }
+    return Response.json({ codespaces: (ambiguous ? ["one", "two"] : ["one"])
+      .map(name => ({ ...space(name), display_name: displayName })) });
+  });
+  try {
+    await assert.rejects(f.service.create(1, input), GitHubError);
+    await f.service.sync(1);
+    assert.equal(f.database.prepare("SELECT outcome FROM phone_creations").get()?.outcome, "unconfirmed");
+    ambiguous = false;
+    await f.service.sync(1);
+    assert.equal(f.database.prepare("SELECT codespace_name FROM phones").get()?.codespace_name, "one");
+    assert.equal(f.database.prepare("SELECT state FROM phones").get()?.state, "stopped");
+    assert.equal(f.database.prepare("SELECT outcome FROM phone_creations").get()?.outcome, "confirmed");
+  } finally { f.close(); }
+});
+
+test("a recovered creation lets the requested new phone be created", async () => {
+  let posts = 0;
+  let displayName = "";
+  const f = fixture(async (url, init) => {
+    if (String(url).endsWith("/machines")) return Response.json({ machines: [machine] });
+    if (init?.method === "POST") {
+      posts++;
+      if (posts === 1) { displayName = JSON.parse(String(init.body)).display_name; throw new Error("timed out"); }
+      return Response.json(space("second"));
+    }
+    return Response.json({ codespaces: [{ ...space("first"), display_name: displayName }] });
+  });
+  try {
+    await assert.rejects(f.service.create(1, input), /timed out/);
+    const first = String(f.database.prepare("SELECT id FROM phones").get()!.id);
+    f.advance(60_000);
+    const second = await f.service.create(1, input);
+    assert.notEqual(second, first);
+    assert.equal(posts, 2);
+    assert.equal(f.database.prepare("SELECT codespace_name FROM phones WHERE id = ?").get(first)?.codespace_name, "first");
+  } finally { f.close(); }
+});
+
+test("an unconfirmed creation with no Codespace on GitHub expires and stops blocking creation", async () => {
+  let posts = 0;
+  const f = fixture(async (url, init) => {
+    if (String(url).endsWith("/machines")) return Response.json({ machines: [machine] });
+    if (init?.method === "POST") {
+      posts++;
+      if (posts === 1) throw new Error("timed out");
+      return Response.json(space("second"));
+    }
+    return Response.json({ codespaces: [] });
+  });
+  try {
+    await assert.rejects(f.service.create(1, input), /timed out/);
+    f.advance(60_000);
+    await assert.rejects(f.service.create(1, input), /unconfirmed/);
+    f.advance(UNCONFIRMED_CREATION_EXPIRY_MS);
+    await f.service.create(1, input);
+    assert.equal(posts, 2);
+    assert.deepEqual(f.database.prepare("SELECT outcome FROM phone_creations ORDER BY requested_at").all().map(r => r.outcome),
+      ["failed", "confirmed"]);
   } finally { f.close(); }
 });
 

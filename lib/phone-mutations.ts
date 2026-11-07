@@ -16,6 +16,9 @@ type StoredPhone = {
 };
 export class PhoneInputError extends Error {}
 
+/** After this time with no matching Codespace on GitHub, an unconfirmed creation is treated as failed. */
+export const UNCONFIRMED_CREATION_EXPIRY_MS = 30 * 60_000;
+
 export function createPhoneService({ database, github, encrypt, clock = Date.now, maxPhones, emit = event => emitEvent(event, database) }: {
   database: DatabaseSync;
   github: GitHub;
@@ -236,6 +239,46 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
     } finally { busy.delete(id); }
   }
 
+  function unconfirmed(userId: number) {
+    return database.prepare(`SELECT c.phone_id, c.display_name, c.requested_at FROM phone_creations c
+      JOIN phones p ON p.id = c.phone_id WHERE p.user_id = ? AND p.state != 'deleted'
+      AND c.outcome = 'unconfirmed'`).all(userId) as { phone_id: string; display_name: string; requested_at: string }[];
+  }
+
+  /** Identity and outcome commit together, so a restart can always resume reconciliation. */
+  function confirmCreation(userId: number, id: string, space: Codespace, source = "reconciled") {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      if (database.prepare("SELECT outcome FROM phone_creations WHERE phone_id = ?").get(id)?.outcome !== "unconfirmed") {
+        database.exec("COMMIT");
+        return;
+      }
+      database.prepare(`UPDATE phones SET codespace_name = ?, codespace_id = ?,
+        machine = COALESCE(?, machine), cores = COALESCE(?, cores) WHERE user_id = ? AND id = ?`)
+        .run(space.name, String(space.id), space.machine?.name ?? null, space.machine?.cpus ?? null, userId, id);
+      apply(userId, id, space, source);
+      database.prepare("UPDATE phone_creations SET outcome = 'confirmed' WHERE phone_id = ?").run(id);
+      outgoing(userId, id, "phone.created");
+      database.exec("COMMIT");
+    } catch (error) { database.exec("ROLLBACK"); throw error; }
+  }
+
+  function recoverCreations(userId: number, spaces: Codespace[]) {
+    for (const operation of unconfirmed(userId)) {
+      if (busy.has(operation.phone_id)) continue;
+      const matches = spaces.filter(space => space.display_name === operation.display_name);
+      // No match is not proof that a timed-out POST failed. Never submit a replacement automatically.
+      // GitHub lists a new Codespace within minutes, so a long absence does prove failure.
+      if (matches.length === 0 && clock() - Date.parse(operation.requested_at) >= UNCONFIRMED_CREATION_EXPIRY_MS) {
+        database.prepare("UPDATE phone_creations SET outcome = 'failed' WHERE phone_id = ? AND outcome = 'unconfirmed'")
+          .run(operation.phone_id);
+        continue;
+      }
+      if (matches.length !== 1) continue;
+      confirmCreation(userId, operation.phone_id, matches[0]!);
+    }
+  }
+
   return {
     keep,
     autoKeep: (userId: number, id: string) => keep(userId, id, true),
@@ -247,8 +290,19 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
         || (input.machine !== undefined && !/^[\w-]{1,100}$/.test(input.machine))) {
         throw new PhoneInputError("Choose a valid repository, machine, and idle timeout.");
       }
+      const interrupted = unconfirmed(userId);
+      if (interrupted.length) {
+        if (!database.prepare("SELECT id FROM users WHERE id = ? AND blocked = 0").get(userId)) {
+          throw new PhoneInputError("Sign in again");
+        }
+        recoverCreations(userId, await github.listCodespaces(userId));
+        if (unconfirmed(userId).length) {
+          throw new PhoneInputError("Phone creation is unconfirmed. Refresh to reconcile it before creating another phone.");
+        }
+      }
       const id = `phone-${randomBytes(8).toString("hex")}`;
       claim(userId, id, "create", () => {
+        if (unconfirmed(userId).length) throw new PhoneInputError("Phone creation is unconfirmed. Refresh before trying again.");
         if (maxPhones !== undefined) {
           const count = database.prepare(`SELECT count(*) AS n FROM phones WHERE user_id = ? AND state != 'deleted'
             AND (state != 'error' OR codespace_name NOT LIKE 'pending:%')`).get(userId)!.n as number;
@@ -258,29 +312,35 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
           created_at, runner_secret, idle_timeout_min, retention_min) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, 43200)`)
           .run(id, userId, `pending:${id}`, input.repository, input.machine ?? "Choosing machine", iso(),
             encrypt(randomBytes(32).toString("base64url")), input.idleTimeoutMin);
+        database.prepare(`INSERT INTO phone_creations (phone_id, display_name, outcome, requested_at)
+          VALUES (?, ?, 'unconfirmed', ?)`).run(id, id, iso());
       });
       busy.add(id);
+      let submitted = false;
       try {
         const machines = await github.machines(userId, input.repository);
         const machine = input.machine ? machines.find(m => m.name === input.machine)
           : machines.find(m => m.name === "standardLinux32gb") ?? [...machines].sort((a, b) => b.cpus - a.cpus)[0];
         if (!machine) throw new PhoneInputError("The selected machine is unavailable for this repository.");
+        database.prepare("UPDATE phones SET machine = ?, cores = ? WHERE id = ?").run(machine.name, machine.cpus, id);
+        submitted = true;
         const result = await github.createCodespace(userId, id, {
           repository_id: input.repositoryId, machine: machine.name, devcontainer_path: input.devcontainerPath,
           // The current plan chooses the API maximum for new phones; existing settings stay as recorded.
           // https://docs.github.com/en/rest/codespaces/codespaces#create-a-codespace-for-the-authenticated-user
           idle_timeout_minutes: input.idleTimeoutMin, retention_period_minutes: 43200,
         });
-        database.prepare(`UPDATE phones SET codespace_name = ?, codespace_id = ?, machine = ?, cores = ?,
-          last_started_at = ? WHERE user_id = ? AND id = ?`)
-          .run(result.name, String(result.id), machine.name, machine.cpus, iso(), userId, id);
-        apply(userId, id, result);
+        database.prepare("UPDATE phones SET last_started_at = ? WHERE user_id = ? AND id = ?").run(iso(), userId, id);
+        confirmCreation(userId, id, result, "phonelink");
         event(userId, id, "step", "Phone created");
-        outgoing(userId, id, "phone.created");
         return id;
       } catch (error) {
+        // Only a definite rejection or a failure before POST proves that no Codespace was created.
+        const failed = !submitted || (error instanceof GitHubError && error.status >= 400
+          && error.status < 500 && error.status !== 408);
+        if (failed) database.prepare("UPDATE phone_creations SET outcome = 'failed' WHERE phone_id = ?").run(id);
         const message = error instanceof GitHubError || error instanceof PhoneInputError ? redact(error.message)
-          : "Phone creation could not be confirmed. Check GitHub before trying again.";
+          : "Phone creation is unconfirmed. Refresh to reconcile it before trying again.";
         database.prepare("UPDATE phones SET state = 'error', state_detail = ? WHERE user_id = ? AND id = ?")
           .run(message, userId, id);
         event(userId, id, "error", message);
@@ -294,8 +354,9 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
     async sync(userId: number) {
       const rows = database.prepare("SELECT id, codespace_name, state FROM phones WHERE user_id = ? AND state != 'deleted'")
         .all(userId) as { id: string; codespace_name: string; state: string }[];
-      if (!rows.some(row => !row.codespace_name.startsWith("pending:"))) return;
+      if (!rows.some(row => !row.codespace_name.startsWith("pending:")) && !unconfirmed(userId).length) return;
       const spaces = await github.listCodespaces(userId);
+      recoverCreations(userId, spaces);
       for (const row of rows) {
         const space = spaces.find(item => item.name === row.codespace_name);
         if (space && !busy.has(row.id) && phone(userId, row.id).state === row.state) {

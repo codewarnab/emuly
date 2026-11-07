@@ -149,6 +149,18 @@ const MIGRATIONS = [
   INSERT INTO billing_settings (user_id, allowance_override)
     SELECT user_id, allowance_core_hours FROM user_settings;
   `,
+  `
+  CREATE TABLE phone_creations (
+    phone_id TEXT PRIMARY KEY REFERENCES phones(id) ON DELETE CASCADE,
+    display_name TEXT NOT NULL UNIQUE,
+    outcome TEXT NOT NULL CHECK (outcome IN ('unconfirmed', 'confirmed', 'failed')),
+    requested_at TEXT NOT NULL
+  );
+  -- Old pending identifiers may already refer to a Codespace whose response was lost.
+  INSERT INTO phone_creations (phone_id, display_name, outcome, requested_at)
+    SELECT id, id, 'unconfirmed', created_at FROM phones
+    WHERE codespace_name LIKE 'pending:%' AND state != 'deleted';
+  `,
 ];
 
 export function openDatabase(filename: string): DatabaseSync {

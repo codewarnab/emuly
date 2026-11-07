@@ -32,6 +32,7 @@ export class GitHubError extends Error {
 export type Codespace = {
   id: number;
   name: string;
+  display_name?: string;
   state: string;
   machine?: { name: string; cpus: number } | null;
   retention_expires_at?: string | null;
@@ -97,6 +98,9 @@ export function createGitHubClient({ database, accessToken, fetch: fetcher = fet
     async listCodespaces(userId: number): Promise<Codespace[]> {
       const names = new Set(database.prepare("SELECT codespace_name FROM phones WHERE user_id = ? AND state != 'deleted'")
         .all(userId).map(row => String(row.codespace_name)));
+      const displays = new Set(database.prepare(`SELECT c.display_name FROM phone_creations c
+        JOIN phones p ON p.id = c.phone_id WHERE p.user_id = ? AND p.state != 'deleted'
+        AND c.outcome = 'unconfirmed'`).all(userId).map(row => String(row.display_name)));
       const result: Codespace[] = [];
       let more = true;
       for (let page = 1; more; page++) {
@@ -104,7 +108,9 @@ export function createGitHubClient({ database, accessToken, fetch: fetcher = fet
         const data = await response.json();
         if (!Array.isArray(data.codespaces)) throw new Error("Invalid GitHub codespaces response");
         // GitHub generates identifiers without our prefix. See docs/SPIKE-RESULTS.md.
-        for (const item of data.codespaces) if (names.has(item.name)) result.push(validateCodespace(item));
+        for (const item of data.codespaces) {
+          if (names.has(item.name) || displays.has(item.display_name)) result.push(validateCodespace(item));
+        }
         more = /rel="next"/.test(response.headers.get("link") ?? "");
       }
       return result;
@@ -122,10 +128,12 @@ export function createGitHubClient({ database, accessToken, fetch: fetcher = fet
     },
     async createCodespace(userId: number, phoneId: string, input: CreateCodespace) {
       const phone = assertOwnedCodespace(userId, phoneId);
+      const operation = database.prepare("SELECT display_name, outcome FROM phone_creations WHERE phone_id = ?").get(phoneId);
       if (phone.state !== "pending" || phone.codespace_name !== `pending:${phoneId}`) {
         throw new Error("Phone creation already requested");
       }
-      return readCodespace(await request(userId, "/user/codespaces", "POST", { ...input, display_name: phoneId }));
+      if (operation?.outcome !== "unconfirmed") throw new Error("Phone creation intent must be persisted before HTTP");
+      return readCodespace(await request(userId, "/user/codespaces", "POST", { ...input, display_name: operation.display_name }));
     },
     startCodespace: (userId: number, phoneId: string) => mutate(userId, phoneId, "start"),
     stopCodespace: (userId: number, phoneId: string) => mutate(userId, phoneId, "stop"),

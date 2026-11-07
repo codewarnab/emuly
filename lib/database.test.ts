@@ -12,10 +12,10 @@ test("migrate applies a migration added after the connection was opened", () => 
   try {
     const { user_version: latest } = database.prepare("PRAGMA user_version").get() as { user_version: number };
     // Simulate a connection opened before the latest migration existed.
-    database.exec(`DROP TABLE billing_settings; PRAGMA user_version = ${latest - 1}`);
+    database.exec(`DROP TABLE phone_creations; PRAGMA user_version = ${latest - 1}`);
     migrate(database);
     assert.equal((database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, latest);
-    assert.ok(database.prepare("SELECT name FROM sqlite_master WHERE name = 'billing_settings'").get());
+    assert.ok(database.prepare("SELECT name FROM sqlite_master WHERE name = 'phone_creations'").get());
     migrate(database); // no-op when current
   } finally {
     database.close();
@@ -30,6 +30,7 @@ test("migration 5 preserves saved allowances from v4 as explicit overrides", () 
   try {
     database.exec(`CREATE TABLE users (id INTEGER PRIMARY KEY);
       CREATE TABLE user_settings (user_id INTEGER PRIMARY KEY REFERENCES users(id), allowance_core_hours REAL NOT NULL DEFAULT 120);
+      CREATE TABLE phones (id TEXT PRIMARY KEY, codespace_name TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL);
       INSERT INTO users VALUES (1), (2);
       INSERT INTO user_settings VALUES (1, 120), (2, 200);
       PRAGMA user_version = 4;`);
@@ -93,11 +94,17 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
       INSERT INTO backups (phone_id, generation, created_at) VALUES ('phone-aaaa', 'gen-1', '2026-11-01');`);
     const user = database.prepare("SELECT * FROM users").get();
     const phone = database.prepare("SELECT * FROM phones").get();
+    database.prepare(`INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state,
+      created_at, runner_secret) VALUES ('phone-bbbb', 1, 'pending:phone-bbbb', 'fixture/template',
+      'fixture-machine', 'error', '2026-11-02', ?)`).run(Buffer.from("sealed-pending-runner"));
     database.close();
     database = openDatabase(filename);
-    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 5);
+    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 6);
+    assert.deepEqual({ ...database.prepare("SELECT * FROM phone_creations").get() }, {
+      phone_id: "phone-bbbb", display_name: "phone-bbbb", outcome: "unconfirmed", requested_at: "2026-11-02",
+    });
     assert.deepEqual(database.prepare("SELECT * FROM users").get(), user);
-    const { idle_timeout_min, cores, retention_min, stop_reason, ...preserved } = database.prepare("SELECT * FROM phones").get()!;
+    const { idle_timeout_min, cores, retention_min, stop_reason, ...preserved } = database.prepare("SELECT * FROM phones WHERE id = 'phone-aaaa'").get()!;
     assert.equal(stop_reason, null);
     assert.deepEqual(preserved, { ...phone });
     assert.deepEqual([idle_timeout_min, cores, retention_min], [240, null, 43200]);
@@ -125,10 +132,11 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
     database.close();
     database = openDatabase(filename);
     assert.equal(database.prepare("SELECT count(*) AS n FROM runs").get()?.n, 1);
-    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 5);
+    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 6);
+    assert.equal(database.prepare("SELECT count(*) AS n FROM phone_creations").get()?.n, 1);
     assert.equal(database.prepare("SELECT phase FROM phone_keeps").get()?.phase, "starting");
     database.exec("DELETE FROM users WHERE id = 1");
-    for (const table of ["phones", "runs", "phone_keeps", "user_settings", "webhooks", "webhook_deliveries"]) {
+    for (const table of ["phones", "phone_creations", "runs", "phone_keeps", "user_settings", "webhooks", "webhook_deliveries"]) {
       assert.equal(database.prepare(`SELECT count(*) AS n FROM ${table}`).get()?.n, 0);
     }
   } finally {
