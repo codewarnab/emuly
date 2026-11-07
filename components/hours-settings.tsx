@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { IDLE_MAX, IDLE_MIN, IDLE_PRESETS, idleLabel, validIdle } from "../lib/idle";
 import { useSettingsControls } from "./settings-provider";
+import { InfoTip } from "./info-tip";
 import s from "./console.module.css";
 
 export function HoursSettings() {
@@ -25,7 +26,11 @@ export function HoursSettings() {
         valid={validIdle} save={value => save("idle", value)} disabled={pending} suffix="minutes" />}
     </fieldset>
     <label className={s.settingToggle}>
-      <span><b>Stop phones before hours run out</b><small>At about 30 min left.</small></span>
+      <span><b>Stop phones before hours run out <InfoTip label="What auto-stop does">
+        When your estimated hours drop to about 30 minutes, phonelink stops your running phones.
+        Stopping keeps each phone and its apps. GitHub stops charging, so you do not pay past your free hours.
+        Wake a phone again when your hours reset or after you add more.
+      </InfoTip></b><small>At about 30 min left.</small></span>
       <input type="checkbox" role="switch" className={s.switch} checked={values.autoStop} disabled={pending}
         onChange={event => save("autoStop", event.target.checked)} />
     </label>

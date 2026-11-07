@@ -509,3 +509,12 @@
 .emptyOr { color: var(--dim); font-size: 13px; }
 .emptyActions > button:last-child, .emptyActions > :last-child button { background: transparent; color: var(--text); border: 1px solid var(--line); }
 .emptyActions > button:last-child:hover, .emptyActions > :last-child button:hover { background: var(--panel2); color: var(--text); }
+/* Info tip */
+.infoTip { position: relative; display: inline-flex; vertical-align: middle; margin-left: 4px; }
+.infoTip > button { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--dim); cursor: help; }
+.infoTip > button:hover, .infoTip[data-open] > button { color: var(--accent); background: var(--panel2); }
+.infoTip > button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.infoTipBody { position: absolute; left: 50%; bottom: calc(100% + 8px); z-index: 30; width: 280px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); box-shadow: 0 12px 32px rgb(0 0 0 / .18); font-size: 13px; font-weight: 400; line-height: 1.5; text-align: left; opacity: 0; visibility: hidden; transform: translate(-50%, 4px); transition: opacity 140ms, transform 140ms, visibility 140ms; pointer-events: none; }
+.infoTip:hover .infoTipBody, .infoTip:focus-within .infoTipBody, .infoTip[data-open] .infoTipBody { opacity: 1; visibility: visible; transform: translate(-50%, 0); pointer-events: auto; }
+@media (max-width: 680px) { .infoTipBody { left: 0; transform: none; width: min(280px, 80vw); } .infoTip:hover .infoTipBody, .infoTip[data-open] .infoTipBody { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .infoTipBody { transition: none; } }
