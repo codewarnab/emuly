@@ -18,6 +18,8 @@ const input = { repository: "fixture/template", repositoryId: 123, idleTimeoutMi
 const machine = { name: "fixture-machine", display_name: "2 CPU", cpus: 2, memory_in_bytes: 8 * 1024 ** 3 };
 const space = (name: string, state = "Shutdown"): Codespace => ({ id: 41, name, state, machine });
 
+const flush = () => new Promise(resolve => setImmediate(resolve));
+
 function fixture(fetcher: typeof fetch) {
   const directory = mkdtempSync(join(tmpdir(), "phonelink-m0-"));
   const database = openDatabase(join(directory, "test.db"));
@@ -608,5 +610,101 @@ test("an Available codespace starts phone setup, checks it until ready, then the
     assert.equal(runs.length, 3);
     assert.equal(state().state, "running");
     assert.equal(state().state_detail, null);
+  } finally { f.close(); }
+});
+
+test("setup boots Android once, persists failures until Retry boot, and records readiness", async () => {
+  const f = fixture(async () => Response.json({ codespaces: [space("generated-phone-aaaa", "Available")] }));
+  let boot = Promise.withResolvers<Response>();
+  let boots = 0;
+  const service = createPhoneService({ database: f.database, github: f.github, encrypt: plain => seal(plain, key),
+    setup: async () => "ready", runner: async (_user, _id, path, body) => {
+      assert.equal(path, "/boot");
+      assert.deepEqual(body, { mode: "resume" });
+      boots++;
+      return boot.promise;
+    } });
+  const android = () => f.database.prepare("SELECT android_state, android_error FROM phones WHERE id = 'phone-aaaa'").get()!;
+  try {
+    f.add("phone-aaaa");
+    await service.sync(1);
+    await flush();
+    assert.equal(android().android_state, "booting");
+    await service.sync(1);
+    assert.equal(boots, 1);
+    boot.resolve(Response.json({ booted: false }));
+    await flush();
+    assert.equal(android().android_state, "failed");
+    assert.match(String(android().android_error), /did not finish booting/);
+    await service.sync(1);
+    assert.equal(boots, 1, "failed boots need an explicit retry");
+    boot = Promise.withResolvers<Response>();
+    await service.retryBoot(1, "phone-aaaa");
+    await assert.rejects(service.retryBoot(2, "phone-aaaa"), /Phone not found/);
+    await assert.rejects(service.retryBoot(1, "phone-aaaa"), /Wait until/);
+    boot.resolve(Response.json({ booted: true }));
+    await flush();
+    assert.equal(android().android_state, "ready");
+    const messages = f.database.prepare("SELECT message FROM events WHERE phone_id = 'phone-aaaa' ORDER BY id").all().map(row => row.message);
+    assert.ok(messages.indexOf("Phone ready") < messages.indexOf("Android starting"));
+    assert.ok(messages.some(message => /^Android ready \(took \d+ s\)$/.test(String(message))));
+  } finally { boot.resolve(Response.json({ booted: false })); await flush(); f.close(); }
+});
+
+test("Stop waits for the runner before stopping GitHub and ignores a late boot completion", async () => {
+  let githubStops = 0;
+  const f = fixture(async (url, init) => {
+    if (init?.method === "POST" && String(url).endsWith("/stop")) { githubStops++; return new Response(null, { status: 202 }); }
+    if (String(url).includes("?")) return Response.json({ codespaces: [space("generated-phone-aaaa", "Available")] });
+    return Response.json(space("generated-phone-aaaa", "Available"));
+  });
+  const boot = Promise.withResolvers<Response>();
+  const stop = Promise.withResolvers<Response>();
+  const enteredStop = Promise.withResolvers<void>();
+  const service = createPhoneService({ database: f.database, github: f.github, encrypt: plain => seal(plain, key),
+    runner: async (_user, _id, path) => {
+      if (path === "/boot") return boot.promise;
+      enteredStop.resolve();
+      return stop.promise;
+    } });
+  try {
+    f.add("phone-aaaa");
+    f.database.exec("UPDATE phones SET state = 'running'");
+    await service.retryBoot(1, "phone-aaaa");
+    const stopping = service.stop(1, "phone-aaaa");
+    await enteredStop.promise;
+    assert.equal(githubStops, 0);
+    boot.resolve(Response.json({ booted: true }));
+    await flush();
+    assert.equal(f.database.prepare("SELECT android_state FROM phones").get()?.android_state, "stopping");
+    stop.resolve(Response.json({ stopped: true }));
+    await stopping;
+    assert.equal(githubStops, 1);
+    assert.equal(f.database.prepare("SELECT state FROM phones").get()?.state, "stopping");
+    assert.equal(f.database.prepare("SELECT count(*) AS n FROM events WHERE message LIKE 'Android ready%'").get()?.n, 0);
+  } finally { boot.resolve(Response.json({ booted: false })); stop.resolve(Response.json({ stopped: true })); await flush(); f.close(); }
+});
+
+test("runner and GitHub stop failures preserve the running codespace and leave a recoverable status", async () => {
+  let githubStops = 0, runnerFails = true;
+  const f = fixture(async (_url, init) => {
+    if (init?.method === "POST") { githubStops++; throw new GitHubError("synthetic GitHub stop refusal", 503); }
+    return Response.json(space("generated-phone-aaaa", "Available"));
+  });
+  const service = createPhoneService({ database: f.database, github: f.github, encrypt: plain => seal(plain, key),
+    runner: async () => {
+      if (runnerFails) throw new Error("synthetic transport failure");
+      return Response.json({ stopped: true });
+    } });
+  try {
+    f.add("phone-aaaa");
+    f.database.exec("UPDATE phones SET state = 'running', android_state = 'ready'");
+    await assert.rejects(service.stop(1, "phone-aaaa"), /codespace is still running/);
+    assert.equal(githubStops, 0);
+    assert.equal(f.database.prepare("SELECT state FROM phones").get()?.state, "running");
+    runnerFails = false;
+    await assert.rejects(service.stop(1, "phone-aaaa"), /synthetic GitHub stop refusal/);
+    assert.equal(githubStops, 1);
+    assert.equal(f.database.prepare("SELECT android_state FROM phones").get()?.android_state, "failed");
   } finally { f.close(); }
 });

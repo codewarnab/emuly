@@ -161,6 +161,11 @@ const MIGRATIONS = [
     SELECT id, id, 'unconfirmed', created_at FROM phones
     WHERE codespace_name LIKE 'pending:%' AND state != 'deleted';
   `,
+  `
+  ALTER TABLE phones ADD COLUMN android_state TEXT NOT NULL DEFAULT 'idle';
+  ALTER TABLE phones ADD COLUMN android_started_at TEXT;
+  ALTER TABLE phones ADD COLUMN android_error TEXT;
+  `,
 ];
 
 export function openDatabase(filename: string): DatabaseSync {

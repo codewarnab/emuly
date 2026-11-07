@@ -34,6 +34,16 @@ export function KeepPhone({ id }: { id: string }) {
   </form>;
 }
 
+export function RetryBoot({ id }: { id: string }) {
+  const [result, action, pending] = useActionState(mutatePhone, { message: "" });
+  return <form action={action}>
+    <input type="hidden" name="operation" value="retryBoot" />
+    <input type="hidden" name="phoneId" value={id} />
+    <Button tiny disabled={pending}>{pending ? "Sending…" : "Retry boot"}</Button>
+    {result.message && <p role="status">{result.message}</p>}
+  </form>;
+}
+
 export function NewPhone({ usage }: { usage: Usage }) {
   const running = usage.running.length > 0;
   const [options, setOptions] = useState<Awaited<ReturnType<typeof phoneCreationOptions>> | null>(null);
@@ -50,7 +60,7 @@ export function NewPhone({ usage }: { usage: Usage }) {
   return <>
     <Button onClick={() => { void show(); }}>New phone</Button>
     {open && <Dialog title="New phone" close={() => { if (!pending) setOpen(false); }}>
-      {!options ? <p className={s.createHint} role="status">Loading…</p>
+      {!options ? <NewPhoneSkeleton />
       : options.message ? <div className={s.createForm}>
         <p className={s.createError} role="alert">{options.message}</p>
         <Button onClick={() => { void show(); }}>Try again</Button>
@@ -73,6 +83,26 @@ export function NewPhone({ usage }: { usage: Usage }) {
       </form>}
     </Dialog>}
   </>;
+}
+
+function NewPhoneSkeleton() {
+  return <div className={s.createForm} role="status" aria-label="Loading phone options" aria-busy="true">
+    <div className={s.specRow} aria-hidden="true">
+      <div className={s.newPhoneSkeletonSpec} />
+      <div className={s.newPhoneSkeletonSpec} />
+      <div className={s.newPhoneSkeletonSpec} />
+    </div>
+    <div aria-hidden="true">
+      <div className={s.newPhoneSkeletonLabel} />
+      <div className={s.idleChoices}>
+        {Array.from({ length: 6 }, (_, index) => <div className={s.newPhoneSkeletonChoice} key={index} />)}
+      </div>
+    </div>
+    <div className={s.createFoot} aria-hidden="true">
+      <div className={s.newPhoneSkeletonLabel} />
+      <div className={s.newPhoneSkeletonButton} />
+    </div>
+  </div>;
 }
 
 export function PhoneRefresh() {

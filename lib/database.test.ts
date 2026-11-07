@@ -12,10 +12,13 @@ test("migrate applies a migration added after the connection was opened", () => 
   try {
     const { user_version: latest } = database.prepare("PRAGMA user_version").get() as { user_version: number };
     // Simulate a connection opened before the latest migration existed.
-    database.exec(`DROP TABLE phone_creations; PRAGMA user_version = ${latest - 1}`);
+    database.exec(`ALTER TABLE phones DROP COLUMN android_state;
+      ALTER TABLE phones DROP COLUMN android_started_at;
+      ALTER TABLE phones DROP COLUMN android_error;
+      PRAGMA user_version = ${latest - 1}`);
     migrate(database);
     assert.equal((database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, latest);
-    assert.ok(database.prepare("SELECT name FROM sqlite_master WHERE name = 'phone_creations'").get());
+    assert.ok(database.prepare("SELECT android_state, android_started_at, android_error FROM phones"));
     migrate(database); // no-op when current
   } finally {
     database.close();
@@ -99,12 +102,13 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
       'fixture-machine', 'error', '2026-11-02', ?)`).run(Buffer.from("sealed-pending-runner"));
     database.close();
     database = openDatabase(filename);
-    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 6);
+    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 7);
     assert.deepEqual({ ...database.prepare("SELECT * FROM phone_creations").get() }, {
       phone_id: "phone-bbbb", display_name: "phone-bbbb", outcome: "unconfirmed", requested_at: "2026-11-02",
     });
     assert.deepEqual(database.prepare("SELECT * FROM users").get(), user);
-    const { idle_timeout_min, cores, retention_min, stop_reason, ...preserved } = database.prepare("SELECT * FROM phones WHERE id = 'phone-aaaa'").get()!;
+    const { idle_timeout_min, cores, retention_min, stop_reason, android_state, android_started_at, android_error, ...preserved } = database.prepare("SELECT * FROM phones WHERE id = 'phone-aaaa'").get()!;
+    assert.deepEqual([android_state, android_started_at, android_error], ["idle", null, null]);
     assert.equal(stop_reason, null);
     assert.deepEqual(preserved, { ...phone });
     assert.deepEqual([idle_timeout_min, cores, retention_min], [240, null, 43200]);
@@ -132,7 +136,7 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
     database.close();
     database = openDatabase(filename);
     assert.equal(database.prepare("SELECT count(*) AS n FROM runs").get()?.n, 1);
-    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 6);
+    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 7);
     assert.equal(database.prepare("SELECT count(*) AS n FROM phone_creations").get()?.n, 1);
     assert.equal(database.prepare("SELECT phase FROM phone_keeps").get()?.phase, "starting");
     database.exec("DELETE FROM users WHERE id = 1");

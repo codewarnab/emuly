@@ -1,5 +1,7 @@
 // phonelink runner: a small HTTP API around adb and the emulator scripts.
 // Listens on 127.0.0.1:8790. The dashboard reaches it over `gh codespace ssh -L`.
+import ws from "./ws.cjs";
+import { startScrcpy } from "./scrcpy.mjs";
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -13,6 +15,13 @@ const ADB = join(SDK, "platform-tools", "adb");
 const SERIAL = "emulator-5554";
 const SECRET = process.env.PHONE_SECRET ?? "";
 const PORT = Number(process.env.RUNNER_PORT ?? 8790);
+let lifecycle = Promise.resolve();
+let boot;
+function exclusive(work) {
+  const result = lifecycle.then(work);
+  lifecycle = result.catch(() => {});
+  return result;
+}
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -57,18 +66,28 @@ async function thirdPartyPackages() {
 }
 
 const routes = {
-  "GET /health": async () => ({ ok: true, avd: "t", api_level: 36, booted: await booted() }),
+  "GET /health": async () => ({ ok: true, version: 3, avd: "t", api_level: 36, booted: await booted() }),
 
-  "POST /boot": async ({ mode }) => {
-    const start = Date.now();
-    await script("boot.sh", [mode === "cold" ? "cold" : "resume"]);
-    return { booted: await booted(), seconds: Math.round((Date.now() - start) / 1000) };
+  "POST /boot": ({ mode }) => {
+    return boot ??= exclusive(async () => {
+      const start = Date.now();
+      await script("boot.sh", [mode === "cold" ? "cold" : "resume"]);
+      return { booted: await booted(), seconds: Math.round((Date.now() - start) / 1000) };
+    }).finally(() => { boot = undefined; });
   },
 
-  "POST /stop": async () => {
+  "POST /stop": () => exclusive(async () => {
     const start = Date.now();
+    for (const client of streams.clients) client.close();
     await script("stop.sh");
     return { stopped: true, seconds: Math.round((Date.now() - start) / 1000) };
+  }),
+
+  "POST /key": async ({ key }) => {
+    const keys = { home: "3", back: "4" };
+    if (!Object.hasOwn(keys, key)) throw new HttpError(400, "bad key");
+    await adb(["shell", "input", "keyevent", keys[key]]);
+    return { ok: true };
   },
 
   "GET /screenshot": async () => ({ png: await adb(["exec-out", "screencap", "-p"], { binary: true, timeout: 15_000 }) }),
@@ -118,7 +137,7 @@ const routes = {
   },
 };
 
-createServer(async (req, res) => {
+const server = createServer(async (req, res) => {
   const send = (status, value) => {
     res.writeHead(status, { "content-type": "application/json" });
     res.end(JSON.stringify(value));
@@ -138,3 +157,12 @@ createServer(async (req, res) => {
     send(error.status ?? 500, { error: error.status ? error.message : String(error.stderr || error.message).slice(-500) });
   }
 }).listen(PORT, "127.0.0.1", () => console.log(`runner listening on 127.0.0.1:${PORT}`));
+
+const streams = new ws.WebSocketServer({ noServer: true, maxPayload: 16_384, perMessageDeflate: false });
+server.on("upgrade", (req, socket, head) => {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  if (url.pathname !== "/stream" || (SECRET && req.headers["x-phone-secret"] !== SECRET)) return socket.destroy();
+  streams.handleUpgrade(req, socket, head, client => {
+    void startScrcpy(client, { adb, ADB, SERIAL, ROOT, quality: url.searchParams.get("quality") ?? "auto" });
+  });
+});

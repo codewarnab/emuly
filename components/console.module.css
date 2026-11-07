@@ -236,6 +236,12 @@
 .disconnected p { color: var(--dim); font-size: 14px; max-width: 29ch; margin: 0; }
 
 .disconnected .emptyPhone::after { content: none; }
+.screenPanel { width: 100%; display: grid; gap: 16px; justify-items: center; }
+.screenTouch { display: block; padding: 0; border: 0; background: transparent; max-width: 100%; cursor: crosshair; touch-action: none; border-radius: 16px; overflow: hidden; }
+.screenTouch:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+.screenImage { display: block; max-width: 100%; max-height: 65vh; width: auto; height: auto; }
+.screenDim { opacity: .4; }
+.screenControls { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 
 /* Unavailable actions retain contrast and have no primary-action fill. */
 .btn:disabled, .ctl:disabled { background: var(--panel2); border-color: var(--control-line); color: var(--dim); border-style: solid; }
@@ -498,6 +504,12 @@
 .emptyPath > span { color: var(--dim); font-size: 13px; margin-bottom: 8px; align-self: start; }
 @media (max-width: 680px) { .emptyPaths { grid-template-columns: 1fr; } }
 /* New phone dialog */
+.newPhoneSkeletonSpec, .newPhoneSkeletonLabel, .newPhoneSkeletonChoice, .newPhoneSkeletonButton { background: var(--line2); border-radius: 6px; }
+.newPhoneSkeletonSpec { height: 67px; border-radius: 10px; }
+.newPhoneSkeletonLabel { width: 120px; height: 16px; }
+.newPhoneSkeletonLabel + div { margin-top: 8px; }
+.newPhoneSkeletonChoice { height: 34px; }
+.newPhoneSkeletonButton { width: 120px; height: 40px; }
 .dialog { text-align: left; }
 .dialog .createForm { gap: 20px; }
 .specRow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -522,3 +534,5 @@
 @media (max-width: 680px) { .infoTipBody { left: 0; transform: none; width: min(280px, 80vw); } .infoTip:hover .infoTipBody, .infoTip[data-open] .infoTipBody { transform: none; } }
 @media (prefers-reduced-motion: reduce) { .infoTipBody { transition: none; } }
 .settingToggle b { display: inline-flex; align-items: center; }
+
+.screenPlaceholder { width: 270px; min-height: 400px; display: grid; place-items: center; background: var(--screen-rest); }

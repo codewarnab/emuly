@@ -18,10 +18,13 @@ export type Phone = {
   cores: number | null;
   retention_min: number;
   keeping: number;
+  android_state: string;
+  android_started_at: string | null;
+  android_error: string | null;
 };
 
 const columns = `id, codespace_name, machine, state, state_detail, created_at, retention_at, idle_timeout_min,
-  last_started_at, last_stopped_at, cores, retention_min,
+  last_started_at, last_stopped_at, cores, retention_min, android_state, android_started_at, android_error,
   EXISTS(SELECT 1 FROM phone_keeps WHERE phone_id = phones.id) AS keeping`;
 
 export function listPhones(userId: number): Phone[] {

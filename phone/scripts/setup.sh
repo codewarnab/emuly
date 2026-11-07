@@ -76,3 +76,12 @@ echo
 echo "SETUP OK. Serial hint: emulator-5554 (boot.sh uses -port 5554)."
 echo "Next: boot  ->  bash boot.sh cold|resume"
 echo "State mgmt ->  bash state.sh export|import"
+
+# scrcpy wire protocol is versioned with this exact server binary.
+SCRCPY_SHA=8588238c9a5a00aa542906b6ec7e6d5541d9ffb9b5d0f6e1bc0e365e2303079e
+SCRCPY_FILE="$(dirname "$0")/../runner/scrcpy-server.jar"
+if ! echo "$SCRCPY_SHA  $SCRCPY_FILE" | sha256sum -c - >/dev/null 2>&1; then
+  curl -fsSL https://github.com/Genymobile/scrcpy/releases/download/v3.3.4/scrcpy-server-v3.3.4 -o "$SCRCPY_FILE.tmp"
+  echo "$SCRCPY_SHA  $SCRCPY_FILE.tmp" | sha256sum -c - || { rm -f "$SCRCPY_FILE.tmp"; exit 1; }
+  mv "$SCRCPY_FILE.tmp" "$SCRCPY_FILE"
+fi

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { codespaceExec } from "./codespace-tunnel.ts";
 
 /** Files copied into each codespace, relative to `phone/` in this repository. */
-const FILES = ["scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "runner/runner.mjs"];
+const FILES = ["scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "runner/runner.mjs", "runner/scrcpy.mjs", "runner/scrcpy-protocol.mjs"];
 
 export class PhoneSetupError extends Error {}
 export type SetupStatus = "ready" | "working";
@@ -25,14 +25,17 @@ touch .failed
  * exits 1 with the log tail after a failed run, which clears the way for a retry.
  */
 export function setupScript(root = join(process.cwd(), "phone")) {
-  const files: [string, string][] = [...FILES.map(file => [file, readFileSync(join(root, file)).toString("base64")] as [string, string]),
+  // Windows checkouts and editors can add CRLF; bash on the codespace rejects it.
+  const files: [string, string][] = [...FILES.map(file => [file, Buffer.from(readFileSync(join(root, file), "utf8").replace(/\r\n/g, "\n")).toString("base64")] as [string, string]),
+    ["runner/ws.cjs", readFileSync(join(process.cwd(), "node_modules/next/dist/compiled/ws/index.js")).toString("base64")],
+    ["runner/ws.LICENSE", readFileSync(join(process.cwd(), "node_modules/next/dist/compiled/ws/LICENSE")).toString("base64")],
     ["run.sh", Buffer.from(RUN).toString("base64")]];
   const writes = files.map(([file, body]) => `mkdir -p "$(dirname "${file}")"\necho '${body}' | base64 -d > "${file}"`).join("\n");
   // A plain shell, not a login shell: the image's rvm profile fails under bash and kills the run.
   // Node comes from the image's nvm, which the profile would add to PATH.
   return `export PATH="/usr/local/share/nvm/current/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 mkdir -p "$HOME/phonelink" && builtin cd "$HOME/phonelink"
-if curl -fsS http://127.0.0.1:8790/health >/dev/null 2>&1; then echo PHONELINK_READY; exit 0; fi
+if curl -fsS http://127.0.0.1:8790/health 2>/dev/null | grep -q '"version":3'; then echo PHONELINK_READY; exit 0; fi
 if [ -f .failed ]; then rm -f .failed .pid; echo "phonelink setup failed:"; tail -5 setup.log; exit 1; fi
 if [ -f .pid ] && kill -0 "$(cat .pid)" 2>/dev/null; then echo PHONELINK_WORKING; exit 0; fi
 ${writes}

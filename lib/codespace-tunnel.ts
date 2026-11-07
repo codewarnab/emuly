@@ -24,8 +24,72 @@ type TunnelProperties = {
   tunnelId: string; clusterId: string; domain: string;
 };
 
-export async function codespaceExec({ token, codespaceName, command, stdin, timeoutMs = 60_000, api = "https://api.github.com" }: {
-  token: string; codespaceName: string; command: string; stdin?: string; timeoutMs?: number; api?: string;
+/** A reusable TCP bridge to the runner; no SSH process or command per request. */
+export async function openCodespacePort(token: string, codespaceName: string, signal: AbortSignal) {
+  if (!/^[\w-]{1,100}$/.test(codespaceName)) throw new CodespaceTunnelError("Invalid codespace name");
+  const res = await fetch(`https://api.github.com/user/codespaces/${codespaceName}?internal=true&refresh=true`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "phonelink" }, signal,
+  });
+  if (!res.ok) throw new CodespaceTunnelError(`GitHub returned ${res.status} for the codespace connection.`);
+  const body = await res.json() as { connection?: { tunnelProperties?: TunnelProperties } };
+  const tp = body.connection?.tunnelProperties;
+  if (!tp) throw new CodespaceTunnelError("The codespace has no connection yet.");
+  const manager = new TunnelManagementHttpClient("phonelink", API_VERSION, undefined, tp.serviceUri);
+  const accessTokens = { connect: tp.connectAccessToken, "manage:ports": tp.managePortsAccessToken };
+  const tunnel = await manager.getTunnel({ ...tp, accessTokens } as Tunnel, { includePorts: true });
+  if (!tunnel) throw new CodespaceTunnelError("The codespace tunnel was not found.");
+  tunnel.accessTokens = accessTokens;
+  const client = new TunnelRelayTunnelClient();
+  client.acceptLocalConnectionsForForwardedPorts = false;
+  const sockets = new Set<net.Socket>();
+  let bridge: net.Server | undefined;
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    signal.removeEventListener("abort", close);
+    for (const socket of sockets) socket.destroy();
+    bridge?.close();
+    void client.dispose().catch(() => {});
+  };
+  signal.addEventListener("abort", close, { once: true });
+  try {
+    signal.throwIfAborted();
+    await client.connect(tunnel);
+    try {
+      await manager.createTunnelPort(tunnel, { portNumber: 8790, protocol: "http", labels: ["InternalPort"] }, {});
+    } catch (error) {
+      if (!/409|conflict|already exists/i.test(String((error as { response?: { status?: number } }).response?.status ?? error))) throw error;
+    }
+    await client.refreshPorts();
+    await client.waitForForwardedPort(8790);
+    signal.throwIfAborted();
+    bridge = net.createServer(socket => {
+      sockets.add(socket);
+      socket.on("error", () => {});
+      socket.on("close", () => sockets.delete(socket));
+      client.connectToForwardedPort(8790).then(stream => {
+        if (closed || socket.destroyed) { stream.destroy(); return; }
+        socket.pipe(stream).pipe(socket);
+        socket.on("error", () => stream.destroy());
+        stream.on("error", () => socket.destroy());
+        socket.on("close", () => stream.destroy());
+        stream.on("close", () => socket.destroy());
+      }, () => socket.destroy());
+    });
+    await new Promise<void>((resolve, reject) => bridge!.once("error", reject).listen(0, "127.0.0.1", resolve));
+    signal.throwIfAborted();
+    return { url: `http://127.0.0.1:${(bridge.address() as net.AddressInfo).port}`, close };
+  } catch (error) {
+    close();
+    // A relay connect may settle after cancellation; dispose that late session too.
+    await client.dispose().catch(() => {});
+    throw error;
+  }
+}
+
+export async function codespaceExec({ token, codespaceName, command, stdin, pty = false, timeoutMs = 60_000, api = "https://api.github.com" }: {
+  token: string; codespaceName: string; command: string; stdin?: string; pty?: boolean; timeoutMs?: number; api?: string;
 }): Promise<{ code: number; output: string }> {
   if (!/^[\w-]{1,100}$/.test(codespaceName)) throw new CodespaceTunnelError("Invalid codespace name");
   const res = await fetch(`${api}/user/codespaces/${codespaceName}?internal=true&refresh=true`, {
@@ -93,7 +157,7 @@ export async function codespaceExec({ token, codespaceName, command, stdin, time
     ssh = new ssh2.Client();
     await new Promise<void>((resolve, reject) => ssh!.on("ready", resolve).on("error", reject)
       .connect({ sock, username: started.user, privateKey: keys.private, readyTimeout: 30_000 }));
-    return await new Promise<{ code: number; output: string }>((resolve, reject) => ssh!.exec(command, (error, channel) => {
+    return await new Promise<{ code: number; output: string }>((resolve, reject) => ssh!.exec(command, { pty }, (error, channel) => {
       if (error) return reject(error);
       let output = "";
       const keep = (chunk: Buffer) => { output = (output + chunk.toString("utf8")).slice(-4000); };

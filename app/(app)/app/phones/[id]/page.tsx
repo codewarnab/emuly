@@ -11,7 +11,8 @@ import { KeyboardTools } from "../../../../../components/keyboard-tools";
 import { syncPhoneState } from "../../../../../lib/phone-control";
 import type { SyncError } from "../../../../../lib/sync-error";
 import { SyncNotice } from "../../../../../components/sync-notice";
-import { PhoneMutation, PhoneRefresh } from "../../../../../components/phone-mutations";
+import { PhoneMutation, PhoneRefresh, RetryBoot } from "../../../../../components/phone-mutations";
+import { PhoneScreen, AndroidElapsed } from "../../../../../components/phone-screen";
 import s from "../../../../../components/console.module.css";
 import { Topbar, Avatar } from "../../../../../components/topbar";
 import { Stage } from "../../../../../components/stage";
@@ -140,13 +141,20 @@ async function StoredPhone({ phone, user, search, syncError }: {
       {(!syncError || syncError.kind === "other") && <PhoneRefresh />}
         <h1 className={s.srOnly}>Phone details</h1>
       <section className={`${s.stage} ${s.disconnected}`} aria-label="Phone screen">
-        <div className={s.emptyPhone} aria-hidden />
+        <PhoneScreen key={phone.id} id={phone.id} resting={phone.state === "stopped"} live={phone.state === "running" && phone.android_state === "ready"} />
+        {phone.state !== "running" && phone.state !== "stopped" && <div className={s.emptyPhone} aria-hidden />}
         <Pill kind={phoneCard(phone).state}>{phone.state}</Pill>
-        <h2>{phone.state === "stopped" ? "Resting" : phone.state === "error" ? "Phone did not start" : setupFailed ? "Setup failed" : "Waiting for the screen"}</h2>
+        <h2>{phone.state === "stopped" ? "Resting" : phone.state === "error" ? "Phone did not start" : setupFailed ? "Setup failed"
+          : phone.state === "running" ? phone.android_state === "failed" ? "Android boot failed"
+          : phone.android_state === "ready" ? "Live screen" : "Starting Android" : phone.state === "booting" && phone.state_detail ? "Installing Android" : "Starting the codespace"}</h2>
+        {phone.state === "running" && phone.android_state === "booting" && <AndroidElapsed started={phone.android_started_at} />}
+        {phone.state === "running" && phone.android_state === "failed" && <><p>{phone.android_error}</p><RetryBoot id={phone.id} /></>}
+        {phone.state !== "running" && <>
         <p>{phone.state === "stopped" ? "Wake it to resume the same device."
           : (phone.state === "error" || setupFailed) && phone.state_detail ? shortMessage(phone.state_detail)
           : phone.state === "booting" && phone.state_detail ? phone.state_detail
           : "The screen appears when the phone connects."}</p>
+        </>}
         {setupFailed && <p>phonelink tries again in about 10 minutes.</p>}
         {syncError && <SyncNotice error={syncError} />}
         {/* The one action that fits the state, next to the state it fixes. */}

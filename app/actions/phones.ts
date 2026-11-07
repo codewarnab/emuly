@@ -34,12 +34,12 @@ export async function mutatePhone(_previous: MutationResult, form: FormData): Pr
         ...templateRepository(), machine: PHONE_MACHINE.name, idleTimeoutMin: minutes,
       });
       message = "Phone created. GitHub is preparing the codespace.";
-    } else if (operation === "start" || operation === "stop" || operation === "keep") {
+    } else if (operation === "start" || operation === "stop" || operation === "keep" || operation === "retryBoot") {
       const value = form.get("phoneId");
       if (typeof value !== "string" || !/^phone-[a-f0-9]{4,32}$/.test(value)) throw new PhoneInputError("Invalid phone ID");
       id = value;
       await phoneControl()[operation](user.id, id);
-      message = operation === "keep" ? "Keep it started. The phone stops again when GitHub is available. Check Activity for progress."
+      message = operation === "retryBoot" ? "Android boot requested." : operation === "keep" ? "Keep it started. The phone stops again when GitHub is available. Check Activity for progress."
         : operation === "stop" ? "Stop requested. Check Activity for progress." : "Wake requested. Check Activity for progress.";
     } else if (operation === "delete") {
       const value = form.get("phoneId");

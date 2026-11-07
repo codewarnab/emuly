@@ -5,6 +5,7 @@ import { getAccessToken } from "./github-token.ts";
 import { createGitHubClient } from "./github.ts";
 import { createPhoneService, PhoneInputError } from "./phone-mutations.ts";
 import { createPhoneSetup } from "./phone-setup.ts";
+import { runnerRequest, closeRunner } from "./phone-runner.ts";
 import { syncError, type SyncError } from "./sync-error.ts";
 
 // Share mutation guards across requests and development hot reloads.
@@ -18,6 +19,7 @@ export function phoneControl() {
   return global.__phoneControl ??= createPhoneService({
     database: db(), github: createGitHubClient({ database: db(), accessToken: getAccessToken }), encrypt: seal,
     setup: createPhoneSetup({ token: userId => getAccessToken(userId) }),
+    runner: runnerRequest, disconnect: closeRunner,
     maxPhones: process.env.PHONELINK_MAX_PHONES ? Number(process.env.PHONELINK_MAX_PHONES) : undefined,
   });
 }
