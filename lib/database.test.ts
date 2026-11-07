@@ -6,6 +6,25 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "./database.ts";
 
+test("migration 5 preserves saved allowances from v4 as explicit overrides", () => {
+  const directory = mkdtempSync(join(tmpdir(), "phonelink-billing-migration-"));
+  const filename = join(directory, "test.db");
+  let database = new DatabaseSync(filename);
+  try {
+    database.exec(`CREATE TABLE users (id INTEGER PRIMARY KEY);
+      CREATE TABLE user_settings (user_id INTEGER PRIMARY KEY REFERENCES users(id), allowance_core_hours REAL NOT NULL DEFAULT 120);
+      INSERT INTO users VALUES (1), (2);
+      INSERT INTO user_settings VALUES (1, 120), (2, 200);
+      PRAGMA user_version = 4;`);
+    database.close();
+    database = openDatabase(filename);
+    assert.deepEqual(database.prepare("SELECT user_id, allowance_override FROM billing_settings ORDER BY user_id").all()
+      .map(row => ({ ...row })), [{ user_id: 1, allowance_override: 120 }, { user_id: 2, allowance_override: 200 }]);
+    database.exec("DELETE FROM user_settings WHERE user_id = 1; DELETE FROM users WHERE id = 1;");
+    assert.equal(database.prepare("SELECT count(*) AS n FROM billing_settings").get()?.n, 1);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
 // Independent v1 fixture: a deployed database must upgrade without rebuilding its rows.
 const v1 = `
   CREATE TABLE users (
@@ -59,7 +78,7 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
     const phone = database.prepare("SELECT * FROM phones").get();
     database.close();
     database = openDatabase(filename);
-    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 4);
+    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 5);
     assert.deepEqual(database.prepare("SELECT * FROM users").get(), user);
     const { idle_timeout_min, cores, retention_min, stop_reason, ...preserved } = database.prepare("SELECT * FROM phones").get()!;
     assert.equal(stop_reason, null);
@@ -89,7 +108,7 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
     database.close();
     database = openDatabase(filename);
     assert.equal(database.prepare("SELECT count(*) AS n FROM runs").get()?.n, 1);
-    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 4);
+    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 5);
     assert.equal(database.prepare("SELECT phase FROM phone_keeps").get()?.phase, "starting");
     database.exec("DELETE FROM users WHERE id = 1");
     for (const table of ["phones", "runs", "phone_keeps", "user_settings", "webhooks", "webhook_deliveries"]) {

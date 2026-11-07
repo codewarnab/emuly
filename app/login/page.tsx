@@ -50,7 +50,7 @@ async function LoginContent({ searchParams }: Props) {
           </div>
           <div className={s.scope}>
             <span>
-              <b>No billing scope.</b> We never see your payment details or charge you.
+              <b>Billing is optional.</b> Connect billing from Usage to request access to your plan and usage.
             </span>
           </div>
         </div>

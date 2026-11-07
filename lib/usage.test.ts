@@ -1,9 +1,23 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { estimateUsage, type Run } from "./usage.ts";
+import { estimateUsage, reconcileUsage, type Run } from "./usage.ts";
 
 const run = (cores: number, started_at: string, stopped_at: string | null): Run =>
   ({ phone_id: `phone-${cores}`, cores, started_at, stopped_at });
+
+test("billing countdown adds live phone time once, clamps other usage, and falls back to the estimate", () => {
+  const runs = [run(4, "2026-11-01T00:00:00Z", null)];
+  const atReport = estimateUsage(runs, 120, () => Date.parse("2026-11-01T01:00:00Z"));
+  const live = estimateUsage(runs, 120, () => Date.parse("2026-11-01T02:00:00Z"));
+  assert.deepEqual(reconcileUsage(live, atReport, 20), {
+    reported_core_hours: 20, phonelink_core_hours: 8, other_core_hours: 12, hours_left_at_current_rate: 24,
+  });
+  assert.equal(reconcileUsage(live, atReport, 1).other_core_hours, 0);
+  assert.equal(reconcileUsage(live, atReport, 1).hours_left_at_current_rate, 28);
+  assert.equal(reconcileUsage(live, atReport, null).hours_left_at_current_rate, 28);
+  assert.equal(reconcileUsage(live, atReport, 121).hours_left_at_current_rate, 0);
+  assert.equal(reconcileUsage({ ...live, running: [] }, atReport, 20).hours_left_at_current_rate, null);
+});
 
 test("budget counts mixed cores, clips prior months, and accrues open runs only up to the clock", () => {
   let time = Date.parse("2026-11-01T02:00:00Z");

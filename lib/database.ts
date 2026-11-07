@@ -139,6 +139,16 @@ const MIGRATIONS = [
   ALTER TABLE webhook_deliveries ADD COLUMN attempted_at TEXT;
   ALTER TABLE phones ADD COLUMN stop_reason TEXT;
   `,
+  `
+  CREATE TABLE billing_settings (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    plan_name TEXT,
+    allowance_override REAL
+  );
+  -- Preserve existing saved allowances; future machine-only saves stay automatic.
+  INSERT INTO billing_settings (user_id, allowance_override)
+    SELECT user_id, allowance_core_hours FROM user_settings;
+  `,
 ];
 
 export function openDatabase(filename: string): DatabaseSync {

@@ -228,6 +228,15 @@
 .allowance form { max-width: 440px; padding: 16px 0; }
 .allowance input { color: var(--text); background: var(--panel); border: 1px solid var(--control-line); border-radius: 8px; padding: 8px; }
 .budgetWarning { background: var(--amber) !important; }
+.budgetHealthy { background: var(--safe); }
+.budgetPaid { background: var(--danger); }
+.paidText { color: var(--danger); font-size: 14px; }
+.usageStatus, .storageRow { color: var(--dim); font-size: 13px; }
+.usageSource { font-size: 12px; }
+.storageRow { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.storageTrack { height: 3px; max-width: 220px; }
+.billingConnect { white-space: normal; text-align: center; max-width: 100%; }
+.allowance summary:focus-visible, .budget a:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 .collectionTools { display: flex; justify-content: flex-end; margin-bottom: 16px; }
 .phoneList { list-style: none; margin: 0; padding: 0; }
 .phoneRow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto; gap: 24px; align-items: center; padding: 24px 0; border-bottom: 1px solid var(--line); }

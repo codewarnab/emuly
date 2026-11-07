@@ -8,15 +8,17 @@ import s from "./console.module.css";
 
 export function HoursSettings({ settings, machines, message }: { settings: UserSettings; machines: Machine[]; message: string }) {
   const allowance = settings.allowance_core_hours;
-  const [choice, setChoice] = useState(allowance === 120 || allowance === 180 ? String(allowance) : "custom");
+  const [choice, setChoice] = useState("unchanged");
   const [result, action, pending] = useActionState(saveHours, { message: "" });
   return <form action={action} className={`${s.createForm} ${s.hoursForm}`}>
+    <details className={s.allowance}><summary>Override monthly allowance</summary>
     <label>Monthly allowance<select name="allowance" value={choice} onChange={event => setChoice(event.target.value)}>
+      <option value="unchanged">Keep current allowance</option><option value="auto">Use GitHub plan (automatic)</option>
       <option value="120">Free (120 core-hours)</option><option value="180">Pro (180 core-hours)</option><option value="custom">Custom</option>
     </select></label>
     {choice === "custom" && <label>Core-hours<input name="customAllowance" type="number" min="0" step="any" defaultValue={allowance} required /></label>}
-    <p>One core-hour means one CPU core running for one hour. Choose the allowance for your GitHub plan.</p>
-    <p>Estimated from phonelink phones only. Your other codespaces use the same hours. <a href="https://github.com/settings/billing/usage" target="_blank" rel="noreferrer">Check exact usage on GitHub</a>.</p>
+    </details>
+    <p>Your GitHub plan sets your allowance. <a href="https://github.com/settings/billing/usage" target="_blank" rel="noreferrer">Open GitHub billing</a>.</p>
     <label>Default machine<select name="machine" defaultValue={settings.default_machine ?? ""}>
       <option value="">Automatic (prefer 4 cores)</option>
       {settings.default_machine && !machines.some(machine => machine.name === settings.default_machine)

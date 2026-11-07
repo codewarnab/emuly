@@ -7,6 +7,7 @@ import { PhoneInputError, redact } from "../../lib/phone-mutations";
 import { RateLimitError } from "../../lib/rate-limit";
 import { db } from "../../lib/db";
 import { saveAllowance, userSettings } from "../../lib/usage";
+import { clearAllowanceOverride } from "../../lib/settings";
 
 type MutationResult = { message: string; phoneId?: string };
 
@@ -62,6 +63,12 @@ export async function phoneCreationOptions() {
 export async function updateAllowance(_previous: MutationResult, form: FormData): Promise<MutationResult> {
   const user = await requireUser();
   const choice = form.get("allowance");
+  if (choice === "auto") {
+    clearAllowanceOverride(db(), user.id);
+    revalidatePath("/app");
+    revalidatePath("/app/settings/hours");
+    return { message: "Automatic plan allowance restored." };
+  }
   const value = choice === "custom" ? form.get("customAllowance") : choice;
   if (typeof value !== "string" || !value.trim() || !["120", "180", "custom"].includes(String(choice))) {
     return { message: "Choose Free, Pro, or a custom allowance." };

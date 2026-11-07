@@ -5,6 +5,20 @@ export { userSettings } from "./settings.ts";
 export type Run = { phone_id: string; cores: number; started_at: string; stopped_at: string | null };
 export type Usage = ReturnType<typeof estimateUsage>;
 
+/** Keep billing totals separate from the live estimate so the countdown cannot double-count phone time. */
+export function reconcileUsage(estimate: Usage, atReport: Usage, reported: number | null) {
+  const livePhoneTime = Math.max(0, estimate.used_core_hours - atReport.used_core_hours);
+  const liveUsed = reported === null ? estimate.used_core_hours
+    : Math.max(estimate.used_core_hours, reported + livePhoneTime);
+  const rate = estimate.running.reduce((sum, phone) => sum + phone.cores, 0);
+  return {
+    reported_core_hours: reported ?? estimate.used_core_hours,
+    phonelink_core_hours: estimate.used_core_hours,
+    other_core_hours: reported === null ? 0 : Math.max(0, reported - estimate.used_core_hours),
+    hours_left_at_current_rate: rate ? Math.max(0, estimate.allowance_core_hours - liveUsed) / rate : null,
+  };
+}
+
 /**
  * Calendar-month estimate, in UTC. Open runs accrue up to the injected clock.
  * Included usage is shared across the account; other codespaces are not observable here.

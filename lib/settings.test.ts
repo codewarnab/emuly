@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "./database.ts";
-import { userSettings, updateSettings, SettingsInputError } from "./settings.ts";
+import { clearAllowanceOverride, userSettings, updateSettings, SettingsInputError } from "./settings.ts";
 import { createSettingsApi } from "./settings-api.ts";
 
 test("settings default to Free, 30-minute idle and auto-stop off; partial updates persist without touching another user", async () => {
@@ -17,7 +17,10 @@ test("settings default to Free, 30-minute idle and auto-stop off; partial update
       VALUES (?, ?, 'fixture', ?, 'codespace', '2026-11-01', '2026-11-01')`).run(id, id, Buffer.from("fixture"));
     const defaults = { allowance_core_hours: 120, default_machine: null, default_idle_min: 30, auto_stop_before_empty: false, auto_keep: false };
     assert.deepEqual(userSettings(database, 1), defaults);
+    database.prepare("INSERT INTO billing_settings (user_id, plan_name) VALUES (1, 'pro')").run();
+    assert.equal(userSettings(database, 1).allowance_core_hours, 180);
     updateSettings(database, 1, { default_machine: "fixture-2-core", default_idle_min: 240 });
+    assert.equal(userSettings(database, 1).allowance_core_hours, 180, "machine saves keep automatic allowance");
     for (const allowance_core_hours of [180, 1, 0]) {
       updateSettings(database, 1, { allowance_core_hours });
       assert.deepEqual(userSettings(database, 1), { ...defaults, allowance_core_hours,
@@ -29,6 +32,9 @@ test("settings default to Free, 30-minute idle and auto-stop off; partial update
     const saved = userSettings(database, 1);
     assert.deepEqual(saved, { allowance_core_hours: 0, default_machine: "fixture-2-core", default_idle_min: 240, auto_stop_before_empty: true, auto_keep: true });
     assert.deepEqual(userSettings(database, 2), defaults);
+    clearAllowanceOverride(database, 1);
+    assert.equal(userSettings(database, 1).allowance_core_hours, 180);
+    updateSettings(database, 1, { allowance_core_hours: 0 });
     for (const invalid of [null, [], {}, { user_id: 2 }, { auto_keep: 1 }, { default_idle_min: 60 },
       { allowance_core_hours: -1 }, { allowance_core_hours: Infinity }, { allowance_core_hours: "120" },
       { auto_stop_before_empty: 1 }, { default_machine: "bad/path" },

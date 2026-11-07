@@ -6,6 +6,7 @@ import { userSettings } from "../../../../../lib/settings";
 import { phoneCreationOptions } from "../../../../actions/phones";
 import { Topbar, Avatar } from "../../../../../components/topbar";
 import { HoursSettings } from "../../../../../components/hours-settings";
+import { readAccountUsage } from "../../../../../lib/billing";
 import { ConsoleLoading } from "../../../../../components/console-loading";
 import s from "../../../../../components/console.module.css";
 
@@ -15,6 +16,7 @@ export default function HoursPage() {
 
 async function Hours() {
   const user = await requireUser();
+  await readAccountUsage(user);
   const options = await phoneCreationOptions();
   return <>
     <Topbar nav={[{ label: "Phones" }, { label: "Settings", on: true }]}>

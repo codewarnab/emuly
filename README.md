@@ -51,10 +51,17 @@ Each account can create once per minute and request six mutations per minute, in
 SQLite upgrades existing databases to migration v2 on open. Stop waits for GitHub state reconciliation;
 it does not claim that the runner saved a snapshot. Tests use fake GitHub HTTP and fake clocks.
 
-M1 adds an estimated hours budget, with Free (120 core-hours), Pro (180), or a custom allowance.
-Runs count cores × elapsed hours in the UTC calendar month, including active runs and month boundaries.
-A 60-second poller reconciles external starts/stops. Estimates cover phonelink phones only; other
-codespaces use the same allowance. Check exact usage at https://github.com/settings/billing/usage.
+The console shows remaining phone hours and storage from GitHub billing, when access is available.
+Free includes 120 core-hours and 15 GB-month; Pro includes 180 core-hours and 20 GB-month.
+The app reads the plan automatically. Existing saved allowances remain overrides.
+Open **Override** to change the allowance or restore the automatic plan allowance.
+Billing reports are cached per user for ten minutes. The countdown adds live phonelink usage.
+Without billing access, the console labels usage **Estimate** and keeps login available.
+**Connect billing for exact numbers** requests the optional OAuth `user` scope.
+A refusal keeps the current session and estimate. The billing endpoint can still reject access.
+[Billing implementation notes](docs/BILLING-USAGE.md) record the API assumptions and verification limits.
+Runs count cores ? elapsed hours in the UTC calendar month, including active runs and month boundaries.
+A 60-second poller reconciles external starts/stops. The API and automatic stop still use the local estimate.
 The dialog loads the account's available machines and respects stored machine/idle defaults.
 More than six phones use a compact list by default. The view toggle is remembered per user in this browser.
 “Stop all running” preserves every codespace and reports partial failures.

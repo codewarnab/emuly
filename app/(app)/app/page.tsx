@@ -11,6 +11,7 @@ import { syncPhoneState } from "../../../lib/phone-control";
 import { Topbar, Avatar } from "../../../components/topbar";
 import { db } from "../../../lib/db";
 import { readUsage, userSettings } from "../../../lib/usage";
+import { readAccountUsage } from "../../../lib/billing";
 import { KeyboardTools } from "../../../components/keyboard-tools";
 import { hoursWarning } from "../../../lib/hours";
 import { retentionStatus } from "../../../lib/retention";
@@ -24,9 +25,9 @@ async function Dashboard({ clock = Date.now }: { clock?: () => number }) {
   const user = await requireUser();
   const syncError = await syncPhoneState(user.id);
   const phones = listPhones(user.id);
-  const usage = readUsage(db(), user.id, clock);
+  const usage = await readAccountUsage(user, clock);
   const settings = userSettings(db(), user.id);
-  const warning = hoursWarning(usage, settings.auto_stop_before_empty);
+  const warning = hoursWarning(readUsage(db(), user.id, clock), settings.auto_stop_before_empty);
   const defaultCores = phones.find(phone => phone.machine === settings.default_machine)?.cores
     ?? (settings.default_machine === "basicLinux32gb" ? 2 : 4);
   const now = clock();

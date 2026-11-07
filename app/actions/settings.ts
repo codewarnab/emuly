@@ -2,22 +2,25 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "../../lib/auth";
 import { db } from "../../lib/db";
-import { SettingsInputError, updateSettings } from "../../lib/settings";
+import { clearAllowanceOverride, SettingsInputError, updateSettings } from "../../lib/settings";
 import { acknowledgeAutoStops } from "../../lib/hours";
 
 export async function saveHours(_previous: { message: string }, form: FormData) {
   const user = await requireUser();
   const choice = form.get("allowance");
   const value = choice === "custom" ? form.get("customAllowance") : choice;
-  if (!["120", "180", "custom"].includes(String(choice)) || typeof value !== "string" || !value.trim()) {
+  if (!["auto", "unchanged"].includes(String(choice))
+    && (!["120", "180", "custom"].includes(String(choice)) || typeof value !== "string" || !value.trim())) {
     return { message: "Choose Free, Pro, or a custom allowance." };
   }
   try {
     updateSettings(db(), user.id, {
-      allowance_core_hours: Number(value), default_machine: form.get("machine") || null,
+      ...(["auto", "unchanged"].includes(String(choice)) ? {} : { allowance_core_hours: Number(value) }),
+      default_machine: form.get("machine") || null,
       default_idle_min: Number(form.get("idle")), auto_stop_before_empty: form.get("autoStop") === "on",
       auto_keep: form.get("autoKeep") === "on",
     });
+    if (choice === "auto") clearAllowanceOverride(db(), user.id);
   } catch (error) {
     return { message: error instanceof SettingsInputError ? error.message : "Settings could not be saved. Try again." };
   }

@@ -1,18 +1,20 @@
 import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { randomId } from "../../../lib/crypto";
 import { env } from "../../../lib/env";
 import { cookieName, cookieOptions } from "../../../lib/auth-cookies";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const store = await cookies();
   const state = randomId();
   store.set(cookieName("state"), state, cookieOptions(10 * 60));
+  const billing = request.nextUrl.searchParams.get("billing") === "1";
+  store.set(cookieName("billing"), billing ? "1" : "", cookieOptions(billing ? 10 * 60 : 0));
   const url = new URL("https://github.com/login/oauth/authorize");
   url.search = new URLSearchParams({
     client_id: env.clientId,
     redirect_uri: `${env.baseUrl}/auth/callback`,
-    scope: "codespace",
+    scope: billing ? "codespace user" : "codespace",
     state,
     allow_signup: "true",
   }).toString();

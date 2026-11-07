@@ -7,20 +7,30 @@ import { seal } from "../../../lib/crypto";
 import { createSession } from "../../../lib/session";
 import { cookieName, cookieOptions } from "../../../lib/auth-cookies";
 import { exchangeTokens, githubIdentity, githubGet, SignInError } from "../../../lib/github-oauth";
+import { getUser } from "../../../lib/auth";
+import { billingClient } from "../../../lib/billing";
 
 export async function GET(request: NextRequest) {
   const store = await cookies();
   const expected = store.get(cookieName("state"))?.value;
+  const billing = store.get(cookieName("billing"))?.value === "1";
+  store.set(cookieName("billing"), "", cookieOptions(0));
+  const current = billing ? await getUser() : null;
+  const failurePath = current ? "/app?billing=unavailable" : "/login?error=denied";
   // Clear on every result, including denial and malformed requests.
   store.set(cookieName("state"), "", cookieOptions(0));
   const state = request.nextUrl.searchParams.get("state");
   if (!validState(state, expected)) return result("/login?error=state");
-  if (request.nextUrl.searchParams.has("error")) return result("/login?error=denied");
+  if (request.nextUrl.searchParams.has("error")) return result(failurePath);
   const code = request.nextUrl.searchParams.get("code");
   if (!code || code.length > 1024) return result("/login?error=code");
   try {
     const pair = await exchangeTokens({ code, redirect_uri: `${env.baseUrl}/auth/callback` });
     const identity = await githubIdentity(pair.accessToken);
+    if (current) {
+      const existing = db().prepare("SELECT github_id FROM users WHERE id = ?").get(current.id);
+      if (existing?.github_id !== identity.githubId) return result(failurePath);
+    }
     const probe = await githubGet("/user/codespaces?per_page=1", pair.accessToken);
     if (probe.status !== 200) throw new SignInError("probe");
     await probe.body?.cancel();
@@ -38,11 +48,12 @@ export async function GET(request: NextRequest) {
       pair.scopes, timestamp, timestamp,
     ) as { id: number; blocked: number };
     if (user.blocked) return result("/login?error=blocked");
+    billingClient.invalidate(user.id);
     await createSession(user.id);
     return result("/app");
   } catch (error) {
     // Do not log the request, provider payload, authorization code, or exception.
-    return result(`/login?error=${error instanceof SignInError ? error.code : "signin"}`);
+    return result(current ? failurePath : `/login?error=${error instanceof SignInError ? error.code : "signin"}`);
   }
 }
 

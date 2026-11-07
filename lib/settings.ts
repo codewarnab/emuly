@@ -10,9 +10,17 @@ export type UserSettings = {
 
 export class SettingsInputError extends Error {}
 
+export function clearAllowanceOverride(database: DatabaseSync, userId: number) {
+  database.prepare("UPDATE billing_settings SET allowance_override = NULL WHERE user_id = ?").run(userId);
+}
+
 export function userSettings(database: DatabaseSync, userId: number): UserSettings {
-  const row = database.prepare(`SELECT allowance_core_hours, default_machine, default_idle_min, auto_stop_before_empty, auto_keep
-    FROM user_settings WHERE user_id = ?`).get(userId);
+  const row = database.prepare(`SELECT COALESCE(b.allowance_override,
+      CASE WHEN b.plan_name = 'pro' THEN 180 ELSE 120 END) AS allowance_core_hours,
+      s.default_machine, COALESCE(s.default_idle_min, 30) AS default_idle_min,
+      COALESCE(s.auto_stop_before_empty, 0) AS auto_stop_before_empty, COALESCE(s.auto_keep, 0) AS auto_keep
+    FROM users u LEFT JOIN user_settings s ON s.user_id = u.id
+    LEFT JOIN billing_settings b ON b.user_id = u.id WHERE u.id = ?`).get(userId);
   return row ? {
     allowance_core_hours: Number(row.allowance_core_hours), default_machine: row.default_machine as string | null,
     default_idle_min: Number(row.default_idle_min), auto_stop_before_empty: row.auto_stop_before_empty === 1,
@@ -55,6 +63,11 @@ export function updateSettings(database: DatabaseSync, userId: number, input: un
       auto_stop_before_empty = excluded.auto_stop_before_empty, auto_keep = excluded.auto_keep`)
       .run(userId, settings.allowance_core_hours, settings.default_machine, settings.default_idle_min,
         Number(settings.auto_stop_before_empty), Number(settings.auto_keep));
+    if ("allowance_core_hours" in patch) {
+      database.prepare(`INSERT INTO billing_settings (user_id, allowance_override) VALUES (?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET allowance_override = excluded.allowance_override`)
+        .run(userId, settings.allowance_core_hours);
+    }
     database.exec("COMMIT");
     return settings;
   } catch (error) { database.exec("ROLLBACK"); throw error; }
