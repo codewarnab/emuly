@@ -150,6 +150,17 @@ export function createGitHubClient({ database, accessToken, fetch: fetcher = fet
     },
     startCodespace: (userId: number, phoneId: string) => mutate(userId, phoneId, "start"),
     stopCodespace: (userId: number, phoneId: string) => mutate(userId, phoneId, "stop"),
+    // DELETE /user/codespaces/{name}. A 404 means GitHub already deleted it.
+    async deleteCodespace(userId: number, phoneId: string) {
+      const phone = assertOwnedCodespace(userId, phoneId);
+      if (phone.codespace_name.startsWith("pending:")) return;
+      try {
+        const response = await request(userId, `/user/codespaces/${encodeURIComponent(phone.codespace_name)}`, "DELETE");
+        await response.body?.cancel();
+      } catch (error) {
+        if (!(error instanceof GitHubError && error.status === 404)) throw error;
+      }
+    },
   };
 }
 

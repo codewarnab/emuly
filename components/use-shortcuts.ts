@@ -17,8 +17,8 @@ export function useShortcuts(handle: (key: string) => void, open: boolean, clock
       if (key === "g") { prefixAt = clock(); return; }
       const sequence = prefixAt !== null && clock() - prefixAt < 1200;
       prefixAt = null;
-      if (sequence && /^(p|[1-9])$/.test(key)) { event.preventDefault(); handle(`g ${key}`); }
-      else if (["?", "1", "2", "3", "4", "w", "s", "c", "t"].includes(key)) { event.preventDefault(); handle(key); }
+      if (sequence && /^(p|s|w|[1-9])$/.test(key)) { event.preventDefault(); handle(`g ${key}`); }
+      else if (["?", "1", "2", "3", "4", "w", "s", "c", "t", "n"].includes(key)) { event.preventDefault(); handle(key); }
     }
     document.addEventListener("keydown", listener);
     return () => document.removeEventListener("keydown", listener);

@@ -1,5 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { requireUser } from "../../lib/auth";
 import { phoneControl, templateRepository } from "../../lib/phone-control";
 import { PHONE_MACHINE } from "../../lib/github";
@@ -18,6 +19,7 @@ export async function mutatePhone(_previous: MutationResult, form: FormData): Pr
   const operation = form.get("operation");
   let id: string | undefined;
   let message: string;
+  let deleted = false;
   try {
     if (operation === "stopAll") {
       const result = await phoneControl().stopAll(user.id);
@@ -39,12 +41,21 @@ export async function mutatePhone(_previous: MutationResult, form: FormData): Pr
       await phoneControl()[operation](user.id, id);
       message = operation === "keep" ? "Keep it started. The phone stops again when GitHub is available. Check Activity for progress."
         : operation === "stop" ? "Stop requested. Check Activity for progress." : "Wake requested. Check Activity for progress.";
+    } else if (operation === "delete") {
+      const value = form.get("phoneId");
+      if (typeof value !== "string" || !/^phone-[a-f0-9]{4,32}$/.test(value)) throw new PhoneInputError("Invalid phone ID");
+      if (form.get("confirmation") !== value) throw new PhoneInputError("Type the phone name to confirm.");
+      await phoneControl().remove(user.id, value);
+      deleted = true;
+      message = "Phone deleted.";
     } else throw new PhoneInputError("Invalid phone action");
   } catch (error) {
+    if (!(error instanceof GitHubError || error instanceof PhoneInputError || error instanceof RateLimitError)) console.error("phone action failed", operation, error);
     message = error instanceof GitHubError || error instanceof PhoneInputError || error instanceof RateLimitError
       ? redact(error.message) : "The request could not be confirmed. Refresh to check the phone before trying again.";
   }
   revalidatePath("/app");
+  if (deleted) redirect("/app");
   if (id) revalidatePath(`/app/phones/${encodeURIComponent(id)}`);
   return { message, phoneId: id };
 }

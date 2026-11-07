@@ -25,7 +25,7 @@ def verify(secret, raw_body, header):
 `;
 
 export default function WebhookDocs() {
-  return <main className={`${s.pagewrap} ${s.webhookDocs}`} id="main-content" tabIndex={-1}>
+  return <div className={s.webhookDocs}>
     <p><Link href="/app/settings/webhooks">Back to Webhooks</Link></p>
     <h1>Webhook deliveries</h1>
     <p>Register an HTTPS endpoint in Settings → Webhooks. Copy the signing secret when it appears. Store it privately.</p>
@@ -56,5 +56,5 @@ GET /v1/webhooks/{id}/deliveries
 POST /v1/webhooks/{id}/deliveries/{deliveryId}/resend`}</code></pre>
     <p>Create and roll return <code>secret</code> once. List and delivery responses never return secrets.
       Test queues only for the chosen endpoint, regardless of its event selection.</p>
-  </main>;
+  </div>;
 }

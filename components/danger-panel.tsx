@@ -1,22 +1,30 @@
 "use client";
-import { useState } from "react";
-import s from "./console.module.css";
+import { useActionState, useEffect, useState } from "react";
+import { mutatePhone } from "../app/actions/phones";
 import { Button } from "./button";
+import { useToast } from "./ui-provider";
+import s from "./console.module.css";
 
 export function DangerPanel({ phoneName }: { phoneName: string }) {
-  const [notice, setNotice] = useState(false);
-  const [confirmation, setConfirmation] = useState("");
-  return <section className={s.dialog} aria-labelledby="delete-heading">
-    <h2 id="delete-heading" className={s.dialogH}>Delete {phoneName}</h2>
-    <p className={s.dialogP}>Stopping is safe. Your codespace keeps the phone and its snapshot.</p>
-    <p className={s.dialogP}>Deleting the codespace erases this phone, its apps, and its saved snapshot. This cannot be undone.</p>
-    <label className={s.fieldLabel} htmlFor="delete-confirmation">Type <b>{phoneName}</b> to confirm</label>
-    <input id="delete-confirmation" className={s.field} value={confirmation} onChange={e => setConfirmation(e.target.value)} autoComplete="off" spellCheck={false} aria-describedby="delete-note" />
-    <p id="delete-note" className={s.loginFoot}>Deletion is not connected yet. No codespace will be changed.</p>
-    <div className={s.acts}>
-      <Button variant="ghost" tiny onClick={() => setConfirmation("")}>Cancel</Button>
-      <Button variant="danger" tiny aria-describedby="delete-note" title={`Type ${phoneName} to confirm; deletion is not available yet`} disabled={confirmation !== phoneName} onClick={() => setNotice(true)}>Delete forever</Button>
+  const [result, action, pending] = useActionState(mutatePhone, { message: "" });
+  const [open, setOpen] = useState(false);
+  const notify = useToast();
+  useEffect(() => { if (result.message) notify(result.message); }, [result, notify]);
+  return <section className={s.danger} aria-labelledby="delete-heading">
+    <div className={s.dangerRow}>
+      <div>
+        <h2 id="delete-heading" className={s.dangerH}>Delete phone</h2>
+        <p className={s.dangerP}>Erases the codespace, apps and snapshot. You cannot undo this.</p>
+      </div>
+      {!open && <Button variant="danger" tiny onClick={() => setOpen(true)}>Delete…</Button>}
     </div>
-  {notice && <p role="status" className={s.loginFoot}>Deletion is unavailable. Your phone has not changed.</p>}
+    {open && <form action={action} className={s.dangerForm}>
+      <input type="hidden" name="operation" value="delete" />
+      <input type="hidden" name="phoneId" value={phoneName} />
+      <input type="hidden" name="confirmation" value={phoneName} />
+      <span className={s.dangerP}>Delete this phone for good?</span>
+      <Button variant="ghost" tiny type="button" autoFocus onClick={() => setOpen(false)}>Cancel</Button>
+      <Button variant="danger" tiny disabled={pending}>{pending ? "Deleting…" : "Yes, delete"}</Button>
+    </form>}
   </section>;
 }

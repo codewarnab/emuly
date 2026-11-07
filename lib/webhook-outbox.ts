@@ -27,6 +27,12 @@ export function createWebhookOutbox({ database, decrypt, baseUrl, resolve, send 
     } catch (error) { database.exec("ROLLBACK"); throw error; }
   }
   async function deliver(row: { id: string; webhook_id: string; url: string; body: string; type: string; attempt: number }) {
+    // Lease the delivery before awaiting DNS. HTTP tests and poller ticks can overlap.
+    // An interrupted process leaves a short lease, so the outbox can retry later.
+    const claimed = database.prepare(`UPDATE webhook_deliveries SET next_try_at = ?
+      WHERE id = ? AND state = 'pending' AND next_try_at <= ?`)
+      .run(new Date(clock() + 30_000).toISOString(), row.id, new Date(clock()).toISOString());
+    if (!claimed.changes) return;
     const start = clock();
     let status: number | null = null;
     let canceled = false;
@@ -48,7 +54,11 @@ export function createWebhookOutbox({ database, decrypt, baseUrl, resolve, send 
         }, signal);
       })()]);
     } catch { /* No provider text or URL enters the log. A missing status means network failure. */ }
-    if (canceled) return;
+    if (canceled) {
+      database.prepare("UPDATE webhook_deliveries SET next_try_at = ? WHERE id = ?")
+        .run(new Date(clock()).toISOString(), row.id);
+      return;
+    }
     const ok = status !== null && status >= 200 && status < 300;
     const delay = RETRY_MS[row.attempt];
     database.exec("BEGIN IMMEDIATE");
@@ -61,18 +71,19 @@ export function createWebhookOutbox({ database, decrypt, baseUrl, resolve, send 
       database.exec("COMMIT");
     } catch (error) { database.exec("ROLLBACK"); throw error; }
   }
-  return async function flush() {
-    if (running) return;
-    running = true;
+  return async function flush(deliveryId?: string) {
+    if (!deliveryId && running) return;
+    if (!deliveryId) running = true;
     try {
       disableFailing();
       const due = database.prepare(`SELECT d.*, w.url FROM webhook_deliveries d
         JOIN webhooks w ON w.id = d.webhook_id JOIN users u ON u.id = w.user_id
         WHERE d.state = 'pending' AND d.next_try_at <= ? AND w.enabled = 1 AND u.blocked = 0
-        ORDER BY d.next_try_at, d.rowid LIMIT 50`).all(new Date(clock()).toISOString()) as Parameters<typeof deliver>[0][];
+        AND (? IS NULL OR d.id = ?)
+        ORDER BY d.next_try_at, d.rowid LIMIT 50`).all(new Date(clock()).toISOString(), deliveryId ?? null, deliveryId ?? null) as Parameters<typeof deliver>[0][];
       // Bound simultaneous sockets. One slow receiver does not block other endpoints.
       for (let i = 0; i < due.length; i += 5) await Promise.all(due.slice(i, i + 5).map(deliver));
       disableFailing();
-    } finally { running = false; }
+    } finally { if (!deliveryId) running = false; }
   };
 }

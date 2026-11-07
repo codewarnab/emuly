@@ -23,3 +23,6 @@
 
 .copyFallback { display: block; margin-top: 12px; color: var(--dim); font-size: 13px; }
 .copyFallback textarea { display: block; width: 100%; min-height: 100px; padding: 12px; margin-top: 8px; border: 1px solid var(--control-line); border-radius: 8px; background: var(--panel); color: var(--text); font: 13px/1.6 var(--mono); }
+/* Command menu: narrow, no big title; the search field is the header. */
+.dialog:has(#command-options) { width: min(560px, calc(100% - 32px)); }
+.dialog:has(#command-options) h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

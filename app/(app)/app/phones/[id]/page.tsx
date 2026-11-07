@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { shortMessage } from "../../../../../lib/short-message";
 import { PHONE_TABS } from "../../../../../lib/keyboard";
 import { idleLabel } from "../../../../../lib/idle";
 import Loading from "./loading";
@@ -46,11 +48,11 @@ async function TabPanel({ phoneId, search }: { phoneId: string; search: Promise<
       )}
 
       {tab === "apps" && (
-        <LogFeed title={`Installed apps for ${phone.name}`} rows={[]} live={false} emptyMessage="No apps listed. Installed packages will appear when this phone connects." />
+        <LogFeed title={`Installed apps for ${phone.name}`} rows={[]} live={false} emptyMessage="No apps yet." />
       )}
 
       {tab === "backups" && (
-        <LogFeed title={`Backups for ${phone.name}`} rows={[]} live={false} emptyMessage="No named backups yet. Backups are opt-in. Stopping still keeps the phone and its snapshot." />
+        <LogFeed title={`Backups for ${phone.name}`} rows={[]} live={false} emptyMessage="No backups yet." />
       )}
 
       {tab === "danger" && <DangerPanel phoneName={phone.name} />}
@@ -128,8 +130,6 @@ async function StoredPhone({ phone, user, search, syncError }: {
   return <>
     <KeyboardTools phones={listPhones(user.id).map(item => ({ id: item.id, name: item.id }))} />
     <Topbar breadcrumb={["Phones", phone.id]}>
-      <Pill kind={phoneCard(phone).state}>{phone.state}</Pill>
-      <PhoneMutation id={phone.id} state={phone.keeping ? "keeping" : phone.state} />
       <Avatar initials={user.initials} login={user.login} />
     </Topbar>
     <main className={s.detail} id="main-content" tabIndex={-1}>
@@ -137,21 +137,25 @@ async function StoredPhone({ phone, user, search, syncError }: {
         <h1 className={s.srOnly}>Phone details</h1>
       <section className={`${s.stage} ${s.disconnected}`} aria-label="Phone screen">
         <div className={s.emptyPhone} aria-hidden />
-        <h2>{phone.state === "stopped" ? "Resting, ready to resume" : "Waiting for the screen"}</h2>
-        <p>{phone.state === "stopped" ? "Your codespace keeps the phone. Waking it resumes the same device." : "The live screen will appear when this phone connects."}</p>
-        {phone.state_detail && <p role="status">{phone.state_detail}</p>}
-        {syncError && <p role="status">{syncError}</p>}
+        <Pill kind={phoneCard(phone).state}>{phone.state}</Pill>
+        <h2>{phone.state === "stopped" ? "Resting" : phone.state === "error" ? "Phone did not start" : "Waiting for the screen"}</h2>
+        <p>{phone.state === "stopped" ? "Wake it to resume the same device." : phone.state === "error" && phone.state_detail ? shortMessage(phone.state_detail) : "The screen appears when the phone connects."}</p>
+        {syncError && <p role="status">{shortMessage(syncError)}</p>}
+        {/* The one action that fits the state, next to the state it fixes. */}
+        {phone.codespace_name.startsWith("pending:")
+          ? phone.state === "error" && <Link className={`${s.btn} ${s.btnTiny} ${s.btnGhost}`} href={`/app/phones/${encodeURIComponent(phone.id)}?tab=danger`}>Delete this phone</Link>
+          : <PhoneMutation id={phone.id} state={phone.keeping ? "keeping" : phone.state} />}
       </section>
       <div>
         <Tabs active={tab} phoneId={phone.id} />
         <section role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} tabIndex={0}>
         {tab === "danger" ? <DangerPanel phoneName={phone.id} /> :
-          <LogFeed title={`${tab === "apps" ? "Installed apps" : tab === "backups" ? "Backups" : "Activity"} for ${phone.id}`} rows={tab === "log" ? phoneEvents(user.id, phone.id) : []} live={false} emptyMessage={tab === "apps" ? "No apps listed. Installed packages will appear when this phone connects." : tab === "backups" ? "No named backups yet. Backups are opt-in. Stopping still keeps the phone and its snapshot." : "No activity yet. Steps will appear when this phone connects."} />}
+          <LogFeed title={tab === "apps" ? "Installed apps" : tab === "backups" ? "Backups" : "Activity"} rows={tab === "log" ? phoneEvents(user.id, phone.id) : []} live={false} emptyMessage={tab === "apps" ? "No apps yet." : tab === "backups" ? "No backups yet." : "No activity yet."} />}
         </section>
         <div className={s.subgrid}>
-          <Mini title="This phone" rows={[["Slot", phone.codespace_name], ["Machine", phone.machine], ["State", phone.state], ["Idle timeout", `Stops after ${idleLabel(phone.idle_timeout_min)} idle`]]} />
+          <Mini title="This phone" rows={[["Machine", "4-core"], ["Idle stop", idleLabel(phone.idle_timeout_min)]]} />
         </div>
-        <p className={s.fineprint}>Idle timeout is set when the phone is created. <a href="https://docs.github.com/en/codespaces/setting-your-user-preferences/setting-your-timeout-period-for-github-codespaces" target="_blank" rel="noreferrer">GitHub timeout settings</a></p>
+        <p className={s.fineprint}><a href="https://docs.github.com/en/codespaces/setting-your-user-preferences/setting-your-timeout-period-for-github-codespaces" target="_blank" rel="noreferrer">GitHub timeout settings</a></p>
       </div>
     </main>
   </>;

@@ -327,8 +327,22 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
     }
   }
 
+  async function remove(userId: number, id: string) {
+    phone(userId, id);
+    if (busy.has(id) || settingUp.has(id)) throw new PhoneInputError("A phone request is already in progress. Try again shortly.");
+    busy.add(id);
+    try {
+      claim(userId, id, "delete");
+      await github.deleteCodespace(userId, id);
+      database.prepare("UPDATE phones SET state = 'deleted', state_detail = NULL WHERE user_id = ? AND id = ?").run(userId, id);
+      event(userId, id, "step", "delete accepted");
+      return id;
+    } finally { busy.delete(id); }
+  }
+
   return {
     keep,
+    remove,
     autoKeep: (userId: number, id: string) => keep(userId, id, true),
     machines: (userId: number, repository: string) => github.machines(userId, repository),
     async create(userId: number, input: { repository: string; repositoryId: number; machine?: string; idleTimeoutMin: number; devcontainerPath?: string }) {

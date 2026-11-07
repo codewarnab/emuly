@@ -11,6 +11,28 @@ export type UserSettings = {
 
 export class SettingsInputError extends Error {}
 
+export type HoursField = "idle" | "autoStop" | "autoKeep" | "plan";
+
+/** Persist one Hours control. Runtime validation also protects Server Action callers. */
+export function saveHoursSetting(database: DatabaseSync, userId: number, field: unknown, value: unknown) {
+  try {
+    switch (field) {
+      case "idle": updateSettings(database, userId, { default_idle_min: value }); break;
+      case "autoStop": updateSettings(database, userId, { auto_stop_before_empty: value }); break;
+      case "autoKeep": updateSettings(database, userId, { auto_keep: value }); break;
+      case "plan":
+        if (value === "free" || value === "pro") choosePlan(database, userId, value);
+        else if (typeof value === "number") updateSettings(database, userId, { allowance_core_hours: value });
+        else throw new SettingsInputError("Choose Free, Pro, or enter your monthly core-hours.");
+        break;
+      default: throw new SettingsInputError("Choose a valid Hours setting.");
+    }
+    return { ok: true, message: "Saved" };
+  } catch (error) {
+    return { ok: false, message: error instanceof SettingsInputError ? error.message : "Settings could not be saved. Try again." };
+  }
+}
+
 /** The plan the user told us in onboarding. null = not asked yet. */
 export function chosenPlan(database: DatabaseSync, userId: number): "free" | "pro" | null {
   const row = database.prepare("SELECT plan_name FROM billing_settings WHERE user_id = ?").get(userId);

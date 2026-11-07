@@ -1,4 +1,5 @@
 import "server-only";
+import { shortMessage } from "./short-message.ts";
 import { db } from "./db";
 import type { PhoneRow } from "../components/fixtures";
 import type { LogRow } from "../components/log-feed";
@@ -41,7 +42,12 @@ export function phoneCard(phone: Phone): PhoneRow {
     name: phone.id,
     state: state === "running" || state === "stopped" || state === "booting" ? state : "needsyou",
     thumbDim: phone.state !== "running",
-    meta: [["Slot", phone.codespace_name], ["Machine", phone.machine], [phone.state === "stopped" ? "Resume" : "Stopping", phone.state === "stopped" ? "About 15 s" : "Keeps your phone"]],
+    meta: [
+      ["Status", phone.state === "error" && phone.state_detail ? shortMessage(phone.state_detail)
+        : phone.state === "running" ? "Running" : phone.state === "stopped" ? "Resting · wakes in about 15 s"
+        : phone.state === "stopping" ? "Stopping" : "Getting ready"],
+      ["Machine", "4-core · 16 GB"],
+    ],
     foot: { ghost: "Backups", primary: "Open phone" },
   };
 }
@@ -50,5 +56,5 @@ export function phoneEvents(userId: number, id: string): LogRow[] {
   const rows = db().prepare(`SELECT ts, kind, message FROM events WHERE user_id = ? AND phone_id = ?
     ORDER BY ts DESC, id DESC LIMIT 50`).all(userId, id) as { ts: string; kind: string; message: string }[];
   return rows.reverse().map(row => ({ time: `${row.ts.slice(11, 19)} UTC`, ok: row.kind === "step",
-    parts: [{ type: "text", value: row.message }] }));
+    parts: [{ type: "text", value: row.message.length > 100 ? shortMessage(row.message) : row.message }] }));
 }

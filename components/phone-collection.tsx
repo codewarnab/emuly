@@ -1,15 +1,14 @@
 "use client";
-import { useEffect, useState } from "react";
+import { startTransition, useEffect, useState, ViewTransition } from "react";
 import Link from "next/link";
 import type { PhoneRow } from "./fixtures";
 import { PhoneCard } from "./phone-card";
 import { PhoneMutation, KeepPhone } from "./phone-mutations";
 import type { Retention } from "../lib/retention";
 import { Pill } from "./pill";
-import { Button } from "./button";
 import s from "./console.module.css";
 
-type Item = { card: PhoneRow; state: string; lastUsed: string | null; retention: Retention | null };
+type Item = { card: PhoneRow; state: string; codespace: string | null; lastUsed: string | null; retention: Retention | null };
 export function PhoneCollection({ phones, userId }: { phones: Item[]; userId: number }) {
   const [choice, setChoice] = useState<"grid" | "list" | null>(null);
   const key = `phonelink-phone-view-${userId}`;
@@ -20,21 +19,28 @@ export function PhoneCollection({ phones, userId }: { phones: Item[]; userId: nu
     } catch { /* The automatic view still works when storage is unavailable. */ }
   }, [key]);
   const view = choice ?? (phones.length > 6 ? "list" : "grid");
-  function toggle() {
-    const value = view === "grid" ? "list" : "grid";
-    setChoice(value);
+  function choose(value: "grid" | "list") {
+    // A transition lets <ViewTransition> morph each phone between the grid and the list.
+    startTransition(() => setChoice(value));
     try { localStorage.setItem(key, value); } catch { /* Keep this session's choice. */ }
   }
   return <section aria-label="Phones">
-    <div className={s.collectionTools}><Button tiny variant="ghost" onClick={toggle} aria-pressed={view === "list"}>{view === "grid" ? "Compact list" : "Card grid"}</Button></div>
-    {view === "grid" ? <div className={s.grid}>{phones.map(phone => <PhoneCard key={phone.card.id} phone={phone.card} controlState={phone.state} retention={phone.retention} />)}</div>
-      : <ul className={s.phoneList}>{phones.map(phone => <li key={phone.card.id} className={s.phoneRow}>
+    <div className={s.collectionTools} role="group" aria-label="Phone view">
+      <button type="button" className={s.viewToggle} aria-pressed={view === "grid"} aria-label="Card grid" title="Card grid" onClick={() => choose("grid")}>
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1.2"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1.2"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1.2"/><rect x="9" y="9" width="5.5" height="5.5" rx="1.2"/></svg>
+      </button>
+      <button type="button" className={s.viewToggle} aria-pressed={view === "list"} aria-label="Compact list" title="Compact list" onClick={() => choose("list")}>
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor"><rect x="1.5" y="2.5" width="13" height="2.2" rx="1"/><rect x="1.5" y="6.9" width="13" height="2.2" rx="1"/><rect x="1.5" y="11.3" width="13" height="2.2" rx="1"/></svg>
+      </button>
+    </div>
+    {view === "grid" ? <div className={s.grid}>{phones.map(phone => <ViewTransition key={phone.card.id} name={`phone-${phone.card.id}`} share="phone-morph" default="none"><div><PhoneCard phone={phone.card} controlState={phone.state} retention={phone.retention} codespace={phone.codespace} /></div></ViewTransition>)}</div>
+      : <ul className={s.phoneList}>{phones.map(phone => <ViewTransition key={phone.card.id} name={`phone-${phone.card.id}`} share="phone-morph" default="none"><li className={s.phoneRow}>
         <div><Link className={s.name} href={`/app/phones/${encodeURIComponent(phone.card.id)}`}>{phone.card.name}</Link><Pill kind={phone.card.state}>{phone.card.state}</Pill></div>
         <div className={s.rowDetails}><span>Last used: {phone.lastUsed ? `${phone.lastUsed.slice(0, 16).replace("T", " ")} UTC` : "Not recorded"}</span>{phone.retention && <>
           <span className={phone.retention.warning ? s.retentionWarning : undefined}>{phone.retention.message}</span>
           {phone.retention.canKeep && phone.state !== "keeping" && <KeepPhone id={phone.card.id} />}
         </>}</div>
         <div className={s.acts}><PhoneMutation id={phone.card.id} state={phone.state} /><Link className={s.cardLink} href={`/app/phones/${encodeURIComponent(phone.card.id)}`}>Open phone</Link></div>
-      </li>)}</ul>}
+      </li></ViewTransition>)}</ul>}
   </section>;
 }

@@ -7,9 +7,11 @@ export type Webhook = { id: string; url: string; events: "*" | string[]; enabled
 export type Delivery = { id: string; event_id: string; type: string; created_at: string; attempted_at: string | null;
   attempt: number; status: number | null; duration_ms: number | null; state: string; next_try_at: string | null };
 type StoredWebhook = Omit<Webhook, "events" | "enabled"> & { events: string; enabled: number };
+export class WebhookRateLimitError extends WebhookInputError {}
 
-export function createWebhookService({ database, encrypt, baseUrl, resolve, clock = Date.now }: {
+export function createWebhookService({ database, encrypt, baseUrl, resolve, deliver, clock = Date.now }: {
   database: DatabaseSync; encrypt: (plain: string) => Uint8Array; baseUrl: string; resolve?: ResolveHost; clock?: () => number;
+  deliver?: (id: string) => Promise<void>;
 }) {
   const iso = () => new Date(clock()).toISOString();
   const publicHook = (row: StoredWebhook): Webhook => ({ ...row, events: row.events === "*" ? "*" : JSON.parse(row.events), enabled: Boolean(row.enabled) });
@@ -35,9 +37,19 @@ export function createWebhookService({ database, encrypt, baseUrl, resolve, cloc
     return JSON.stringify([...new Set(value)]);
   }
   function enqueueTest(userId: number, id: string) {
-    if (!owned(userId, id).enabled) throw new WebhookInputError("Re-enable this webhook before testing it.");
-    const eventId = emitEvent({ userId, type: "webhook.test", createdAt: iso(), data: {}, webhookId: id }, database);
-    return database.prepare("SELECT id FROM webhook_deliveries WHERE webhook_id = ? AND event_id = ?").get(id, eventId) as { id: string };
+    // Keep the rate check and enqueue atomic across server processes.
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      if (!owned(userId, id).enabled) throw new WebhookInputError("Re-enable this webhook before testing it.");
+      const recent = database.prepare(`SELECT 1 FROM webhook_deliveries
+        WHERE webhook_id = ? AND type = 'webhook.test' AND created_at > ? LIMIT 1`)
+        .get(id, new Date(clock() - 5000).toISOString());
+      if (recent) throw new WebhookRateLimitError("Wait 5 seconds before sending another test.");
+      const eventId = emitEvent({ userId, type: "webhook.test", createdAt: iso(), data: {}, webhookId: id }, database);
+      const delivery = database.prepare("SELECT id FROM webhook_deliveries WHERE webhook_id = ? AND event_id = ?").get(id, eventId) as { id: string };
+      database.exec("COMMIT");
+      return delivery;
+    } catch (error) { database.exec("ROLLBACK"); throw error; }
   }
   return {
     list(userId: number) {
@@ -74,6 +86,12 @@ export function createWebhookService({ database, encrypt, baseUrl, resolve, cloc
       return { deleted: true };
     },
     test: enqueueTest,
+    async testNow(userId: number, id: string) {
+      if (!deliver) throw new Error("Webhook delivery is not configured.");
+      const queued = enqueueTest(userId, id);
+      await deliver(queued.id);
+      return database.prepare(`SELECT id, state, status, duration_ms FROM webhook_deliveries WHERE id = ?`).get(queued.id);
+    },
     deliveries(userId: number, id: string) {
       owned(userId, id);
       return database.prepare(`SELECT id, event_id, type, created_at, attempted_at, attempt, status, duration_ms, state, next_try_at

@@ -29,8 +29,9 @@ function fixture() {
   for (const id of [1, 2]) database.prepare(`INSERT INTO users
     (id, github_id, login, token_cipher, token_scopes, created_at, last_seen_at)
     VALUES (?, ?, 'fixture', ?, 'codespace', '2026-11-01', '2026-11-01')`).run(id, id, encrypt("synthetic-token"));
-  const service = (resolve = publicDns, baseUrl = "https://phonelink.example") =>
-    createWebhookService({ database, encrypt, clock, baseUrl, resolve });
+  const service = (resolve = publicDns, baseUrl = "https://phonelink.example", send?: SendWebhook) =>
+    createWebhookService({ database, encrypt, clock, baseUrl, resolve,
+      deliver: createWebhookOutbox({ database, decrypt, clock, baseUrl, resolve, send }) });
   return {
     get database() { return database; }, clock, service, encrypt, decrypt,
     advance(ms: number) { time += ms; },
@@ -118,7 +119,7 @@ test("fan-out honors ownership and subscriptions, stores encrypted secrets, and 
     const rotated = await service.update(1, all.id, { roll_secret: true });
     assert.notEqual(rotated.secret, all.secret);
     assert.equal(f.decrypt(f.database.prepare("SELECT secret_cipher FROM webhooks WHERE id = ?").get(all.id)!.secret_cipher as Uint8Array), rotated.secret);
-    for (let i = 0; i < 55; i++) service.test(1, all.id);
+    for (let i = 0; i < 55; i++) { f.advance(5000); service.test(1, all.id); }
     assert.equal(service.deliveries(1, all.id).length, 50);
     service.remove(1, all.id);
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM webhook_deliveries WHERE webhook_id = ?").get(all.id)?.n, 0);
@@ -184,7 +185,7 @@ test("only failures disable after three days without pending work; success reset
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM events WHERE kind = 'webhook.disabled'").get()?.n, 1);
     await f.service().update(1, hook.id, { enabled: true });
     assert.equal(f.service().list(1)[0]?.failing_since, null);
-    f.service().test(1, hook.id); await f.outbox(async () => 200)();
+    f.advance(5000); f.service().test(1, hook.id); await f.outbox(async () => 200)();
     assert.equal(f.service().deliveries(1, hook.id)[0]?.state, "ok");
   } finally { f.close(); }
 });
@@ -338,4 +339,80 @@ test("phone operations enqueue actual lifecycle events once, preserving stop rea
     assert.equal(events().at(-1)?.type, "phone.deleted");
     assert.ok(events().every(event => event.data.phone?.name !== "foreign-space"));
   } finally { f.close(); }
+});
+
+test("synchronous tests sign and persist the real result, isolate the delivery, and rate limit across requests", async () => {
+  const f = fixture();
+  try {
+    let secret = "";
+    let sends = 0;
+    const service = f.service(publicDns, "https://phonelink.example", async (_target, body, headers, signal) => {
+      sends++;
+      assert.equal(signal.aborted, false);
+      assert.equal(headers["phonelink-event"], "webhook.test");
+      assert.ok(verifyWebhook(secret, body, headers["phonelink-signature"]!, f.clock));
+      f.advance(142);
+      return 200;
+    });
+    const hook = await service.create(1, { url: "https://receiver.example" }); secret = hook.secret;
+    const other = await service.create(1, { url: "https://other.example" });
+    service.test(1, other.id);
+    const api = createWebhookApi({ user: async () => ({ id: 1 }), service });
+    const request = () => new Request(`https://app.example/v1/webhooks/${hook.id}/test?wait=1`, { method: "POST" });
+    const response = await api(request(), hook.id, "test");
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.state, "ok"); assert.equal(result.status, 200); assert.equal(result.duration_ms, 142);
+    assert.equal(service.deliveries(1, hook.id)[0]?.attempt, 1);
+    assert.equal(service.deliveries(1, other.id)[0]?.attempt, 0);
+    assert.equal((await api(request(), hook.id, "test")).status, 429);
+    assert.throws(() => f.service().test(1, hook.id), /Wait 5 seconds/);
+    assert.equal(sends, 1);
+    f.advance(5000);
+    assert.equal((await api(request(), hook.id, "test")).status, 200);
+    assert.equal(sends, 2);
+    secret = other.secret;
+    const independent = await api(request(), other.id, "test");
+    assert.equal(independent.status, 200);
+    assert.equal((await independent.json()).state, "ok");
+    await assert.rejects(service.testNow(2, hook.id), /not found/);
+    await service.update(1, hook.id, { enabled: false });
+    await assert.rejects(service.testNow(1, hook.id), /Re-enable/);
+  } finally { f.close(); }
+});
+
+test("synchronous test reports HTTP and network failures and refuses DNS rebinding before sending", async () => {
+  const f = fixture();
+  try {
+    const hook = await f.service().create(1, { url: "https://receiver.example" });
+    let sends = 0;
+    for (const send of [async () => { sends++; return 503; }, async () => { sends++; throw new Error("private provider details"); }]) {
+      const result = await f.service(publicDns, "https://phonelink.example", send).testNow(1, hook.id);
+      assert.equal(result?.state, "pending");
+      assert.equal(result?.status, sends === 1 ? 503 : null);
+      assert.equal(f.service().deliveries(1, hook.id)[0]?.attempt, 1);
+      f.advance(5000);
+    }
+    const result = await f.service(async () => [{ address: "127.0.0.1", family: 4 }], "https://phonelink.example",
+      async () => { sends++; return 200; }).testNow(1, hook.id);
+    assert.equal(sends, 2); assert.equal(result?.status, null);
+    assert.doesNotMatch(JSON.stringify(result), /private|provider|127\.0\.0\.1/);
+  } finally { f.close(); }
+});
+
+test("a synchronous test and a concurrent outbox tick attempt a delivery only once", async () => {
+  const f = fixture();
+  let release: () => void = () => {};
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  try {
+    let sends = 0;
+    const service = f.service(publicDns, "https://phonelink.example", async () => { sends++; await gate; return 204; });
+    const hook = await service.create(1, { url: "https://receiver.example" });
+    const testing = service.testNow(1, hook.id);
+    await f.outbox(async () => { sends++; return 200; })();
+    release();
+    const result = await testing;
+    assert.equal(sends, 1); assert.equal(result?.status, 204);
+    assert.equal(service.deliveries(1, hook.id)[0]?.attempt, 1);
+  } finally { release(); f.close(); }
 });

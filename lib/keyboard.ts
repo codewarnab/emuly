@@ -11,6 +11,11 @@ export function filterCommands<T extends { label: string; keywords?: string }>(i
   return items.filter(item => words.every(word => `${item.label} ${item.keywords ?? ""}`.toLowerCase().includes(word)));
 }
 export const PHONE_TABS = ["log", "apps", "backups", "danger"] as const;
+export const SETTINGS_TABS = [
+  { label: "Hours", href: "/app/settings/hours", key: "1", shortcut: "g s" },
+  { label: "Webhooks", href: "/app/settings/webhooks", key: "2", shortcut: "g w" },
+] as const;
+export const SETTINGS_KEYS = { endpoint: "n", autoStop: "Enter", autoKeep: "Enter", test: "Enter" } as const;
 export function phoneTabHref(id: string, tab: string) {
   return `/app/phones/${encodeURIComponent(id)}?tab=${tab}`;
 }

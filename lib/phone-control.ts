@@ -7,8 +7,10 @@ import { createPhoneService, PhoneInputError, redact } from "./phone-mutations.t
 import { createPhoneSetup } from "./phone-setup.ts";
 
 // Share mutation guards across requests and development hot reloads.
+// Hot reload keeps globalThis, so a service built by older code can lack new methods. Rebuild it then.
 const global = globalThis as unknown as { __phoneControl?: ReturnType<typeof createPhoneService> };
 export function phoneControl() {
+  if (global.__phoneControl && !("remove" in global.__phoneControl)) global.__phoneControl = undefined;
   return global.__phoneControl ??= createPhoneService({
     database: db(), github: createGitHubClient({ database: db(), accessToken: getAccessToken }), encrypt: seal,
     setup: createPhoneSetup({ token: userId => getAccessToken(userId) }),

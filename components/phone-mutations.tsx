@@ -57,12 +57,16 @@ export function NewPhone({ usage }: { usage: Usage }) {
       </div>
       : <form action={action} className={s.createForm}>
         <input type="hidden" name="operation" value="create" />
-        <p className={s.machineLine}><strong>4-core</strong> · 16 GB RAM · 32 GB storage</p>
+        <div className={s.specRow} aria-label="Machine">
+          <span><b>4</b> cores</span><span><b>16</b> GB RAM</span><span><b>32</b> GB storage</span>
+        </div>
         <IdleTimeoutField name="idleTimeoutMin" defaultValue={options.settings.default_idle_min ?? 30} />
-        <p className={s.createHint} title="Estimated from phonelink phones only. Other codespaces use the same hours. Stopped phones are kept for 30 days.">
-          About <strong>{(left / nextRate).toFixed(1)} h</strong> left this month{running ? ` with ${usage.running.length + 1} phones running` : ""}.
-        </p>
-        <Button disabled={pending}>{pending ? "Creating…" : running ? "Start another phone" : "Create phone"}</Button>
+        <div className={s.createFoot}>
+          <p className={s.createHint} title="Estimated from phonelink phones only. Other codespaces use the same hours. Stopped phones are kept for 30 days.">
+            <strong>{(left / nextRate).toFixed(1)} h</strong> left{running ? ` with ${usage.running.length + 1} running` : " this month"}
+          </p>
+          <Button disabled={pending}>{pending ? "Creating…" : running ? "Start another" : "Create phone"}</Button>
+        </div>
         {result.message && <p role="status">{result.message}</p>}
         {result.message && !result.phoneId && <p className={s.createHint}><a href="https://github.com/settings/billing/usage" target="_blank" rel="noreferrer">Check exact usage on GitHub</a>, then try again.</p>}
         {result.phoneId && <Link href={`/app/phones/${encodeURIComponent(result.phoneId)}`}>Open phone</Link>}

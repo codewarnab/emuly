@@ -56,3 +56,26 @@ h1, h2, h3, h4, h5, p { overflow-wrap: break-word; }
 [data-theme="dark"] { --overlay: #081322b0; }
 .skip-link { position: fixed; top: 12px; left: 12px; z-index: 200; transform: translateY(-200%); background: var(--panel); color: var(--text); padding: 12px 20px; border: 1px solid var(--control-line); border-radius: 8px; }
 .skip-link:focus { transform: translateY(0); }
+
+/* Grid ⇄ list morph (components/phone-collection.tsx). Each phone keeps its size-correct
+   snapshot (no stretching), slides to its new box, and its old and new looks crossfade. */
+::view-transition-group(.phone-morph) {
+  animation-duration: 420ms;
+  animation-timing-function: cubic-bezier(.2, .8, .2, 1);
+  overflow: hidden;
+  border-radius: 16px;
+}
+::view-transition-old(.phone-morph),
+::view-transition-new(.phone-morph) {
+  height: 100%;
+  width: 100%;
+  object-fit: none;
+  object-position: left top;
+}
+::view-transition-old(.phone-morph) { animation: 160ms ease-out both phone-fade-out; }
+::view-transition-new(.phone-morph) { animation: 260ms ease-in 120ms both phone-fade-in; }
+@keyframes phone-fade-out { to { opacity: 0; } }
+@keyframes phone-fade-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(.phone-morph), ::view-transition-old(.phone-morph), ::view-transition-new(.phone-morph) { animation: none; }
+}

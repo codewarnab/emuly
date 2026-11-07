@@ -1,5 +1,6 @@
 import type { createWebhookService } from "./webhooks.ts";
 import { WebhookInputError } from "./webhook-security.ts";
+import { WebhookRateLimitError } from "./webhooks.ts";
 
 /** Session-authenticated API. Mutations reject browser cross-origin requests. */
 export function createWebhookApi({ user, service }: {
@@ -20,7 +21,10 @@ export function createWebhookApi({ user, service }: {
       if (method === "GET" && !id) return json(service.list(identity.id));
       if (method === "GET" && id && resource === "deliveries") return json(service.deliveries(identity.id, id));
       if (method === "DELETE" && id && !resource) return json(service.remove(identity.id, id));
-      if (method === "POST" && id && resource === "test") return json(service.test(identity.id, id), 202);
+      if (method === "POST" && id && resource === "test") {
+        return new URL(request.url).searchParams.get("wait") === "1"
+          ? json(await service.testNow(identity.id, id)) : json(service.test(identity.id, id), 202);
+      }
       if (method === "POST" && id && resource === "deliveries" && deliveryId) return json(service.resend(identity.id, id, deliveryId), 202);
       if ((method === "POST" && !id) || (method === "PATCH" && id && !resource)) {
         if (!request.headers.get("content-type")?.startsWith("application/json")) return json({ error: "invalid_input" }, 415);
@@ -29,6 +33,7 @@ export function createWebhookApi({ user, service }: {
       }
       return json({ error: "method_not_allowed" }, 405);
     } catch (error) {
+      if (error instanceof WebhookRateLimitError) return json({ error: "rate_limited", message: error.message }, 429);
       if (error instanceof WebhookInputError || error instanceof SyntaxError) return json({ error: "invalid_input", message: error.message }, 400);
       return json({ error: "request_failed", message: "The webhook request failed. Try again." }, 500);
     }

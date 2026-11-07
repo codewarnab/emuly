@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CopyButton } from "./copy-button";
+import { PhoneCardMenu } from "./phone-card-menu";
 import { Button } from "./button";
 import s from "./console.module.css";
 import { Pill } from "./pill";
@@ -31,12 +31,16 @@ export function Thumb({ dim, sbRight = "5G" }: { dim?: boolean; sbRight?: string
   );
 }
 
-export function PhoneCard({ phone, controlState, retention }: { phone: PhoneRow; on?: boolean; controlState?: string; retention?: Retention | null }) {
+const PILL_LABEL = { running: "running", stopped: "stopped", booting: "starting", needsyou: "failed" } as const;
+
+export function PhoneCard({ phone, controlState, retention, codespace = null }: { phone: PhoneRow; on?: boolean; controlState?: string; retention?: Retention | null; codespace?: string | null }) {
+  const noCodespace = controlState === "error" && !codespace;
   return (
     <div className={s.pcard}>
       <div className={s.pcardHead}>
-        <span className={s.name}>{phone.name}</span>
-        <Pill kind={phone.state}>{phone.state}</Pill>
+        <Link href={`/app/phones/${encodeURIComponent(phone.id)}`} className={`${s.name} ${s.nameLink}`}>{phone.name}</Link>
+        <Pill kind={phone.state}>{PILL_LABEL[phone.state]}</Pill>
+        <PhoneCardMenu id={phone.id} codespace={codespace} />
       </div>
       <div className={s.pcardBody}>
         <Thumb dim={phone.thumbDim} />
@@ -44,7 +48,7 @@ export function PhoneCard({ phone, controlState, retention }: { phone: PhoneRow;
           {phone.meta.map(([k, v]) => (
             <div key={k}>
               <span className={s.k}>{k}</span>
-              <span className={`${s.v} ${s.copyValue}`}>{v}{k.toLowerCase() === "slot" && <CopyButton text={v} description={`Copy codespace name ${v}`} />}</span>
+              <span className={s.v}>{v}</span>
             </div>
           ))}
         </div>
@@ -55,8 +59,8 @@ export function PhoneCard({ phone, controlState, retention }: { phone: PhoneRow;
         {retention.canKeep && controlState !== "keeping" && <KeepPhone id={phone.id} />}
       </div>}
       <div className={s.pcardFoot}>
-        {controlState ? <PhoneMutation id={phone.id} state={controlState} /> : <Button tiny variant="ghost" disabled aria-describedby={`controls-${phone.id}`}>{phone.state === "stopped" ? "Wake" : "Stop"}</Button>}
-        <Link href={`/app/phones/${encodeURIComponent(phone.id)}?tab=backups`} className={s.cardLink}>Backups</Link>
+        {noCodespace ? <span className={s.cardHint}>Use ⋯ to delete it.</span>
+          : controlState ? <PhoneMutation id={phone.id} state={controlState} /> : <Button tiny variant="ghost" disabled aria-describedby={`controls-${phone.id}`}>{phone.state === "stopped" ? "Wake" : "Stop"}</Button>}
         <Link href={`/app/phones/${encodeURIComponent(phone.id)}`} className={`${s.btn} ${s.btnTiny} ${s.btnFootMain}`}>
           Open phone
         </Link>
