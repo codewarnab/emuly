@@ -1,6 +1,7 @@
 import type { createPhoneService } from "./phone-mutations.ts";
 import { PhoneInputError, redact } from "./phone-mutations.ts";
-import { GitHubError } from "./github.ts";
+import { GitHubError, PHONE_MACHINE } from "./github.ts";
+import { IDLE_MAX, IDLE_MIN, validIdle } from "./idle.ts";
 import { RateLimitError } from "./rate-limit.ts";
 import type { Usage } from "./usage.ts";
 
@@ -8,7 +9,7 @@ import type { Usage } from "./usage.ts";
 export function createPhoneApi({ user, service, template, usage, defaults }: {
   user: () => Promise<{ id: number } | null>;
   service: Pick<ReturnType<typeof createPhoneService>, "create" | "keep">;
-  template: () => { repository: string; repositoryId: number; devcontainerPath: string };
+  template: () => { repository: string; repositoryId: number; devcontainerPath?: string };
   usage: (userId: number) => Usage;
   defaults: (userId: number) => { default_machine: string | null; default_idle_min: number };
 }) {
@@ -49,10 +50,11 @@ export function createPhoneApi({ user, service, template, usage, defaults }: {
         if (!input || typeof input !== "object" || Array.isArray(input)) throw new PhoneInputError("Expected a JSON object");
         const body = input as Record<string, unknown>;
         const settings = defaults(identity.id);
-        const machine = body.machine ?? settings.default_machine ?? undefined;
+        // Every phone uses the 4-core machine; see PHONE_MACHINE.
+        const machine = PHONE_MACHINE.name;
         const idle = body.idle_timeout_min ?? settings.default_idle_min;
-        if ((machine !== undefined && typeof machine !== "string") || (idle !== 30 && idle !== 240)) {
-          throw new PhoneInputError("Choose a machine and a 30-minute or 4-hour idle timeout.");
+        if (!validIdle(idle)) {
+          throw new PhoneInputError(`Choose an idle timeout from ${IDLE_MIN} to ${IDLE_MAX} minutes.`);
         }
         const id = await service.create(identity.id, { ...template(), machine, idleTimeoutMin: idle });
         return json({ id }, 201);

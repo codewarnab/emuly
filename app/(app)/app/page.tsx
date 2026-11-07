@@ -31,8 +31,7 @@ async function Dashboard({ clock = Date.now }: { clock?: () => number }) {
   const usage = await readAccountUsage(user, clock);
   const settings = userSettings(db(), user.id);
   const warning = hoursWarning(readUsage(db(), user.id, clock), settings.auto_stop_before_empty);
-  const defaultCores = phones.find(phone => phone.machine === settings.default_machine)?.cores
-    ?? (settings.default_machine === "basicLinux32gb" ? 2 : 4);
+  const defaultCores = 4;
   const now = clock();
   const cards = phones.map(phone => ({ card: phoneCard(phone), state: phone.keeping ? "keeping" : phone.state,
     lastUsed: phone.last_started_at, retention: retentionStatus(phone, () => now) }));

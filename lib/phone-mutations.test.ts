@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "./database.ts";
-import { createGitHubClient, GitHubError, type Codespace } from "./github.ts";
+import { createGitHubClient, GitHubError, PHONE_MACHINE, type Codespace } from "./github.ts";
 import { createPhoneService, PhoneInputError, UNCONFIRMED_CREATION_EXPIRY_MS } from "./phone-mutations.ts";
 import { RateLimitError } from "./rate-limit.ts";
 import { readUsage, saveAllowance } from "./usage.ts";
@@ -357,7 +357,7 @@ test("invalid creation inputs and blocked users cannot call GitHub", async () =>
   let calls = 0;
   const f = fixture(async () => { calls++; throw new Error("unexpected HTTP"); });
   try {
-    await assert.rejects(f.service.create(1, { ...input, idleTimeoutMin: 15 }), PhoneInputError);
+    await assert.rejects(f.service.create(1, { ...input, idleTimeoutMin: 3 }), PhoneInputError);
     await assert.rejects(f.service.create(1, { ...input, repositoryId: -1 }), PhoneInputError);
     f.database.prepare("UPDATE users SET blocked = 1 WHERE id = 1").run();
     await assert.rejects(f.service.create(1, input), /Sign in again/);
@@ -483,7 +483,8 @@ test("phone HTTP API authenticates, rejects cross-site creation, passes defaults
   let posts = 0;
   let refuse = true;
   const f = fixture(async url => {
-    if (String(url).endsWith("/machines")) return Response.json({ machines: [machine] });
+    // The API always asks for the 4-core phone machine.
+    if (String(url).endsWith("/machines")) return Response.json({ machines: [PHONE_MACHINE] });
     posts++;
     return refuse ? Response.json({ message: "Your spending limit has been reached." }, { status: 403 })
       : Response.json(space("new-api-phone", "Creating"));
@@ -569,4 +570,43 @@ test("the state poller avoids overlap, backs off GitHub refusals with a fake clo
     await tick();
     assert.deepEqual(calls, [1, 1]);
   } finally { release.resolve(); f.close(); }
+});
+
+test("an Available codespace starts phone setup, checks it until ready, then the phone is running; a failure waits before retrying", async () => {
+  const f = fixture(async () => Response.json({ codespaces: [space("generated-phone-cccc", "Available")] }));
+  const runs: string[] = [];
+  let fail = true;
+  const service = createPhoneService({ database: f.database, github: f.github, encrypt: plain => seal(plain, key),
+    setup: async (_user, name) => { runs.push(name); if (fail) throw new Error("apt failed"); return "ready"; } });
+  const state = () => f.database.prepare("SELECT state, state_detail FROM phones WHERE id = 'phone-cccc'").get() as
+    { state: string; state_detail: string | null };
+  try {
+    f.add("phone-cccc");
+    await service.sync(1);
+    await service.sync(1);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(runs, ["generated-phone-cccc"]);
+    assert.equal(state().state, "booting");
+    assert.match(state().state_detail ?? "", /apt failed.*10 minutes/);
+    await service.sync(1);
+    assert.equal(runs.length, 1, "a failed setup waits before it runs again");
+
+    fail = false;
+    let now = Date.now();
+    let status: "working" | "ready" = "working";
+    const ready = createPhoneService({ database: f.database, github: f.github, encrypt: plain => seal(plain, key),
+      clock: () => now, setup: async (_user, name) => { runs.push(name); return status; } });
+    await ready.sync(1);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(state().state, "booting", "setup still works in the codespace");
+    await ready.sync(1);
+    assert.equal(runs.length, 2, "the next check waits a short time");
+    now += 21_000;
+    status = "ready";
+    await ready.sync(1);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(runs.length, 3);
+    assert.equal(state().state, "running");
+    assert.equal(state().state_detail, null);
+  } finally { f.close(); }
 });

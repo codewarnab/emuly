@@ -5,6 +5,7 @@ import Link from "next/link";
 import { mutatePhone, phoneCreationOptions } from "../app/actions/phones";
 import { Button } from "./button";
 import { Dialog } from "./dialog";
+import { IdleTimeoutField } from "./idle-timeout-field";
 import { useToast } from "./ui-provider";
 import type { Usage } from "../lib/usage";
 import s from "./console.module.css";
@@ -36,49 +37,40 @@ export function KeepPhone({ id }: { id: string }) {
 export function NewPhone({ usage }: { usage: Usage }) {
   const running = usage.running.length > 0;
   const [options, setOptions] = useState<Awaited<ReturnType<typeof phoneCreationOptions>> | null>(null);
-  const [machine, setMachine] = useState("");
-  const selected = options?.machines.find(item => item.name === machine);
   const left = Math.max(0, usage.allowance_core_hours - usage.used_core_hours);
-  const cores = selected?.cpus ?? 4;
-  const nextRate = usage.running.reduce((sum, phone) => sum + phone.cores, cores);
+  // Every phone uses the 4-core machine (PHONE_MACHINE in lib/github.ts).
+  const nextRate = usage.running.reduce((sum, phone) => sum + phone.cores, 4);
   async function show() {
     setOpen(true);
     setOptions(null);
-    const choices = await phoneCreationOptions();
-    setOptions(choices);
-    setMachine(choices.machines.find(item => item.name === choices.settings.default_machine)?.name
-      ?? choices.machines.find(item => item.cpus === 4)?.name ?? choices.machines[0]?.name ?? "");
+    setOptions(await phoneCreationOptions());
   }
   const [open, setOpen] = useState(false);
   const [result, action, pending] = useActionState(mutatePhone, { message: "" });
   return <>
     <Button onClick={() => { void show(); }}>New phone</Button>
     {open && <Dialog title="New phone" close={() => { if (!pending) setOpen(false); }}>
-      <form action={action} className={s.createForm}>
+      {!options ? <p className={s.createHint} role="status">Loading…</p>
+      : options.message ? <div className={s.createForm}>
+        <p className={s.createError} role="alert">{options.message}</p>
+        <Button onClick={() => { void show(); }}>Try again</Button>
+      </div>
+      : <form action={action} className={s.createForm}>
         <input type="hidden" name="operation" value="create" />
-        <p>Your phone runs in a new GitHub Codespace in your account.</p>
-        <label>Machine<select name="machine" value={machine} onChange={event => setMachine(event.target.value)} disabled={!options?.machines.length}>
-          {!options && <option value="">Loading available machines...</option>}
-          {options?.machines.map(item => <option key={item.name} value={item.name}>{item.cpus}-core: {item.cpus === 2 ? "lasts longer" : item.cpus === 4 ? "faster boot" : item.display_name}</option>)}
-        </select></label>
-        <label>Stop after idle<select key={options?.settings.default_idle_min ?? "loading"} name="idleTimeoutMin" defaultValue={String(options?.settings.default_idle_min ?? 30)}>
-          <option value="30">30 minutes</option><option value="240">4 hours</option>
-        </select></label>
-        <p>You have about {(left / cores).toFixed(1)} h left this month on this machine. With {usage.running.length + 1} phones running that is about {(left / nextRate).toFixed(1)} h.</p>
-        <p>Estimated from phonelink phones only. Your other codespaces use the same hours.</p>
-        {running && <p>Running phones share your hours, so each extra phone uses them faster.</p>}
-        {options?.message && <p role="status">{options.message}</p>}
-        <p>Stopping keeps the codespace. New phones have 30 days of retention after stopping.</p>
-        <Button disabled={pending || !selected}>{pending ? "Creating…" : running ? "Start another phone" : "Create phone"}</Button>
+        <p className={s.machineLine}><strong>4-core</strong> · 16 GB RAM · 32 GB storage</p>
+        <IdleTimeoutField name="idleTimeoutMin" defaultValue={options.settings.default_idle_min ?? 30} />
+        <p className={s.createHint} title="Estimated from phonelink phones only. Other codespaces use the same hours. Stopped phones are kept for 30 days.">
+          About <strong>{(left / nextRate).toFixed(1)} h</strong> left this month{running ? ` with ${usage.running.length + 1} phones running` : ""}.
+        </p>
+        <Button disabled={pending}>{pending ? "Creating…" : running ? "Start another phone" : "Create phone"}</Button>
         {result.message && <p role="status">{result.message}</p>}
-        {result.message && !result.phoneId && <p><a href="https://github.com/settings/billing/usage" target="_blank" rel="noreferrer">Check exact usage on GitHub</a>, then try again.</p>}
+        {result.message && !result.phoneId && <p className={s.createHint}><a href="https://github.com/settings/billing/usage" target="_blank" rel="noreferrer">Check exact usage on GitHub</a>, then try again.</p>}
         {result.phoneId && <Link href={`/app/phones/${encodeURIComponent(result.phoneId)}`}>Open phone</Link>}
-      </form>
+      </form>}
     </Dialog>}
   </>;
 }
 
-/** Reconcile asynchronous GitHub changes while this page is visible. */
 export function PhoneRefresh() {
   const router = useRouter();
   useEffect(() => {

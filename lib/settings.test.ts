@@ -35,7 +35,7 @@ test("settings default to Free, 30-minute idle and auto-stop off; partial update
     clearAllowanceOverride(database, 1);
     assert.equal(userSettings(database, 1).allowance_core_hours, 180);
     updateSettings(database, 1, { allowance_core_hours: 0 });
-    for (const invalid of [null, [], {}, { user_id: 2 }, { auto_keep: 1 }, { default_idle_min: 60 },
+    for (const invalid of [null, [], {}, { user_id: 2 }, { auto_keep: 1 }, { default_idle_min: 4 }, { default_idle_min: 241 }, { default_idle_min: 30.5 },
       { allowance_core_hours: -1 }, { allowance_core_hours: Infinity }, { allowance_core_hours: "120" },
       { auto_stop_before_empty: 1 }, { default_machine: "bad/path" },
       { allowance_core_hours: 120, default_idle_min: 0 }]) {
@@ -52,7 +52,7 @@ test("settings default to Free, 30-minute idle and auto-stop off; partial update
     assert.equal((await patch(request(undefined, { Origin: "https://foreign.invalid" }))).status, 403);
     assert.equal((await patch(request(undefined, { "sec-fetch-site": "cross-site" }))).status, 403);
     assert.equal((await patch(request(undefined, { "Content-Type": "text/plain" }))).status, 415);
-    for (const body of ["{", "[]", '{"user_id":2}', '{"default_idle_min":31}']) {
+    for (const body of ["{", "[]", '{"user_id":2}', '{"default_idle_min":241}']) {
       assert.equal((await patch(request(body))).status, 400);
     }
     assert.deepEqual(userSettings(database, 1), saved);

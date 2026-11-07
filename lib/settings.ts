@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { IDLE_MAX, IDLE_MIN, validIdle } from "./idle.ts";
 
 export type UserSettings = {
   allowance_core_hours: number;
@@ -56,8 +57,8 @@ export function updateSettings(database: DatabaseSync, userId: number, input: un
     && (typeof patch.default_machine !== "string" || !/^[\w-]{1,100}$/.test(patch.default_machine))) {
     throw new SettingsInputError("Choose a valid machine.");
   }
-  if ("default_idle_min" in patch && patch.default_idle_min !== 30 && patch.default_idle_min !== 240) {
-    throw new SettingsInputError("Choose a 30-minute or 4-hour idle timeout.");
+  if ("default_idle_min" in patch && !validIdle(patch.default_idle_min)) {
+    throw new SettingsInputError(`Choose an idle timeout from ${IDLE_MIN} to ${IDLE_MAX} minutes.`);
   }
   if ("auto_stop_before_empty" in patch && typeof patch.auto_stop_before_empty !== "boolean") {
     throw new SettingsInputError("Auto-stop must be true or false.");

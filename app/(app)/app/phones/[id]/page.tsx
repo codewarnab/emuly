@@ -1,4 +1,5 @@
 import { PHONE_TABS } from "../../../../../lib/keyboard";
+import { idleLabel } from "../../../../../lib/idle";
 import Loading from "./loading";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
@@ -148,7 +149,7 @@ async function StoredPhone({ phone, user, search, syncError }: {
           <LogFeed title={`${tab === "apps" ? "Installed apps" : tab === "backups" ? "Backups" : "Activity"} for ${phone.id}`} rows={tab === "log" ? phoneEvents(user.id, phone.id) : []} live={false} emptyMessage={tab === "apps" ? "No apps listed. Installed packages will appear when this phone connects." : tab === "backups" ? "No named backups yet. Backups are opt-in. Stopping still keeps the phone and its snapshot." : "No activity yet. Steps will appear when this phone connects."} />}
         </section>
         <div className={s.subgrid}>
-          <Mini title="This phone" rows={[["Slot", phone.codespace_name], ["Machine", phone.machine], ["State", phone.state], ["Idle timeout", `Stops after ${phone.idle_timeout_min === 240 ? "4 h" : `${phone.idle_timeout_min} min`} idle`]]} />
+          <Mini title="This phone" rows={[["Slot", phone.codespace_name], ["Machine", phone.machine], ["State", phone.state], ["Idle timeout", `Stops after ${idleLabel(phone.idle_timeout_min)} idle`]]} />
         </div>
         <p className={s.fineprint}>Idle timeout is set when the phone is created. <a href="https://docs.github.com/en/codespaces/setting-your-user-preferences/setting-your-timeout-period-for-github-codespaces" target="_blank" rel="noreferrer">GitHub timeout settings</a></p>
       </div>

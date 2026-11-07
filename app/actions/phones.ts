@@ -2,6 +2,8 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "../../lib/auth";
 import { phoneControl, templateRepository } from "../../lib/phone-control";
+import { PHONE_MACHINE } from "../../lib/github";
+import { IDLE_MAX, IDLE_MIN, parseIdle } from "../../lib/idle";
 import { GitHubError } from "../../lib/github";
 import { PhoneInputError, redact } from "../../lib/phone-mutations";
 import { RateLimitError } from "../../lib/rate-limit";
@@ -24,12 +26,10 @@ export async function mutatePhone(_previous: MutationResult, form: FormData): Pr
         : `Stopped ${result.stopped} phones. Your codespaces keep them.`;
     } else if (operation === "create") {
       const idle = form.get("idleTimeoutMin");
-      const machine = form.get("machine");
-      if ((idle !== "30" && idle !== "240") || typeof machine !== "string") {
-        throw new PhoneInputError("Choose a machine and idle timeout.");
-      }
+      const minutes = parseIdle(idle);
+      if (minutes === null) throw new PhoneInputError(`Enter an idle timeout from ${IDLE_MIN} to ${IDLE_MAX} minutes.`);
       id = await phoneControl().create(user.id, {
-        ...templateRepository(), machine: machine || undefined, idleTimeoutMin: Number(idle),
+        ...templateRepository(), machine: PHONE_MACHINE.name, idleTimeoutMin: minutes,
       });
       message = "Phone created. GitHub is preparing the codespace.";
     } else if (operation === "start" || operation === "stop" || operation === "keep") {

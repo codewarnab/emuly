@@ -1,4 +1,5 @@
 import "server-only";
+import { validIdle } from "./idle.ts";
 import { randomBytes } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { GitHubError, type Codespace, type createGitHubClient } from "./github.ts";
@@ -19,8 +20,11 @@ export class PhoneInputError extends Error {}
 /** After this time with no matching Codespace on GitHub, an unconfirmed creation is treated as failed. */
 export const UNCONFIRMED_CREATION_EXPIRY_MS = 30 * 60_000;
 
-export function createPhoneService({ database, github, encrypt, clock = Date.now, maxPhones, emit = event => emitEvent(event, database) }: {
+export function createPhoneService({ database, github, encrypt, clock = Date.now, maxPhones, setup, emit = event => emitEvent(event, database) }: {
   database: DatabaseSync;
+  /** Installs the emulator and runner in an Available codespace. Without it, phones stay booting. */
+  /** Starts or checks phone setup. "working" means: ask again later. */
+  setup?: (userId: number, codespaceName: string) => Promise<"ready" | "working">;
   github: GitHub;
   encrypt: (value: string) => Uint8Array;
   clock?: () => number;
@@ -32,6 +36,46 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
   }
   const busy = new Set<string>();
   const iso = () => new Date(clock()).toISOString();
+  const settingUp = new Set<string>();
+  const setupRetryAt = new Map<string, number>();
+  const setupFailure = new Map<string, string>();
+  const setupStarted = new Set<string>();
+  const SETUP_RETRY_MS = 10 * 60_000;
+  const SETUP_CHECK_MS = 20_000;
+
+  function startSetup(userId: number, id: string, codespaceName: string) {
+    if (!setup || settingUp.has(id) || (setupRetryAt.get(id) ?? 0) > clock()) return;
+    settingUp.add(id);
+    if (!setupStarted.has(id)) {
+      setupStarted.add(id);
+      database.prepare("UPDATE phones SET state_detail = ? WHERE user_id = ? AND id = ?")
+        .run("Installing Android and starting the runner. The first setup takes several minutes.", userId, id);
+      event(userId, id, "step", "Phone setup started");
+    }
+    // Each call is short: it starts setup in the codespace or checks on it.
+    setup(userId, codespaceName).then(status => {
+      if (status === "working") { setupRetryAt.set(id, clock() + SETUP_CHECK_MS); return; }
+      setupStarted.delete(id);
+      setupRetryAt.delete(id);
+      setupFailure.delete(id);
+      const current = database.prepare("SELECT state, codespace_name, machine FROM phones WHERE user_id = ? AND id = ?")
+        .get(userId, id) as { state: string; codespace_name: string; machine: string } | undefined;
+      // The phone may have stopped or been deleted while setup ran.
+      if (current?.state !== "booting" || current.codespace_name !== codespaceName) return;
+      database.prepare("UPDATE phones SET state = 'running', state_detail = NULL WHERE user_id = ? AND id = ?").run(userId, id);
+      event(userId, id, "step", "Phone ready");
+      emit({ userId, type: "phone.ready", createdAt: iso(), data: {
+        phone: { id, name: codespaceName, state: "running", machine: current.machine }, reason: "user" } });
+    }, (error: unknown) => {
+      setupRetryAt.set(id, clock() + SETUP_RETRY_MS);
+      const message = redact(error instanceof Error ? error.message : "Phone setup failed.");
+      const detail = `${message} phonelink tries again in about 10 minutes.`;
+      setupFailure.set(id, detail);
+      database.prepare("UPDATE phones SET state_detail = ? WHERE user_id = ? AND id = ? AND state = 'booting'")
+        .run(detail, userId, id);
+      event(userId, id, "error", message);
+    }).finally(() => settingUp.delete(id));
+  }
 
   function event(userId: number, phoneId: string | null, kind: string, message: string) {
     database.prepare("INSERT INTO events (user_id, phone_id, ts, kind, message) VALUES (?, ?, ?, ?, ?)")
@@ -99,7 +143,8 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
     const retention = state === "stopped" ? retentionExpiry({ ...previous, last_stopped_at: lastStopped,
       retention_at: codespace.retention_expires_at ?? (previous.state === "stopped" ? previous.retention_at : null) }) : null;
     const detail = state === "running" ? null : codespace.state === "Available"
-      ? "Codespace available. Phone setup and the screen connection are not connected yet. First boot usually takes about 60–160 s."
+      ? (setupFailure.get(id) ?? (setup ? "Installing Android and starting the runner. The first setup takes several minutes."
+        : "Codespace available. Phone setup is not connected yet."))
       : state === "error" ? `GitHub reports ${codespace.state}. Check the codespace on GitHub.` : null;
     trackRun(previous, codespace, state, source);
     database.prepare(`UPDATE phones SET state = ?, state_detail = ?, last_started_at = ?, last_stopped_at = ?,
@@ -117,6 +162,9 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
       } });
       if (state === "stopped") database.prepare("UPDATE phones SET stop_reason = NULL WHERE id = ?").run(id);
     }
+    // Keep it only starts a phone to stop it again; it does not need the emulator.
+    if (codespace.state === "Available" && state === "booting" && !keeping(id)) startSetup(userId, id, codespace.name);
+    else if (state !== "booting") { setupRetryAt.delete(id); setupFailure.delete(id); }
   }
 
   async function change(userId: number, id: string, operation: "start" | "stop", bulk = false, automatic = false) {
@@ -283,10 +331,10 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
     keep,
     autoKeep: (userId: number, id: string) => keep(userId, id, true),
     machines: (userId: number, repository: string) => github.machines(userId, repository),
-    async create(userId: number, input: { repository: string; repositoryId: number; machine?: string; idleTimeoutMin: number; devcontainerPath: string }) {
+    async create(userId: number, input: { repository: string; repositoryId: number; machine?: string; idleTimeoutMin: number; devcontainerPath?: string }) {
       if (!/^[\w.-]+\/[\w.-]+$/.test(input.repository) || !Number.isSafeInteger(input.repositoryId)
-        || input.repositoryId <= 0 || ![30, 240].includes(input.idleTimeoutMin)
-        || !/^\.?[\w./-]+\.json$/.test(input.devcontainerPath)
+        || input.repositoryId <= 0 || !validIdle(input.idleTimeoutMin)
+        || (input.devcontainerPath !== undefined && !/^\.?[\w./-]+\.json$/.test(input.devcontainerPath))
         || (input.machine !== undefined && !/^[\w-]{1,100}$/.test(input.machine))) {
         throw new PhoneInputError("Choose a valid repository, machine, and idle timeout.");
       }

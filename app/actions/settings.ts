@@ -26,7 +26,6 @@ export async function saveHours(_previous: { message: string }, form: FormData) 
   try {
     updateSettings(db(), user.id, {
       ...(["auto", "unchanged"].includes(String(choice)) ? {} : { allowance_core_hours: Number(value) }),
-      default_machine: form.get("machine") || null,
       default_idle_min: Number(form.get("idle")), auto_stop_before_empty: form.get("autoStop") === "on",
       auto_keep: form.get("autoKeep") === "on",
     });

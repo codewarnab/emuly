@@ -1,0 +1,13 @@
+// The codespace that each phonelink phone runs in.
+// phonelink creates it with devcontainer_path=.devcontainer/phone/devcontainer.json, then
+// installs Android and starts the runner over the codespace tunnel (lib/phone-setup.ts,
+// files from phone/). So this file has no lifecycle commands: the server is the one place
+// that runs setup, and it always sends the scripts that match its own version.
+{
+  "name": "phonelink phone",
+  // GitHub's default codespace image. Hosts keep it cached, so the codespace starts fast,
+  // and it already has Node for the runner.
+  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  // The emulator needs the 4-core machine (PHONE_MACHINE in lib/github.ts).
+  "hostRequirements": { "cpus": 4, "memory": "16gb", "storage": "32gb" }
+}

@@ -39,10 +39,16 @@ export type Codespace = {
   last_used_at?: string;
 };
 export type Machine = { name: string; display_name: string; cpus: number; memory_in_bytes: number };
+/**
+ * Every phone uses 4 cores, 16 GB RAM and 32 GB storage. Free and Pro personal accounts only
+ * offer 2-core and 4-core machines, and the emulator is too slow on 2 cores (measured 2026-10-30).
+ */
+export const PHONE_MACHINE: Machine = { name: "standardLinux32gb", display_name: "4-core", cpus: 4, memory_in_bytes: 16 * 1024 ** 3 };
+const STANDARD_MACHINES: Machine[] = [PHONE_MACHINE];
 export type CreateCodespace = {
   repository_id: number;
   machine: string;
-  devcontainer_path: string;
+  devcontainer_path?: string;
   idle_timeout_minutes: number;
   retention_period_minutes: number;
 };
@@ -117,8 +123,15 @@ export function createGitHubClient({ database, accessToken, fetch: fetcher = fet
     },
     async machines(userId: number, repository: string): Promise<Machine[]> {
       if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error("Invalid repository");
-      // The account endpoint returned 404 in the spike; the repository endpoint works.
-      const response = await request(userId, `/repos/${repository}/codespaces/machines`);
+      // The account endpoint returned 404 in the spike. The repository endpoint needs admin
+      // rights on the template, so users who do not own it get 403. Fall back to the standard
+      // machine types; GitHub still checks the chosen machine when it creates the codespace.
+      let response: Response;
+      try { response = await request(userId, `/repos/${repository}/codespaces/machines`); }
+      catch (error) {
+        if (error instanceof GitHubError && (error.status === 403 || error.status === 404)) return STANDARD_MACHINES;
+        throw error;
+      }
       const data = await response.json();
       if (!Array.isArray(data.machines) || !data.machines.every((m: Machine) =>
         typeof m.name === "string" && Number.isSafeInteger(m.cpus) && m.cpus > 0)) {

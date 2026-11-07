@@ -41,9 +41,9 @@ pnpm dev                     # http://localhost:4321
 | `PHONELINK_DB` | SQLite path, e.g. `.data/phonelink.db` |
 | `PHONELINK_MAX_TUNNELS` | relay guard, e.g. `6` (used from Phase 5) |
 | `PHONELINK_MAX_PHONES` | Optional operator safety cap across all users for local tests (positive integer). Unset by default: no phonelink cap. GitHub still applies its own codespace limits. |
-| `PHONELINK_TEMPLATE_REPO` | Public template repository, `owner/name`; users create their codespace from this repository |
-| `PHONELINK_TEMPLATE_REPOSITORY_ID` | Numeric GitHub repository ID for that same template |
-| `PHONELINK_DEVCONTAINER_PATH` | Defaults to `.devcontainer/devcontainer.json` |
+| `PHONELINK_TEMPLATE_REPO` | Optional. Leave unset to use this repository, `codewarnab/phonelink`, with `.devcontainer/phone/devcontainer.json`. It is private for now, so each user must be a collaborator to create a phone. phonelink installs the emulator and runner from `phone/` over the codespace tunnel (`lib/codespace-tunnel.ts`); the server needs no `gh` |
+| `PHONELINK_TEMPLATE_REPOSITORY_ID` | Required only with `PHONELINK_TEMPLATE_REPO`: the numeric GitHub repository ID of that repository. Do not use a repository in the `github` org: it blocks OAuth apps |
+| `PHONELINK_DEVCONTAINER_PATH` | Optional. Used only with `PHONELINK_TEMPLATE_REPO`; sent only when set |
 
 M0 adds the New phone dialog and Wake/Stop actions, with ownership checks and recorded activity.
 Creation uses 30-minute or 4-hour idle timeouts and 30-day retention. There is no product phone count limit.
