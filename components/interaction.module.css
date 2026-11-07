@@ -17,8 +17,8 @@
 .shortcuts p { display: flex; justify-content: space-between; gap: 24px; font-size: 14px; padding: 8px 0; margin: 0; border-bottom: 1px solid var(--line2); }
 .shortcuts kbd { white-space: nowrap; }
 .toasts { position: fixed; bottom: 24px; right: 24px; z-index: 100; display: grid; gap: 8px; width: min(420px, calc(100% - 40px)); pointer-events: none; }
-.toast { pointer-events: auto; display: flex; align-items: center; gap: 16px; justify-content: space-between; background: var(--panel); border: 1px solid var(--control-line); border-radius: 12px; padding: 16px; font-size: 14px; box-shadow: 0 8px 32px var(--shadow); animation: appear 150ms ease-out; }
-@keyframes appear { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.toastSlot { display: block; position: relative; }
+.toast { pointer-events: auto; display: flex; align-items: center; gap: 16px; justify-content: space-between; background: var(--panel); border: 1px solid var(--control-line); border-radius: 12px; padding: 16px; font-size: 14px; box-shadow: 0 8px 32px var(--shadow); will-change: transform, opacity; }
 @media(max-width: 680px) { .dialogBody { padding: 20px; } .dialog h2 { font-size: 20px; } .command { padding: 12px 8px; } .toasts { bottom: 20px; right: 20px; } }
 
 .copyFallback { display: block; margin-top: 12px; color: var(--dim); font-size: 13px; }
