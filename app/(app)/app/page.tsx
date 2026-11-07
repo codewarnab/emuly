@@ -8,6 +8,7 @@ import { PhoneCollection } from "../../../components/phone-collection";
 import { QuotaStrip } from "../../../components/quota-strip";
 import { NewPhone, PhoneRefresh, StopAll } from "../../../components/phone-mutations";
 import { syncPhoneState } from "../../../lib/phone-control";
+import { SyncNotice } from "../../../components/sync-notice";
 import { Topbar, Avatar } from "../../../components/topbar";
 import { db } from "../../../lib/db";
 import { readUsage, userSettings } from "../../../lib/usage";
@@ -51,12 +52,12 @@ async function Dashboard({ clock = Date.now }: { clock?: () => number }) {
         <h1>Your phones</h1>
         {phones.length > 0 && <div className={s.acts}><StopAll count={usage.running.length} /><NewPhone usage={usage} /></div>}
       </div>
-      {syncError && <p role="status">{syncError}</p>}
+      {syncError && <SyncNotice error={syncError} />}
       {warning && <p role="status" className={s.hoursBanner}>{warning}</p>}
       {cards.some(phone => phone.retention?.warning) && <p role="status" className={s.hoursBanner}>
         GitHub deletes some stopped phones in less than 2 days. Choose Keep it to reset their countdown.
       </p>}
-      <PhoneRefresh />
+      {(!syncError || syncError.kind === "other") && <PhoneRefresh />}
       <KeyboardTools phones={phones.map(phone => ({ id: phone.id, name: phone.id }))} />
       <QuotaStrip usage={usage} defaultCores={defaultCores} />
 

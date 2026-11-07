@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Start the phonelink runner on 127.0.0.1:8790 in the background.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+builtin cd "$(dirname "$0")/.."
 # KVM access resets on every codespace start.
 if [ -e /dev/kvm ]; then
   sudo chgrp "$(id -gn)" /dev/kvm 2>/dev/null || true

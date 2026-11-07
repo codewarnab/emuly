@@ -26,7 +26,21 @@ export function githubFetch(url: string, init: RequestInit, fetcher: typeof fetc
 
 export class GitHubError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) { super(message); this.status = status; }
+  readonly retryAfter?: number;
+  readonly rateLimited: boolean;
+  constructor(message: string, status: number, retryAfter?: number, rateLimited = false) {
+    super(message); this.status = status; this.retryAfter = retryAfter; this.rateLimited = rateLimited;
+  }
+}
+
+function retryDelay(headers: Headers) {
+  const retry = headers.get("retry-after");
+  if (retry?.trim() && Number.isFinite(Number(retry)) && Number(retry) >= 0) return Math.ceil(Number(retry));
+  const reset = headers.get("x-ratelimit-reset");
+  if (headers.get("x-ratelimit-remaining") === "0" && reset?.trim() && Number.isFinite(Number(reset))) {
+    return Math.max(0, Math.ceil(Number(reset) - Date.now() / 1000));
+  }
+  return undefined;
 }
 
 export type Codespace = {
@@ -72,7 +86,8 @@ export function createGitHubClient({ database, accessToken, fetch: fetcher = fet
     if (!response.ok) {
       const data = await response.json().catch(() => null);
       const message = typeof data?.message === "string" ? data.message : `GitHub request failed (${response.status})`;
-      throw new GitHubError(message.replaceAll(token, "[redacted]"), response.status);
+      throw new GitHubError(message.replaceAll(token, "[redacted]"), response.status, retryDelay(response.headers),
+        response.headers.get("x-ratelimit-remaining") === "0" || response.headers.has("retry-after"));
     }
     return response;
   }

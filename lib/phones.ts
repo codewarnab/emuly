@@ -55,6 +55,6 @@ export function phoneCard(phone: Phone): PhoneRow {
 export function phoneEvents(userId: number, id: string): LogRow[] {
   const rows = db().prepare(`SELECT ts, kind, message FROM events WHERE user_id = ? AND phone_id = ?
     ORDER BY ts DESC, id DESC LIMIT 50`).all(userId, id) as { ts: string; kind: string; message: string }[];
-  return rows.reverse().map(row => ({ time: `${row.ts.slice(11, 19)} UTC`, ok: row.kind === "step",
+  return rows.reverse().map(row => ({ time: `${row.ts.slice(11, 19)} UTC`, at: row.ts, ok: row.kind === "step", error: row.kind === "error",
     parts: [{ type: "text", value: row.message.length > 100 ? shortMessage(row.message) : row.message }] }));
 }

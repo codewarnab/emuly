@@ -9,6 +9,8 @@ import { requireUser } from "../../../../../lib/auth";
 import { findPhone, listPhones, phoneCard, phoneEvents, type Phone } from "../../../../../lib/phones";
 import { KeyboardTools } from "../../../../../components/keyboard-tools";
 import { syncPhoneState } from "../../../../../lib/phone-control";
+import type { SyncError } from "../../../../../lib/sync-error";
+import { SyncNotice } from "../../../../../components/sync-notice";
 import { PhoneMutation, PhoneRefresh } from "../../../../../components/phone-mutations";
 import s from "../../../../../components/console.module.css";
 import { Topbar, Avatar } from "../../../../../components/topbar";
@@ -123,24 +125,30 @@ async function StoredPhone({ phone, user, search, syncError }: {
   phone: Phone;
   user: { id: number; login: string; initials: string };
   search: Promise<{ tab?: string }>;
-  syncError: string | null;
+  syncError: SyncError | null;
 }) {
   const { tab: rawTab } = await search;
   const tab = (rawTab && tabSet.has(rawTab) ? rawTab : "log") as Tab;
+  // A failed setup keeps the phone booting and retries, so the stage shows the failure instead of waiting.
+  const setupFailed = phone.state === "booting" && /^(Phone setup failed|Could not reach the codespace)/.test(phone.state_detail ?? "");
   return <>
     <KeyboardTools phones={listPhones(user.id).map(item => ({ id: item.id, name: item.id }))} />
     <Topbar breadcrumb={["Phones", phone.id]}>
       <Avatar initials={user.initials} login={user.login} />
     </Topbar>
     <main className={s.detail} id="main-content" tabIndex={-1}>
-      <PhoneRefresh />
+      {(!syncError || syncError.kind === "other") && <PhoneRefresh />}
         <h1 className={s.srOnly}>Phone details</h1>
       <section className={`${s.stage} ${s.disconnected}`} aria-label="Phone screen">
         <div className={s.emptyPhone} aria-hidden />
         <Pill kind={phoneCard(phone).state}>{phone.state}</Pill>
-        <h2>{phone.state === "stopped" ? "Resting" : phone.state === "error" ? "Phone did not start" : "Waiting for the screen"}</h2>
-        <p>{phone.state === "stopped" ? "Wake it to resume the same device." : phone.state === "error" && phone.state_detail ? shortMessage(phone.state_detail) : "The screen appears when the phone connects."}</p>
-        {syncError && <p role="status">{shortMessage(syncError)}</p>}
+        <h2>{phone.state === "stopped" ? "Resting" : phone.state === "error" ? "Phone did not start" : setupFailed ? "Setup failed" : "Waiting for the screen"}</h2>
+        <p>{phone.state === "stopped" ? "Wake it to resume the same device."
+          : (phone.state === "error" || setupFailed) && phone.state_detail ? shortMessage(phone.state_detail)
+          : phone.state === "booting" && phone.state_detail ? phone.state_detail
+          : "The screen appears when the phone connects."}</p>
+        {setupFailed && <p>phonelink tries again in about 10 minutes.</p>}
+        {syncError && <SyncNotice error={syncError} />}
         {/* The one action that fits the state, next to the state it fixes. */}
         {phone.codespace_name.startsWith("pending:")
           ? phone.state === "error" && <Link className={`${s.btn} ${s.btnTiny} ${s.btnGhost}`} href={`/app/phones/${encodeURIComponent(phone.id)}?tab=danger`}>Delete this phone</Link>
@@ -150,7 +158,8 @@ async function StoredPhone({ phone, user, search, syncError }: {
         <Tabs active={tab} phoneId={phone.id} />
         <section role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} tabIndex={0}>
         {tab === "danger" ? <DangerPanel phoneName={phone.id} /> :
-          <LogFeed title={tab === "apps" ? "Installed apps" : tab === "backups" ? "Backups" : "Activity"} rows={tab === "log" ? phoneEvents(user.id, phone.id) : []} live={false} emptyMessage={tab === "apps" ? "No apps yet." : tab === "backups" ? "No backups yet." : "No activity yet."} />}
+          <LogFeed title={tab === "apps" ? "Installed apps" : tab === "backups" ? "Backups" : "Activity"} rows={tab === "log" ? phoneEvents(user.id, phone.id) : []} live={false}
+            running={tab === "log" && phone.state === "booting" && !setupFailed ? "Setting up…" : undefined} emptyMessage={tab === "apps" ? "No apps yet." : tab === "backups" ? "No backups yet." : "No activity yet."} />}
         </section>
         <div className={s.subgrid}>
           <Mini title="This phone" rows={[["Machine", "4-core"], ["Idle stop", idleLabel(phone.idle_timeout_min)]]} />

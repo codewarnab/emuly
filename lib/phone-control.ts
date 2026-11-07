@@ -2,9 +2,10 @@ import "server-only";
 import { db } from "./db.ts";
 import { seal } from "./crypto.ts";
 import { getAccessToken } from "./github-token.ts";
-import { createGitHubClient, GitHubError } from "./github.ts";
-import { createPhoneService, PhoneInputError, redact } from "./phone-mutations.ts";
+import { createGitHubClient } from "./github.ts";
+import { createPhoneService, PhoneInputError } from "./phone-mutations.ts";
 import { createPhoneSetup } from "./phone-setup.ts";
+import { syncError, type SyncError } from "./sync-error.ts";
 
 // Share mutation guards across requests and development hot reloads.
 // Hot reload keeps globalThis, so a service built by older code can lack new methods. Rebuild it then.
@@ -18,10 +19,10 @@ export function phoneControl() {
   });
 }
 
-export async function syncPhoneState(userId: number) {
+export async function syncPhoneState(userId: number): Promise<SyncError | null> {
   try { await phoneControl().sync(userId); return null; }
   catch (error) {
-    return error instanceof GitHubError ? redact(error.message) : "Phone state could not be refreshed. Try again shortly.";
+    return syncError(error);
   }
 }
 

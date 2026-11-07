@@ -11,7 +11,7 @@ export type SetupStatus = "ready" | "working";
 
 /** Runs in the codespace in the background, so no connection stays open while Android installs. */
 const RUN = `#!/usr/bin/env bash
-cd "$HOME/phonelink"
+builtin cd "$HOME/phonelink"
 if bash scripts/setup.sh && bash scripts/start-runner.sh; then
   for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8790/health >/dev/null 2>&1 && exit 0; sleep 1; done
   echo "phonelink: runner did not answer /health"; tail -20 /tmp/runner.log
@@ -29,7 +29,7 @@ export function setupScript(root = join(process.cwd(), "phone")) {
     ["run.sh", Buffer.from(RUN).toString("base64")]];
   const writes = files.map(([file, body]) => `mkdir -p "$(dirname "${file}")"\necho '${body}' | base64 -d > "${file}"`).join("\n");
   return `set -u
-mkdir -p "$HOME/phonelink" && cd "$HOME/phonelink"
+mkdir -p "$HOME/phonelink" && builtin cd "$HOME/phonelink"
 if curl -fsS http://127.0.0.1:8790/health >/dev/null 2>&1; then echo PHONELINK_READY; exit 0; fi
 if [ -f .failed ]; then rm -f .failed .pid; echo "phonelink setup failed:"; tail -5 setup.log; exit 1; fi
 if [ -f .pid ] && kill -0 "$(cat .pid)" 2>/dev/null; then echo PHONELINK_WORKING; exit 0; fi
