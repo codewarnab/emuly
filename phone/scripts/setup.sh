@@ -23,10 +23,14 @@ fi
 # --- 2. X11/runtime libs the emulator needs (blank template lacks them) ---
 PKGS="libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext6 \
 libxfixes3 libxi6 libxrandr2 libxrender1 libxtst6 libxkbcommon0 libnss3 libgl1 \
-libegl1 libgbm1 libasound2t64 libpulse0 unzip curl"
+libegl1 libgbm1 libpulse0 unzip curl"
+# Ubuntu 24.04 renamed libasound2; the codespace image may be older.
+if apt-cache show libasound2t64 >/dev/null 2>&1; then PKGS="$PKGS libasound2t64"; else PKGS="$PKGS libasound2"; fi
 if ! dpkg -s $PKGS >/dev/null 2>&1; then
-  sudo apt-get update -qq
-  sudo apt-get install -y -qq $PKGS >/dev/null
+  # The image ships a yarn apt source whose key expired; it breaks apt-get update and we do not need it.
+  sudo rm -f /etc/apt/sources.list.d/yarn.list
+  sudo apt-get update -qq || echo "apt-get update reported errors; installing anyway"
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $PKGS >/dev/null
 fi
 echo "X11 libs: installed"
 
