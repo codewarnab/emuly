@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "./database.ts";
-import { clearAllowanceOverride, userSettings, updateSettings, SettingsInputError } from "./settings.ts";
+import { choosePlan, chosenPlan, clearAllowanceOverride, userSettings, updateSettings, SettingsInputError } from "./settings.ts";
 import { createSettingsApi } from "./settings-api.ts";
 
 test("settings default to Free, 30-minute idle and auto-stop off; partial updates persist without touching another user", async () => {
@@ -62,4 +62,24 @@ test("settings default to Free, 30-minute idle and auto-stop off; partial update
     assert.deepEqual(await response.json(), { ...saved, auto_stop_before_empty: false, auto_keep: false });
     assert.deepEqual(userSettings(database, 2), defaults);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("onboarding plan choice sets the allowance and replaces a manual override", () => {
+  const directory = mkdtempSync(join(tmpdir(), "phonelink-plan-"));
+  const database = openDatabase(join(directory, "test.db"));
+  try {
+    database.prepare(`INSERT INTO users (id, github_id, login, token_cipher, token_scopes, created_at, last_seen_at)
+      VALUES (1, 1, 'fixture', ?, 'codespace', '2026-11-01', '2026-11-01')`).run(Buffer.from("fixture"));
+    assert.equal(chosenPlan(database, 1), null, "new users have not chosen yet");
+    updateSettings(database, 1, { allowance_core_hours: 50 });
+    assert.equal(chosenPlan(database, 1), null, "a manual allowance is not a plan choice");
+    choosePlan(database, 1, "pro");
+    assert.equal(chosenPlan(database, 1), "pro");
+    assert.equal(userSettings(database, 1).allowance_core_hours, 180);
+    choosePlan(database, 1, "free");
+    assert.equal(userSettings(database, 1).allowance_core_hours, 120);
+  } finally {
+    database.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

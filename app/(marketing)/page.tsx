@@ -6,8 +6,8 @@ import { ThemeToggle } from "../../components/theme-toggle";
 import { Brand } from "../../components/topbar";
 import { CopyButton } from "../../components/copy-button";
 import { KeyboardTools } from "../../components/keyboard-tools";
+import { HeroPhone } from "../../components/hero-phone";
 import { AGENT_PROMPT } from "../../lib/agent-prompt";
-import c from "../../components/console.module.css";
 import s from "./landing.module.css";
 
 export const metadata: Metadata = {
@@ -42,14 +42,7 @@ export default function LandingPage() {
             </li>)}
           </ul>
         </div>
-        <div className={s.device} aria-label="Illustration of an Android phone">
-          <div className={c.phone}><div className={c.notch} /><div className={c.phoneScr}>
-            <div className={c.sb}><span>9:41</span><span>5G</span></div>
-            <div className={c.clk}><div className={c.clkT}>9:41</div></div>
-            <div className={c.grid4}>{Array.from({length: 12}, (_, i) => <i key={i} />)}</div>
-          </div></div>
-
-        </div>
+        <div className={s.device}><HeroPhone /></div>
       </section>
       <section className={s.facts} aria-label="The essentials">
         <p>Free on your included Codespaces hours. No card.</p>

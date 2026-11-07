@@ -2,7 +2,17 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "../../lib/auth";
 import { db } from "../../lib/db";
-import { clearAllowanceOverride, SettingsInputError, updateSettings } from "../../lib/settings";
+import { redirect } from "next/navigation";
+import { choosePlan, clearAllowanceOverride, SettingsInputError, updateSettings } from "../../lib/settings";
+
+export async function savePlan(form: FormData) {
+  const user = await requireUser();
+  const plan = form.get("plan");
+  if (plan !== "free" && plan !== "pro") return;
+  choosePlan(db(), user.id, plan);
+  revalidatePath("/app");
+  redirect("/app");
+}
 import { acknowledgeAutoStops } from "../../lib/hours";
 
 export async function saveHours(_previous: { message: string }, form: FormData) {

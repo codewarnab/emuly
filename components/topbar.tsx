@@ -2,7 +2,7 @@ import Link from "next/link";
 import { CommandHint } from "./keyboard-tools";
 import s from "./console.module.css";
 import { ThemeToggle } from "./theme-toggle";
-import { Button } from "./button";
+import { UserMenu } from "./user-menu";
 
 export function Brand() {
   return (
@@ -14,17 +14,7 @@ export function Brand() {
 }
 
 export function Avatar({ initials, login }: { initials: string; login: string }) {
-  return <details className={s.userMenu}>
-    <summary aria-label={`Account: ${login}`}><span className={s.avatar}>{initials}</span></summary>
-    <div className={s.menuContent}>
-      <p>Signed in as <b>{login}</b></p>
-      <Link href="/app/settings/hours">Settings → Hours</Link>
-      <Link href="/app/settings/webhooks">Settings → Webhooks</Link>
-      <form action="/auth/logout" method="post">
-        <Button variant="ghost" tiny type="submit">Log out</Button>
-      </form>
-    </div>
-  </details>;
+  return <UserMenu initials={initials} login={login} />;
 }
 
 export function Topbar({

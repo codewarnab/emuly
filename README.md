@@ -60,7 +60,7 @@ Without billing access, the console labels usage **Estimate** and keeps login av
 **Connect billing for exact numbers** requests the optional OAuth `user` scope.
 A refusal keeps the current session and estimate. The billing endpoint can still reject access.
 [Billing implementation notes](docs/BILLING-USAGE.md) record the API assumptions and verification limits.
-Runs count cores ? elapsed hours in the UTC calendar month, including active runs and month boundaries.
+Runs count cores × elapsed hours in the UTC calendar month, including active runs and month boundaries.
 A 60-second poller reconciles external starts/stops. The API and automatic stop still use the local estimate.
 The dialog loads the account's available machines and respects stored machine/idle defaults.
 More than six phones use a compact list by default. The view toggle is remembered per user in this browser.

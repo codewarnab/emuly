@@ -4,7 +4,24 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase } from "./database.ts";
+import { migrate, openDatabase } from "./database.ts";
+
+test("migrate applies a migration added after the connection was opened", () => {
+  const dir = mkdtempSync(join(tmpdir(), "phonelink-db-"));
+  const database = openDatabase(join(dir, "app.db"));
+  try {
+    const { user_version: latest } = database.prepare("PRAGMA user_version").get() as { user_version: number };
+    // Simulate a connection opened before the latest migration existed.
+    database.exec(`DROP TABLE billing_settings; PRAGMA user_version = ${latest - 1}`);
+    migrate(database);
+    assert.equal((database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, latest);
+    assert.ok(database.prepare("SELECT name FROM sqlite_master WHERE name = 'billing_settings'").get());
+    migrate(database); // no-op when current
+  } finally {
+    database.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("migration 5 preserves saved allowances from v4 as explicit overrides", () => {
   const directory = mkdtempSync(join(tmpdir(), "phonelink-billing-migration-"));

@@ -12,6 +12,8 @@ import { Topbar, Avatar } from "../../../components/topbar";
 import { db } from "../../../lib/db";
 import { readUsage, userSettings } from "../../../lib/usage";
 import { readAccountUsage } from "../../../lib/billing";
+import { chosenPlan } from "../../../lib/settings";
+import { redirect } from "next/navigation";
 import { KeyboardTools } from "../../../components/keyboard-tools";
 import { hoursWarning } from "../../../lib/hours";
 import { retentionStatus } from "../../../lib/retention";
@@ -23,6 +25,7 @@ export default function DashboardPage() {
 
 async function Dashboard({ clock = Date.now }: { clock?: () => number }) {
   const user = await requireUser();
+  if (!chosenPlan(db(), user.id)) redirect("/app/welcome");
   const syncError = await syncPhoneState(user.id);
   const phones = listPhones(user.id);
   const usage = await readAccountUsage(user, clock);

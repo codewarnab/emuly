@@ -21,11 +21,72 @@
 .quotaBar, .quotaTxt { display: none; }
 .avatar { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; color: var(--accent); background: var(--accent-soft); font-size: 13px; font-weight: 700; }
 .userMenu { position: relative; flex: none; }
-.userMenu summary { cursor: pointer; list-style: none; border-radius: 50%; }
-.userMenu summary::-webkit-details-marker { display: none; }
-.menuContent { position: absolute; z-index: 30; right: 0; top: 46px; min-width: 210px; background: var(--panel); padding: 16px; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 32px var(--shadow); }
-.menuContent p { margin: 0 0 12px; overflow-wrap: anywhere; color: var(--dim); font-size: 13px; }
-.userMenu form { margin: 0; }
+.usageMeta { margin: 10px 0 0; color: var(--dim); font-size: 13px; }
+.usageMeta a { color: var(--dim); text-decoration: underline; text-underline-offset: 3px; }
+.usageMeta a:hover { color: var(--accent); }
+.welcome { max-width: 720px; text-align: center; padding-top: 96px; }
+.welcome h1 { margin: 0; font-size: clamp(28px, 4vw, 40px); letter-spacing: -.02em; }
+.welcomeLede { margin: 12px 0 40px; color: var(--dim); font-size: 17px; }
+.planGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.planCard {
+  display: grid; gap: 6px; justify-items: start; padding: 24px; text-align: left; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 16px; background: var(--panel); color: var(--text); font: inherit;
+  transition: border-color .2s ease, transform .2s ease, box-shadow .2s ease;
+  animation: menuItemIn .4s ease-out both;
+}
+.planCard + .planCard { animation-delay: .06s; }
+.planCard:hover, .planCard:focus-visible { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 16px 36px -16px var(--shadow); outline: none; }
+.planCard:active { transform: translateY(0) scale(.99); }
+.planCurrent { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.planName { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.planName small { padding: 2px 8px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-size: 11px; }
+.planHours { font-size: 44px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; }
+.planHours small { font-size: 15px; font-weight: 500; color: var(--dim); letter-spacing: 0; }
+.planNote { color: var(--dim); font-size: 13px; }
+.welcomeHint { margin-top: 28px; color: var(--dim); font-size: 14px; }
+.welcomeHint a { color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .planCard { animation: none; transition: none; } }
+.avatarButton { display: block; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; transition: box-shadow .2s ease, transform .2s ease; }
+.avatarButton:hover { box-shadow: 0 0 0 3px var(--accent-soft); }
+.avatarButton:active { transform: scale(.94); }
+.avatarButton[aria-expanded="true"] { box-shadow: 0 0 0 3px var(--accent); }
+.menuContent {
+  position: absolute; z-index: 30; right: -6px; top: calc(100% + 10px); width: 264px; padding: 6px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(14px) saturate(1.4);
+  border: 1px solid var(--line); border-radius: 16px;
+  box-shadow: 0 1px 0 rgb(255 255 255 / .06) inset, 0 20px 48px -12px var(--shadow), 0 4px 12px -4px var(--shadow);
+  transform-origin: calc(100% - 23px) -8px;
+}
+.menuContent[data-state="open"] { animation: menuIn .22s cubic-bezier(.2, .9, .3, 1.15) both; }
+.menuContent[data-state="closing"] { animation: menuOut .14s ease-in both; pointer-events: none; }
+.menuContent[data-state="open"] > * { animation: menuItemIn .28s ease-out both; }
+.menuContent[data-state="open"] > :nth-child(2) { animation-delay: .04s; }
+.menuContent[data-state="open"] > :nth-child(3) { animation-delay: .08s; }
+@keyframes menuIn { from { opacity: 0; transform: translateY(-6px) scale(.94); filter: blur(2px); } }
+@keyframes menuOut { to { opacity: 0; transform: translateY(-4px) scale(.97); } }
+@keyframes menuItemIn { from { opacity: 0; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) {
+  .menuContent[data-state], .menuContent[data-state] > * { animation-duration: 1ms !important; animation-delay: 0s !important; }
+}
+.menuHeader { display: flex; align-items: center; gap: 12px; padding: 10px 10px 12px; }
+.avatarLarge { width: 40px; height: 40px; font-size: 14px; flex: none; }
+.menuWho { display: grid; gap: 1px; min-width: 0; }
+.menuWho small { color: var(--dim); font-size: 12px; }
+.menuWho b { font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menuGroup { display: grid; gap: 2px; margin: 0; padding: 6px 0 0; border-top: 1px solid var(--line2); }
+.menuGroup + .menuGroup { margin-top: 6px; }
+.menuItem {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: 0; border-radius: 10px;
+  background: none; color: var(--text); font: inherit; font-size: 14px; text-align: left; text-decoration: none; cursor: pointer;
+  transition: background-color .15s ease, color .15s ease;
+}
+.menuItem:hover, .menuItem:focus-visible { background: var(--panel2); outline: none; }
+.menuItem:focus-visible { box-shadow: 0 0 0 2px var(--accent) inset; }
+.menuItem kbd { margin-left: auto; color: var(--dim2); font: 500 11px/1 inherit; letter-spacing: .02em; }
+.menuIcon { width: 17px; height: 17px; flex: none; color: var(--dim); transition: color .15s ease, transform .2s ease; }
+.menuItem:hover .menuIcon { color: var(--accent); transform: translateX(1px); }
+.menuDanger:hover, .menuDanger:focus-visible { color: #f08a8a; background: color-mix(in srgb, #e05252 14%, transparent); }
+.menuDanger:hover .menuIcon { color: #f08a8a; }
 .pagewrap { max-width: 1184px; margin: 0 auto; padding: 64px 32px 48px; }
 .pagehead { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 36px; }
 .pagehead h1 { font: 500 36px/1.2 var(--font-display), sans-serif; letter-spacing: -.05em; margin: 0 0 12px; }

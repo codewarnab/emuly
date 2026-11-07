@@ -10,6 +10,18 @@ export type UserSettings = {
 
 export class SettingsInputError extends Error {}
 
+/** The plan the user told us in onboarding. null = not asked yet. */
+export function chosenPlan(database: DatabaseSync, userId: number): "free" | "pro" | null {
+  const row = database.prepare("SELECT plan_name FROM billing_settings WHERE user_id = ?").get(userId);
+  return row?.plan_name === "free" || row?.plan_name === "pro" ? row.plan_name : null;
+}
+
+/** Save the plan and drop any manual allowance so the plan's allowance applies. */
+export function choosePlan(database: DatabaseSync, userId: number, plan: "free" | "pro") {
+  database.prepare(`INSERT INTO billing_settings (user_id, plan_name, allowance_override) VALUES (?, ?, NULL)
+    ON CONFLICT(user_id) DO UPDATE SET plan_name = excluded.plan_name, allowance_override = NULL`).run(userId, plan);
+}
+
 export function clearAllowanceOverride(database: DatabaseSync, userId: number) {
   database.prepare("UPDATE billing_settings SET allowance_override = NULL WHERE user_id = ?").run(userId);
 }
