@@ -5,12 +5,12 @@ replace it. Where this file and PLAN-WEB.md disagree, this file wins for the top
 
 Owner decisions (2026-11-07):
 
-1. Remove the fixed "2 phones max". Users may run as many phones as GitHub lets them.
+1. Remove the fixed phone count limit. Users may run as many phones as GitHub lets them.
 2. Do **not** build multi-GitHub-account linking now. Document why in code, with doc links.
 3. Auto-stop before the hours run out: an **optional** setting, off by default, 30 minutes
    before the estimated end.
 4. Offer a 30-minute idle timeout (in addition to 4 h).
-5. Show the 7-day retention countdown with a one-click "Keep it".
+5. Show the retention countdown (30 days, the GitHub maximum) with a one-click "Keep it".
 6. Outgoing webhooks so people can wire phonelink into their own tools.
 
 ---
@@ -31,7 +31,7 @@ Facts this plan relies on (re-check against GitHub docs before Phase M1 ships):
 - `POST /user/codespaces` takes `idle_timeout_minutes` and `retention_period_minutes`.
   `PATCH /user/codespaces/{name}` can change `machine` (and display name); idle timeout for an
   existing codespace is not reliably patchable, so it is chosen at create time and stored.
-- Retention: GitHub deletes a stopped codespace after its retention period (we set 7 days)
+- Retention: GitHub deletes a stopped codespace after its retention period (we set 30 days = 43200 min, the API maximum and the GitHub default)
   counted from the last time it was stopped. Starting it again resets the clock.
 - GitHub limits how many codespaces a user can have and run. The exact number is not
   something we hard-code: we surface GitHub's own error when it refuses.
@@ -52,7 +52,7 @@ Docs to cite in code (stable URLs):
 
 ### 1.1 What changes
 
-- Delete the product rule "2 phones max". Remove `PHONELINK_MAX_PHONES` from `.env.local`
+- Delete the fixed product phone count limit. Remove `PHONELINK_MAX_PHONES` from `.env.local`
   docs and code paths; replace it with an **optional** safety cap `PHONELINK_MAX_PHONES`
   defaulting to unset (no cap). Keep it only as an operator guard for local testing.
 - `PHONELINK_MAX_TUNNELS` stays (it protects our relay, not the user).
@@ -266,7 +266,7 @@ human for a webhook URL and register it with `POST /v1/webhooks`." Agents may st
 ```sql
 ALTER TABLE phones ADD COLUMN idle_timeout_min INTEGER NOT NULL DEFAULT 240;
 ALTER TABLE phones ADD COLUMN cores INTEGER;            -- from machine
-ALTER TABLE phones ADD COLUMN retention_min INTEGER NOT NULL DEFAULT 10080;
+ALTER TABLE phones ADD COLUMN retention_min INTEGER NOT NULL DEFAULT 43200;  -- 30 days, API max (0..43200)
 
 CREATE TABLE runs (
   id         INTEGER PRIMARY KEY,
@@ -363,7 +363,7 @@ Accept: a local receiver verifies signatures; a failing receiver gets 5 retries 
 right spacing (fake clock); private-IP URLs are refused.
 
 ### M5 — Docs + copy (1–2 h)
-Code comment from §6, README line, landing FAQ ("Limits?" answer drops "two phones max",
+Code comment from §6, README line, landing FAQ ("Limits?" answer drops the fixed phone count limit,
 mentions shared hours and 30-min idle), console facts strip, skill paragraph.
 
 ---
@@ -382,7 +382,7 @@ mentions shared hours and 30-min idle), console facts strip, skill paragraph.
 
 ## 12. Copy changes (enforced in review)
 
-- Never "2 phones max". Say "Running phones share your hours."
+- Never claim a fixed product phone count limit. Say "Running phones share your hours."
 - Always "about" / "estimated" for hours.
 - "GitHub deletes this phone in 5 days unless you use it." — not "we delete".
 - "Stopping keeps the phone" stays everywhere.

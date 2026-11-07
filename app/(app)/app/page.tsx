@@ -4,26 +4,40 @@ import { requireUser } from "../../../lib/auth";
 import { listPhones, phoneCard } from "../../../lib/phones";
 import { EmptyState } from "../../../components/empty-state";
 import s from "../../../components/console.module.css";
-import { PhoneCard } from "../../../components/phone-card";
-import { AddCard } from "../../../components/add-card";
+import { PhoneCollection } from "../../../components/phone-collection";
 import { QuotaStrip } from "../../../components/quota-strip";
-import { Button } from "../../../components/button";
+import { NewPhone, PhoneRefresh, StopAll } from "../../../components/phone-mutations";
+import { syncPhoneState } from "../../../lib/phone-control";
 import { Topbar, Avatar } from "../../../components/topbar";
+import { db } from "../../../lib/db";
+import { readUsage, userSettings } from "../../../lib/usage";
+import { KeyboardTools } from "../../../components/keyboard-tools";
+import { hoursWarning } from "../../../lib/hours";
+import { retentionStatus } from "../../../lib/retention";
 
-/** Board block 02 — dashboard: 2 phone cards max + add-card + quota strip. */
+/** Dashboard: each phone is a codespace in the signed-in user's account. */
 export default function DashboardPage() {
   return <Suspense fallback={<Loading />}><Dashboard /></Suspense>;
 }
 
-async function Dashboard() {
+async function Dashboard({ clock = Date.now }: { clock?: () => number }) {
   const user = await requireUser();
+  const syncError = await syncPhoneState(user.id);
   const phones = listPhones(user.id);
-  // TODO(Phase 3): replace example quota numbers with explicitly labeled estimates.
+  const usage = readUsage(db(), user.id, clock);
+  const settings = userSettings(db(), user.id);
+  const warning = hoursWarning(usage, settings.auto_stop_before_empty);
+  const defaultCores = phones.find(phone => phone.machine === settings.default_machine)?.cores
+    ?? (settings.default_machine === "basicLinux32gb" ? 2 : 4);
+  const now = clock();
+  const cards = phones.map(phone => ({ card: phoneCard(phone), state: phone.keeping ? "keeping" : phone.state,
+    lastUsed: phone.last_started_at, retention: retentionStatus(phone, () => now) }));
   return (
     <>
       <Topbar
         nav={[
           { label: "Phones", on: true },
+          { label: "Settings" },
         ]}
       >
         <Avatar initials={user.initials} login={user.login} />
@@ -33,30 +47,36 @@ async function Dashboard() {
         <div>
           <h1>Your phones</h1>
           <p>
-            Two max. Each one is a codespace in{" "}
+            Running phones share your hours. Each one is a codespace in{" "}
             <span>
               {user.login}
             </span>
             &apos;s account.
           </p>
         </div>
-        {phones.length > 0 && <div className={s.creationAction}>
-          <Button disabled aria-describedby="creation-note">New phone</Button>
-          <p className={s.availability} id="creation-note">Phone creation is coming soon.</p>
-        </div>}
+        <div className={s.acts}><StopAll count={usage.running.length} /><NewPhone usage={usage} /></div>
       </div>
+      {syncError && <p role="status">{syncError}</p>}
+      {warning && <p role="status" className={s.hoursBanner}>{warning}</p>}
+      {cards.some(phone => phone.retention?.warning) && <p role="status" className={s.hoursBanner}>
+        GitHub deletes some stopped phones in less than 2 days. Choose Keep it to reset their countdown.
+      </p>}
+      <PhoneRefresh />
+      <KeyboardTools phones={phones.map(phone => ({ id: phone.id, name: phone.id }))} />
+      <QuotaStrip usage={usage} defaultCores={defaultCores} />
 
       {phones.length === 0 ? (
         <EmptyState title="No phones yet"
-          sub="Copy the setup prompt into your coding agent to get your first phone. It runs in your own GitHub Codespace." />
+          sub="Choose New phone to create a codespace in your own GitHub account." />
       ) : (
-        <div className={s.grid}>
-          {phones.map(phone => <PhoneCard key={phone.id} phone={phoneCard(phone)} on={phone.state === "running"} />)}
-          {phones.length < 2 && <AddCard />}
-        </div>
+        <PhoneCollection userId={user.id} phones={cards} />
       )}
-
-      <QuotaStrip />
+      <div className={s.fineprint}>
+        <span>Stopping keeps the phone.</span>
+        <span>Only deleting the codespace erases it.</span>
+        <span>Running phones share your hours.</span>
+        <span>GitHub stops an idle phone after 30 minutes or 4 hours, your choice.</span>
+      </div>
     </main>
     </>
   );

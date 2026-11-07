@@ -16,8 +16,8 @@ Watching and touching the phone in the browser is a bonus, not the headline.
 | Landing page (Next.js) | done: copy-prompt hero, agent logos, short FAQ |
 | GitHub OAuth (`codespace` scope), encrypted tokens, sessions | done (Phase 2) |
 | Console UI: dashboard, phone page, light/dark, ⌘K menu, shortcuts, toasts | done with example data |
-| Real phones: list, create, start, stop | next (PLAN-WEB Phases 3–4) |
-| Many phones, hours budget, idle/retention care, webhooks | planned in `docs/PLAN-MULTI.md` |
+| Codespaces: list, create, start, stop | M0 control plane implemented; runner boot, snapshot save and screen connection remain Phase 5 |
+| Many phones, estimated hours budget, idle/retention care, webhooks | implemented per `docs/PLAN-MULTI.md`; tests use fake GitHub responses and clocks, plus a local webhook receiver. Real-account behavior remains unverified. |
 
 Local only for now: no deployment, no public URL.
 
@@ -40,6 +40,35 @@ pnpm dev                     # http://localhost:4321
 | `PHONELINK_TOKEN_KEY` | 32 random bytes, base64 (`openssl rand -base64 32`), encrypts tokens at rest |
 | `PHONELINK_DB` | SQLite path, e.g. `.data/phonelink.db` |
 | `PHONELINK_MAX_TUNNELS` | relay guard, e.g. `6` (used from Phase 5) |
+| `PHONELINK_MAX_PHONES` | Optional operator safety cap across all users for local tests (positive integer). Unset by default: no phonelink cap. GitHub still applies its own codespace limits. |
+| `PHONELINK_TEMPLATE_REPO` | Public template repository, `owner/name`; users create their codespace from this repository |
+| `PHONELINK_TEMPLATE_REPOSITORY_ID` | Numeric GitHub repository ID for that same template |
+| `PHONELINK_DEVCONTAINER_PATH` | Defaults to `.devcontainer/devcontainer.json` |
+
+M0 adds the New phone dialog and Wake/Stop actions, with ownership checks and recorded activity.
+Creation uses 30-minute or 4-hour idle timeouts and 30-day retention. There is no product phone count limit.
+Each account can create once per minute and request six mutations per minute, including failed requests.
+SQLite upgrades existing databases to migration v2 on open. Stop waits for GitHub state reconciliation;
+it does not claim that the runner saved a snapshot. Tests use fake GitHub HTTP and fake clocks.
+
+M1 adds an estimated hours budget, with Free (120 core-hours), Pro (180), or a custom allowance.
+Runs count cores × elapsed hours in the UTC calendar month, including active runs and month boundaries.
+A 60-second poller reconciles external starts/stops. Estimates cover phonelink phones only; other
+codespaces use the same allowance. Check exact usage at https://github.com/settings/billing/usage.
+The dialog loads the account's available machines and respects stored machine/idle defaults.
+More than six phones use a compact list by default. The view toggle is remembered per user in this browser.
+“Stop all running” preserves every codespace and reports partial failures.
+
+The session-authenticated API provides `GET /v1/usage` and `POST /v1/phones`.
+Creation accepts JSON `{ "machine": "<available machine name>", "idle_timeout_min": 30 }`;
+both fields are optional and use the user's defaults. GitHub refusals return HTTP 409
+with `{ "error": "github_refused", "message": "<GitHub message>" }`. No billing API scope is required.
+
+Running phones share your hours. GitHub stops an idle phone after 30 minutes or 4 hours,
+your choice at create. Stopping keeps the phone. New phones have 30-day retention;
+the console shows each stopped phone's countdown because existing phones can have shorter retention.
+The copied agent prompt explains idle activity and optional webhook notifications through
+`POST /v1/webhooks`. See [webhook setup and signature verification](docs/WEBHOOKS.md).
 
 Checks:
 
@@ -77,7 +106,8 @@ site/index.html     the original static landing page (historical)
 - Bring your own Codespace. Never resell GitHub access.
 - OAuth App with `scope=codespace` only. No `repo`, no device flow.
 - One GitHub account per user; no pooling of free accounts (GitHub Terms allow one free
-  account per person). See `docs/PLAN-MULTI.md` §6.
+  account per person). See [GitHub Terms](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service)
+  and `docs/PLAN-MULTI.md` §6.
 - Agent-native: copy-prompt landing; the real instructions are the `android-emu` skill
   (https://github.com/codewarnab/agent-skills).
 - Capacity: 1 phone per codespace by default; more phones means more codespaces sharing
@@ -87,7 +117,7 @@ site/index.html     the original static landing page (historical)
 
 ## Keyboard
 
-`⌘K` / `Ctrl K` command menu · `?` shortcuts · `g p` phones · `g 1` / `g 2` open a phone ·
+`⌘K` / `Ctrl K` command menu · `?` shortcuts · `g p` phones · `g 1`…`g 9` open a phone ·
 `1`–`4` phone tabs · `c` copy stream URL · `t` toggle dark mode. Delete has no shortcut.
 
 ## Related

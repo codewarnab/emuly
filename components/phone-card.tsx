@@ -4,6 +4,8 @@ import { Button } from "./button";
 import s from "./console.module.css";
 import { Pill } from "./pill";
 import type { PhoneRow } from "./fixtures";
+import { PhoneMutation, KeepPhone } from "./phone-mutations";
+import type { Retention } from "../lib/retention";
 
 export function Thumb({ dim, sbRight = "5G" }: { dim?: boolean; sbRight?: string }) {
   return (
@@ -29,7 +31,7 @@ export function Thumb({ dim, sbRight = "5G" }: { dim?: boolean; sbRight?: string
   );
 }
 
-export function PhoneCard({ phone }: { phone: PhoneRow; on?: boolean }) {
+export function PhoneCard({ phone, controlState, retention }: { phone: PhoneRow; on?: boolean; controlState?: string; retention?: Retention | null }) {
   return (
     <div className={s.pcard}>
       <div className={s.pcardHead}>
@@ -48,8 +50,12 @@ export function PhoneCard({ phone }: { phone: PhoneRow; on?: boolean }) {
         </div>
       </div>
       <p id={`controls-${phone.id}`} className={s.srOnly}>Phone controls are not connected yet. Your codespace keeps the phone when stopped.</p>
+      {retention && <div className={s.cardRetention}>
+        <p className={retention.warning ? s.retentionWarning : undefined}>{retention.message}</p>
+        {retention.canKeep && controlState !== "keeping" && <KeepPhone id={phone.id} />}
+      </div>}
       <div className={s.pcardFoot}>
-        <Button tiny variant="ghost" disabled aria-describedby={`controls-${phone.id}`}>{phone.state === "stopped" ? "Wake" : "Stop"}</Button>
+        {controlState ? <PhoneMutation id={phone.id} state={controlState} /> : <Button tiny variant="ghost" disabled aria-describedby={`controls-${phone.id}`}>{phone.state === "stopped" ? "Wake" : "Stop"}</Button>}
         <Link href={`/app/phones/${encodeURIComponent(phone.id)}?tab=backups`} className={s.cardLink}>Backups</Link>
         <Link href={`/app/phones/${encodeURIComponent(phone.id)}`} className={`${s.btn} ${s.btnTiny} ${s.btnFootMain}`}>
           Open phone

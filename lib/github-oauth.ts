@@ -1,5 +1,6 @@
 import "server-only";
 import { env } from "./env.ts";
+import { githubFetch } from "./github.ts";
 
 export class SignInError extends Error {
   readonly code: string;
@@ -17,14 +18,16 @@ export type TokenPair = {
   scopes: string;
 };
 
-export async function exchangeTokens(parameters: Record<string, string>): Promise<TokenPair> {
-  const response = await fetch("https://github.com/login/oauth/access_token", {
+export async function exchangeTokens(parameters: Record<string, string>, options: {
+  fetch?: typeof fetch; clock?: () => number;
+} = {}): Promise<TokenPair> {
+  const response = await githubFetch("https://github.com/login/oauth/access_token", {
     method: "POST",
     headers: { Accept: "application/json", "User-Agent": "phonelink-local" },
     body: new URLSearchParams({ client_id: env.clientId, client_secret: env.clientSecret, ...parameters }),
     cache: "no-store",
     signal: AbortSignal.timeout(15_000),
-  });
+  }, options.fetch);
   if (!response.ok) throw new SignInError("exchange");
   const data: unknown = await response.json();
   if (!isRecord(data) || data.error) throw new SignInError("exchange");
@@ -38,14 +41,14 @@ export async function exchangeTokens(parameters: Record<string, string>): Promis
   return {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
-    accessExpiresAt: expiry(data.expires_in),
-    refreshExpiresAt: expiry(data.refresh_token_expires_in),
+    accessExpiresAt: expiry(data.expires_in, options.clock ?? Date.now),
+    refreshExpiresAt: expiry(data.refresh_token_expires_in, options.clock ?? Date.now),
     scopes: data.scope,
   };
 }
 
-export async function githubGet(path: "/user" | "/user/codespaces?per_page=1", token: string) {
-  return fetch(`https://api.github.com${path}`, {
+export async function githubGet(path: "/user" | "/user/codespaces?per_page=1", token: string, fetcher?: typeof fetch) {
+  return githubFetch(`https://api.github.com${path}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/vnd.github+json",
@@ -54,11 +57,11 @@ export async function githubGet(path: "/user" | "/user/codespaces?per_page=1", t
     },
     cache: "no-store",
     signal: AbortSignal.timeout(15_000),
-  });
+  }, fetcher);
 }
 
-export async function githubIdentity(token: string) {
-  const response = await githubGet("/user", token);
+export async function githubIdentity(token: string, fetcher?: typeof fetch) {
+  const response = await githubGet("/user", token, fetcher);
   if (response.status !== 200) throw new SignInError("user");
   const data: unknown = await response.json();
   if (!isRecord(data) || !Number.isSafeInteger(data.id) || Number(data.id) <= 0
@@ -79,11 +82,11 @@ function nonempty(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
-function expiry(seconds: unknown) {
+function expiry(seconds: unknown, clock: () => number) {
   if (typeof seconds !== "number" || !Number.isSafeInteger(seconds) || seconds <= 0) {
     throw new SignInError("exchange");
   }
-  const milliseconds = Date.now() + seconds * 1000;
+  const milliseconds = clock() + seconds * 1000;
   if (milliseconds > 8.64e15) throw new SignInError("exchange");
   return new Date(milliseconds).toISOString();
 }

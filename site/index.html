@@ -309,12 +309,12 @@ POST   /v1/phones/:id/stop      → snapshot, keep the phone, stop billing</pre>
     <table>
       <thead><tr><th>Thing</th><th>Limit</th><th>Why</th></tr></thead>
       <tbody>
-        <tr><td>Phones per slot</td><td>1 default, 2 max</td><td>3 phones saturate 98% of 4 vCPU</td></tr>
-        <tr><td>Idle stop</td><td>4 hours</td><td>set at create; GitHub stops a slot left idle</td></tr>
-        <tr><td>Monthly hours</td><td>30 free / 45 Pro</td><td>120 or 180 core-hours ÷ 4 cores</td></tr>
+        <tr><td>Phones</td><td>1 per codespace by default</td><td>Running phones share your hours. GitHub applies its own codespace limits.</td></tr>
+        <tr><td>Idle stop</td><td>30 minutes or 4 hours</td><td>Your choice at create; GitHub stops an idle phone. Stopping keeps the phone.</td></tr>
+        <tr><td>Monthly hours</td><td>About 30 Free / 45 Pro</td><td>120 or 180 core-hours ÷ 4 cores</td></tr>
         <tr><td>Boot</td><td>15 s resume, 60–160 s cold</td><td>Snapshot vs full boot</td></tr>
         <tr><td>Saved phone</td><td>On by default</td><td>Stop keeps it; named backups are opt-in</td></tr>
-        <tr><td>Retention</td><td>7 days after last stop</td><td>Fixed at create; GitHub emails 1 day before deletion</td></tr>
+        <tr><td>Retention</td><td>30 days after last stop for new phones</td><td>GitHub deletes stopped phones after their retention period; check each phone's countdown.</td></tr>
       </tbody>
     </table>
 
@@ -332,7 +332,7 @@ POST   /v1/phones/:id/stop      → snapshot, keep the phone, stop billing</pre>
         <div style="font-size:12px;color:var(--accent);letter-spacing:.12em;font-weight:600">FREE, FOREVER</div>
         <div class="price">$0 <small>no card</small></div>
         <ul>
-          <li>1 phone per slot, 2 max</li>
+          <li>Running phones share your hours</li>
           <li>Stop and resume, no wipe</li>
           <li>Browser stream + agent API</li>
           <li>Named backups with <code>keep.sh</code></li>

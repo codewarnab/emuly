@@ -1,0 +1,36 @@
+import type { createWebhookService } from "./webhooks.ts";
+import { WebhookInputError } from "./webhook-security.ts";
+
+/** Session-authenticated API. Mutations reject browser cross-origin requests. */
+export function createWebhookApi({ user, service }: {
+  user: () => Promise<{ id: number } | null>; service: ReturnType<typeof createWebhookService>;
+}) {
+  return async function handle(request: Request, id?: string, resource?: "test" | "deliveries", deliveryId?: string) {
+    const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "private, no-store" } });
+    const identity = await user();
+    if (!identity) return json({ error: "unauthorized" }, 401);
+    const method = request.method;
+    if (method !== "GET") {
+      const origin = request.headers.get("origin");
+      if ((origin && origin !== new URL(request.url).origin) || request.headers.get("sec-fetch-site") === "cross-site") {
+        return json({ error: "forbidden" }, 403);
+      }
+    }
+    try {
+      if (method === "GET" && !id) return json(service.list(identity.id));
+      if (method === "GET" && id && resource === "deliveries") return json(service.deliveries(identity.id, id));
+      if (method === "DELETE" && id && !resource) return json(service.remove(identity.id, id));
+      if (method === "POST" && id && resource === "test") return json(service.test(identity.id, id), 202);
+      if (method === "POST" && id && resource === "deliveries" && deliveryId) return json(service.resend(identity.id, id, deliveryId), 202);
+      if ((method === "POST" && !id) || (method === "PATCH" && id && !resource)) {
+        if (!request.headers.get("content-type")?.startsWith("application/json")) return json({ error: "invalid_input" }, 415);
+        const body: unknown = await request.json();
+        return method === "POST" ? json(await service.create(identity.id, body), 201) : json(await service.update(identity.id, id!, body));
+      }
+      return json({ error: "method_not_allowed" }, 405);
+    } catch (error) {
+      if (error instanceof WebhookInputError || error instanceof SyntaxError) return json({ error: "invalid_input", message: error.message }, 400);
+      return json({ error: "request_failed", message: "The webhook request failed. Try again." }, 500);
+    }
+  };
+}

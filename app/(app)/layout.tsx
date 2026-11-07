@@ -1,11 +1,12 @@
 import { ConsoleLoading } from "../../components/console-loading";
 import Link from "next/link";
-import { KeyboardTools } from "../../components/keyboard-tools";
-import { listPhones } from "../../lib/phones";
-import { mockDetail } from "../../components/fixtures";
 import { Suspense } from "react";
 import { requireUser } from "../../lib/auth";
 import s from "../../components/console.module.css";
+import { db } from "../../lib/db";
+import { unreadAutoStops } from "../../lib/hours";
+import { AutoStopNotice } from "../../components/auto-stop-notice";
+import { webhookControl } from "../../lib/webhook-control";
 
 /** Console shell wrapper + mobile tabbar (board 05).
     Topbars are rendered per page (dashboard nav vs phone breadcrumb). */
@@ -15,15 +16,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
 async function AuthenticatedShell({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const phones = listPhones(user.id).map(phone => ({ id: phone.id, name: phone.id, ...(process.env.PHONELINK_MOCK === "1" && phone.id === mockDetail.phone ? { stream: mockDetail.streamUrl, adb: mockDetail.thisPhone.find(([key]) => key === "adb")?.[1] } : {}) }));
+  const disabledWebhooks = webhookControl().list(user.id).filter(hook => !hook.enabled && hook.failing_since);
   return (
     <div className={s.app}>
-      <KeyboardTools phones={phones} />
+      <AutoStopNotice notices={unreadAutoStops(db(), user.id)} />
+      {disabledWebhooks.length > 0 && <aside className={s.hoursBanner} role="status">
+        {disabledWebhooks.length} webhook endpoint{disabledWebhooks.length === 1 ? " is" : "s are"} disabled after 3 days of only failures.{" "}
+        <Link href="/app/settings/webhooks">Review Webhooks</Link>
+      </aside>}
       {children}
       <nav className={s.tabbar} aria-label="Console">
         <Link href="/app" className={s.tabOn}>Phones</Link>
         
         <Link href="/app#usage">Usage</Link>
+        <Link href="/app/settings/hours">Hours</Link>
       </nav>
     </div>
   );

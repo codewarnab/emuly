@@ -61,8 +61,8 @@ export default function LandingPage() {
         <div>
           <details><summary>Is it really free?</summary><p>Yes. You bring the compute through the Codespaces hours included in your GitHub plan. Phonelink never bills you or resells GitHub. Stay within your included hours to avoid GitHub charges.</p></details>
           <details><summary>What does it need from GitHub?</summary><p>One permission: Codespaces. No repo access. Your agent asks you to sign in when it needs approval.</p></details>
-          <details><summary>What happens when I stop it?</summary><p>Your codespace keeps the phone. It resumes in about 15 seconds. Only deleting the codespace erases it. GitHub retention is 7 days after the last stop.</p></details>
-          <details><summary>Limits?</summary><p>Two phones max per account. GitHub stops an idle slot after 4 hours. Cold boot takes 63–157 seconds. Hours shown in the console are estimates.</p></details>
+          <details><summary>What happens when I stop it?</summary><p>Your codespace keeps the phone. It resumes in about 15 seconds. Only deleting the codespace erases it. GitHub deletes a stopped phone after its retention period. New phones get 30 days after the last stop. The console shows each phone&apos;s countdown.</p></details>
+          <details><summary>Limits?</summary><p>Running phones share your hours. GitHub decides how many codespaces you can have and run. GitHub stops an idle phone after 30 minutes or 4 hours, your choice. Cold boot takes 63–157 seconds. Hours shown in the console are estimates.</p></details>
         </div>
       </section>
     </main>

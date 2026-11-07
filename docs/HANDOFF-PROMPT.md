@@ -87,14 +87,14 @@ Measured on a 4 vCPU / 16 GB codespace, November 2026:
 | Fact | Value |
 |---|---|
 | One phone cost | ~180% of 400% CPU, ~3 GB RAM |
-| Three phones | saturate 98% of 4 vCPU, so the cap is 2 |
+| Three phones | saturate 98% of 4 vCPU; use one phone per codespace by default, two for light use |
 | Snapshot resume | ~15 s |
 | Cold boot | 63–157 s |
 | Disk per phone | ~26 GB |
 | Free plan hours | 30/month (120 core-hours ÷ 4 cores) |
 | Pro plan hours | 45/month (180 core-hours ÷ 4 cores) |
-| Retention after last stop | 7 days, set at create |
-| Idle stop | 4 hours, set at create |
+| Retention after last stop | 30 days for new phones, set at create; show each phone's countdown |
+| Idle stop | 30 minutes (default) or 4 hours, chosen at create |
 | Machine type | query from GitHub, never hardcode. Prefer `standardLinux32gb` |
 | Apps that work with it | T3 Code, Claude Code, Codex, OpenCode. Only these four |
 
@@ -158,7 +158,8 @@ PHONELINK_GITHUB_CLIENT_SECRET=
 PHONELINK_TOKEN_KEY=      # openssl rand -base64 32
 PHONELINK_DB=.data/phonelink.db
 PHONELINK_TEMPLATE_REPO=
-PHONELINK_MAX_PHONES=2
+# Optional operator cap across all users for local tests; unset by default.
+# PHONELINK_MAX_PHONES=10
 PHONELINK_MAX_TUNNELS=6
 ```
 

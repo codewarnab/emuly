@@ -194,3 +194,48 @@
 @media(max-width:680px) { .skeletonStage { height: 692px; } }
 
 .urlrow code { font-size: 13px; }
+.createForm { display: grid; gap: 16px; min-width: 0; }
+.webhooks { display: grid; gap: 24px; max-width: 100%; }
+.webhooks input[type="url"] { width: 100%; min-width: 0; font: inherit; padding: 8px; color: var(--text); background: var(--panel); border: 1px solid var(--control-line); border-radius: 8px; }
+.webhookEvents { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 16px; border: 1px solid var(--control-line); border-radius: 8px; padding: 16px; }
+.webhooks .checkboxLabel { display: flex; align-items: flex-start; gap: 12px; }
+.webhookEndpoint { padding-block: 24px; border-top: 1px solid var(--control-line); min-width: 0; }
+.webhookUrl { overflow-wrap: anywhere; font-size: 21px; }
+.webhookSecret { display: block; overflow-wrap: anywhere; user-select: all; }
+.webhooks .acts { justify-content: flex-start; flex-wrap: wrap; }
+.webhookLog { overflow-x: auto; margin-top: 24px; }
+.webhookLog table { border-collapse: collapse; width: 100%; font-size: 13px; text-align: left; }
+.webhookLog th, .webhookLog td { padding: 8px; border-bottom: 1px solid var(--control-line); }
+.webhookDocs { max-width: 900px; }
+.webhookDocs p { margin-block: 16px; }
+.webhookDocs pre { overflow-x: auto; padding: 16px; background: var(--panel); border: 1px solid var(--control-line); border-radius: 8px; }
+.createForm label { display: grid; gap: 8px; min-width: 0; }
+.createForm select { font: inherit; color: var(--text); background: var(--panel); padding: 8px; border: 1px solid var(--control-line); border-radius: 8px; width: 100%; min-width: 0; }
+.hoursForm { max-width: 600px; padding-bottom: 32px; }
+.hoursForm input[type="number"] { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--control-line); border-radius: 8px; padding: 8px; min-width: 0; width: 100%; }
+.hoursForm .checkboxLabel { display: flex; align-items: flex-start; gap: 12px; }
+.checkboxLabel input { margin-top: 6px; accent-color: var(--accent); flex-shrink: 0; }
+.hoursForm p { color: var(--dim); margin: 0; }
+.hoursBanner { border-left: 3px solid var(--amber); padding: 16px; background: var(--panel); margin: 0 0 24px; }
+@media(max-width:680px) { .topbar > .phoneMutation { order: 6; } }
+
+.budget { padding-bottom: 24px; margin-bottom: 24px; border-bottom: 1px solid var(--line); }
+.budget .strip { margin-top: 0; padding-top: 0; }
+.budget p { margin: 8px 0; }
+.budget .fineprint { border: 0; padding: 0; }
+.allowance { margin-top: 12px; color: var(--dim); font-size: 13px; }
+.allowance summary { cursor: pointer; }
+.allowance form { max-width: 440px; padding: 16px 0; }
+.allowance input { color: var(--text); background: var(--panel); border: 1px solid var(--control-line); border-radius: 8px; padding: 8px; }
+.budgetWarning { background: var(--amber) !important; }
+.collectionTools { display: flex; justify-content: flex-end; margin-bottom: 16px; }
+.phoneList { list-style: none; margin: 0; padding: 0; }
+.phoneRow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto; gap: 24px; align-items: center; padding: 24px 0; border-bottom: 1px solid var(--line); }
+.phoneRow > div:first-child { display: grid; gap: 8px; min-width: 0; }
+.phoneRow .name { overflow-wrap: anywhere; font-size: 16px; }
+.rowDetails { display: grid; gap: 8px; color: var(--dim); font-size: 13px; }
+.cardRetention { padding: 0 24px 16px; color: var(--dim); font-size: 13px; }
+.cardRetention p { margin: 0 0 8px; }
+.retentionWarning { color: var(--amber); }
+.keepPhone { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13px; }
+@media (max-width: 680px) { .phoneRow { grid-template-columns: minmax(0, 1fr); gap: 16px; } .pagehead > .acts { flex-wrap: wrap; justify-content: flex-end; } }

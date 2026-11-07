@@ -76,6 +76,69 @@ const MIGRATIONS = [
     source      TEXT
   );
   `,
+  `
+  ALTER TABLE phones ADD COLUMN idle_timeout_min INTEGER NOT NULL DEFAULT 240;
+  ALTER TABLE phones ADD COLUMN cores INTEGER;
+  ALTER TABLE phones ADD COLUMN retention_min INTEGER NOT NULL DEFAULT 43200;
+
+  CREATE TABLE runs (
+    id INTEGER PRIMARY KEY,
+    phone_id TEXT NOT NULL REFERENCES phones(id) ON DELETE CASCADE,
+    cores INTEGER NOT NULL,
+    started_at TEXT NOT NULL,
+    stopped_at TEXT,
+    source TEXT NOT NULL
+  );
+  CREATE INDEX runs_phone ON runs(phone_id, started_at);
+  CREATE TABLE user_settings (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    allowance_core_hours REAL NOT NULL DEFAULT 120,
+    default_machine TEXT,
+    default_idle_min INTEGER NOT NULL DEFAULT 30,
+    auto_stop_before_empty INTEGER NOT NULL DEFAULT 0,
+    auto_keep INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE notices (
+    user_id INTEGER NOT NULL, kind TEXT NOT NULL, period TEXT NOT NULL,
+    PRIMARY KEY (user_id, kind, period)
+  );
+  CREATE TABLE webhooks (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    url TEXT NOT NULL,
+    events TEXT NOT NULL,
+    secret_cipher BLOB NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    failing_since TEXT
+  );
+  CREATE TABLE webhook_deliveries (
+    id TEXT PRIMARY KEY,
+    webhook_id TEXT NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
+    event_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    body TEXT NOT NULL,
+    attempt INTEGER NOT NULL DEFAULT 0,
+    next_try_at TEXT,
+    status INTEGER,
+    duration_ms INTEGER,
+    state TEXT NOT NULL
+  );
+  CREATE INDEX deliveries_due ON webhook_deliveries(state, next_try_at);
+  `,
+  `
+  CREATE TABLE phone_keeps (
+    phone_id TEXT PRIMARY KEY REFERENCES phones(id) ON DELETE CASCADE,
+    phase TEXT NOT NULL CHECK (phase IN ('starting', 'stopping')),
+    requested_at TEXT NOT NULL,
+    attempted_at TEXT
+  );
+  `,
+  `
+  ALTER TABLE webhook_deliveries ADD COLUMN created_at TEXT NOT NULL DEFAULT '';
+  ALTER TABLE webhook_deliveries ADD COLUMN attempted_at TEXT;
+  ALTER TABLE phones ADD COLUMN stop_reason TEXT;
+  `,
 ];
 
 export function openDatabase(filename: string): DatabaseSync {
@@ -96,6 +159,7 @@ export function openDatabase(filename: string): DatabaseSync {
       db.exec("COMMIT");
     } catch (e) {
       db.exec("ROLLBACK");
+      db.close();
       throw e;
     }
   }

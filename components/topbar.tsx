@@ -18,6 +18,8 @@ export function Avatar({ initials, login }: { initials: string; login: string })
     <summary aria-label={`Account: ${login}`}><span className={s.avatar}>{initials}</span></summary>
     <div className={s.menuContent}>
       <p>Signed in as <b>{login}</b></p>
+      <Link href="/app/settings/hours">Settings → Hours</Link>
+      <Link href="/app/settings/webhooks">Settings → Webhooks</Link>
       <form action="/auth/logout" method="post">
         <Button variant="ghost" tiny type="submit">Log out</Button>
       </form>
@@ -43,7 +45,7 @@ export function Topbar({
       {nav && (
         <nav className={s.topnav} aria-label="Main">
           {nav.map((n) => (
-            <Link href={n.label === "Phones" ? "/app" : n.label === "Usage" ? "/app#usage" : "/app#phones"} key={n.label} className={n.on ? s.on : ""}>
+            <Link href={n.label === "Phones" ? "/app" : n.label === "Usage" ? "/app#usage" : n.label === "Settings" ? "/app/settings/hours" : "/app#phones"} key={n.label} className={n.on ? s.on : ""}>
               {n.label}
             </Link>
           ))}

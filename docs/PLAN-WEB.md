@@ -17,7 +17,7 @@ proxy the screen back through our own origin so the user never leaves the app.
 
 Two hard constraints shape everything:
 
-1. **Two phones max, per user.** Measured: three AVDs saturate 98% of 4 vCPU.
+1. **Running phones share your hours.** See `PLAN-MULTI.md` §1: one phone per codespace by default; GitHub applies its own codespace limits.
 2. **One destructive action.** Stopping keeps the phone; only deleting the codespace erases
    it. That asymmetry is the product's promise and must be enforced in code, not just copy.
 
@@ -253,8 +253,8 @@ Rules:
 - Machine type is **not hardcoded**. We ask GitHub what the user's plan allows and prefer
   `standardLinux32gb` (4 vCPU / 16 GB — the measured rig); fall back to the largest
   available and say so in the UI ("4 vCPU" vs "2 vCPU — boots slower").
-- `idle_timeout_minutes: 240` (4 h, matching the landing page), `retention_period_minutes:
-  10080` (7 days).
+- Per `PLAN-MULTI.md`, choose `idle_timeout_minutes: 30` (default) or `240` (4 h),
+  and `retention_period_minutes: 43200` (30 days) for new phones.
 - Every write is preceded by `assertOwnedCodespace(userId, name)`.
 
 ---
@@ -425,7 +425,7 @@ codespace stopped outside the app shows as `stopped` within 30 s.
 
 - Create: pick repo + machine, `idle_timeout_minutes`, `retention_period_minutes`; insert
   `phones` row with `state=pending`; drive the log feed from real events.
-- Enforce **max 2 phones per user** and a global cap (10) with a clear message.
+- Per `PLAN-MULTI.md` §1, no product phone count limit; an optional global operator cap protects local tests.
 - Start: idempotent; polls until `Available`; then boots the AVD via the runner (or shows
   "boot first time: 60–160 s").
 - Stop: the two-step grace — `POST /stop` on the runner, then GitHub stop. Never the reverse.
@@ -497,7 +497,8 @@ PHONELINK_GITHUB_CLIENT_SECRET=…
 PHONELINK_TOKEN_KEY=<32 bytes base64, generate with: openssl rand -base64 32>
 PHONELINK_DB=.data/phonelink.db
 PHONELINK_TEMPLATE_REPO=codewarnab/phonelink-template
-PHONELINK_MAX_PHONES=2
+# Optional operator cap across all users for local tests; unset by default.
+# PHONELINK_MAX_PHONES=10
 PHONELINK_MAX_TUNNELS=6
 ```
 
@@ -552,13 +553,13 @@ The landing page earned its trust by being accurate. The app keeps the same stan
 | Codespace port forwarding auth for server clients | Phase 5 delay | Tunnel is the primary path for exactly this reason |
 | Free accounts lack 4-core machines | Slower boots, worse UX | Query machines per user and show the real spec |
 | Users hit quota mid-session | Phone dies confusingly | Pre-flight estimate + "needs you" state with a link to GitHub |
-| Abuse: signups creating phones in a loop | Noise, support | 2 phones max, 1 create/min, global cap, block list |
+| Abuse: signups creating phones in a loop | Noise, support | 1 create/min, optional operator cap, GitHub limits, block list |
 | OAuth callback host changes later | Sign-in breaks until the callback URL is updated | `PHONELINK_BASE_URL` is one env var; localhost now, whatever you pick later |
 
 Open questions for the user:
 
 1. Template repo owner/name — `codewarnab/phonelink-template`? (public)
-2. Do we allow 2 phones in v1, or ship with 1 and unlock later? The design shows 2.
+2. Resolved in `PLAN-MULTI.md` §1: no product phone count limit; running phones share the account hours.
 
 Hosting is not an open question here. It is out of scope until you finish local testing.
 

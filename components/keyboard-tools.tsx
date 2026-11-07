@@ -61,7 +61,7 @@ export function KeyboardTools({ phones }: { phones?: PhoneChoice[] }) {
   useShortcuts(handle, sheet !== null);
   const commands: Command[] = phones ? [
     { id: "phones", label: "Go to Phones", hint: "g p", run: () => router.push("/app") },
-    ...phones.map((phone, index) => ({ id: phone.id, label: `Open ${phone.name}`, hint: `g ${index + 1}`, run: () => router.push(`/app/phones/${encodeURIComponent(phone.id)}`) })),
+    ...phones.map((phone, index) => ({ id: phone.id, label: `Open ${phone.name}`, hint: index < 9 ? `g ${index + 1}` : "Enter", run: () => router.push(`/app/phones/${encodeURIComponent(phone.id)}`) })),
     ...(current ? [
       { id: "wake", label: "Wake current phone", hint: "w", run: unavailable, reason: CONTROL_REASON },
       { id: "stop", label: "Stop current phone", hint: "s", run: unavailable, reason: CONTROL_REASON },
@@ -84,7 +84,7 @@ export function KeyboardTools({ phones }: { phones?: PhoneChoice[] }) {
     {sheet === "commands" && <CommandMenu commands={commands} close={() => setSheet(null)} />}
     {sheet === "shortcuts" && <Dialog title="Keyboard shortcuts" close={() => setSheet(null)}><div className={s.shortcuts}>
       <h3>Everywhere</h3><p><span>Command menu</span><kbd>⌘K / Ctrl K</kbd></p><p><span>Show shortcuts</span><kbd>?</kbd></p><p><span>Toggle dark mode</span><kbd>t</kbd></p><p><span>Close menu or dialog</span><kbd>Esc</kbd></p>
-      {phones && <><h3>Navigation</h3><p><span>Go to Phones</span><kbd>g then p</kbd></p><p><span>Open phone 1 / 2</span><kbd>g then 1 / 2</kbd></p>
+      {phones && <><h3>Navigation</h3><p><span>Go to Phones</span><kbd>g then p</kbd></p><p><span>Open phones 1–9</span><kbd>g then 1–9</kbd></p>
       <h3>On a phone</h3><p><span>Agent log / Apps / Backups / Danger tab</span><kbd>1 / 2 / 3 / 4</kbd></p><p><span>Wake / Stop (unavailable)</span><kbd>w / s</kbd></p><p><span>Copy stream URL</span><kbd>c</kbd></p></>}
       <p className={s.help}>Shortcuts pause while you type. Deleting a phone has no shortcut.</p>
     </div></Dialog>}
