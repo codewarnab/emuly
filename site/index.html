@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>phonelink — a phone in your browser, from one prompt</title>
+<meta name="description" content="A real Android phone for any agent, inside your own GitHub Codespace. Resumes in about 15 seconds and survives a stop.">
+<style>
+  :root{
+    --bg:#08080a; --panel:#0e0e11; --line:#1e1e24; --text:#f4f4f5;
+    --dim:#8a8a94; --dim2:#5c5c66; --accent:#c8ff4d; --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text)}
+  body{
+    font:16px/1.55 ui-sans-serif,-apple-system,"Segoe UI",Inter,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    background-image:
+      radial-gradient(circle 780px at 28% -40px,rgba(34,46,20,.6) 0%,transparent 100%),
+      radial-gradient(circle 660px at 80% -60px,rgba(16,32,44,.55) 0%,transparent 100%);
+    background-repeat:no-repeat;
+  }
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+
+  /* nav */
+  nav{display:flex;align-items:center;justify-content:space-between;padding:22px 0}
+  .logo{display:flex;align-items:center;gap:8px;font-weight:600;letter-spacing:-.02em}
+  .logo .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 14px #c8ff4d88}
+  .navlinks{display:flex;align-items:center;gap:22px;color:var(--dim);font-size:14px}
+  .navlinks a:hover{color:var(--text)}
+  .btn{
+    display:inline-flex;align-items:center;gap:9px;background:var(--text);color:#0a0a0b;
+    border:0;border-radius:999px;padding:12px 20px;font-size:14px;font-weight:600;
+    cursor:pointer;transition:transform .15s ease,opacity .15s ease;
+  }
+  .btn:hover{transform:translateY(-1px);opacity:.94}
+  .btn.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+  .btn.small{padding:9px 16px;font-size:13px}
+
+  /* hero */
+  header{position:relative;padding:0 0 40px}
+  h1{
+    position:relative;font-size:clamp(38px,6vw,68px);line-height:1.03;
+    letter-spacing:-.035em;font-weight:600;margin:64px 0 20px;max-width:20ch;
+  }
+  .chip{
+    display:inline-block;background:#17171c;border:1px solid var(--line);
+    border-radius:10px;padding:0 .28em;color:var(--dim);
+  }
+  .chip span{display:inline-block;min-width:5.5ch;text-align:left;color:var(--text)}
+  .sub{position:relative;color:var(--dim);font-size:18px;max-width:52ch;margin:0 0 30px}
+  .hero-cta{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+  .hero-note{color:var(--dim2);font-size:13px;margin-top:14px}
+
+  /* agents strip */
+  .agents{margin-top:44px;border-top:1px solid var(--line);padding-top:22px}
+  .agents p{font-size:11px;letter-spacing:.18em;color:var(--dim2);font-weight:600;margin:0 0 14px}
+  .agentrow{display:flex;gap:28px;flex-wrap:wrap;color:var(--dim);font-size:14px}
+  .agentrow span{opacity:.85}
+
+  /* demo */
+  .demo{
+    display:grid;grid-template-columns:300px 1fr;gap:26px;
+    background:var(--panel);border:1px solid var(--line);border-radius:calc(var(--radius) + 6px);
+    padding:26px;margin:56px 0;
+  }
+  .phone{
+    width:300px;height:600px;border-radius:34px;border:1px solid #2a2a31;
+    background:linear-gradient(180deg,#15151a,#0b0b0e);padding:12px;position:relative;
+    box-shadow:0 30px 60px -30px #000;
+  }
+  .screen{
+    width:100%;height:100%;border-radius:24px;overflow:hidden;position:relative;
+    background:
+      radial-gradient(120% 80% at 12% -10%,#2f5474 0%,#1a2a42 45%,#0a0f16 100%),
+      #0a0f16;
+  }
+  .notch{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:78px;height:20px;border-radius:999px;background:#050506;z-index:4}
+  .statusbar{position:relative;z-index:3;display:flex;justify-content:space-between;padding:10px 18px 0;font-size:11px;color:#dbe6f0}
+  .clock{position:absolute;top:64px;left:0;right:0;text-align:center;z-index:2}
+  .clock .time{font-size:54px;font-weight:300;letter-spacing:-.04em;line-height:1;color:#eef5fc}
+  .clock .date{font-size:11.5px;color:#a7bccd;margin-top:7px;letter-spacing:.02em}
+  .search{
+    position:absolute;top:178px;left:22px;right:22px;height:36px;border-radius:999px;
+    background:#ffffff14;border:1px solid #ffffff14;display:flex;align-items:center;
+    gap:8px;padding:0 14px;color:#b6c8d8;font-size:12px;z-index:2;
+  }
+  .search svg{opacity:.8}
+  .appgrid{
+    position:absolute;top:238px;left:22px;right:22px;z-index:2;
+    display:grid;grid-template-columns:repeat(4,1fr);gap:18px 16px;
+  }
+  .app{aspect-ratio:1;border-radius:14px;background:#ffffff10;border:1px solid #ffffff14}
+  .app:nth-child(1){background:linear-gradient(160deg,#8ab4ff55,#4d7cff22)}
+  .app:nth-child(2){background:linear-gradient(160deg,#ffb86b55,#ff8a3d22)}
+  .app:nth-child(3){background:linear-gradient(160deg,#7bffb455,#2fd47a22)}
+  .app:nth-child(4){background:linear-gradient(160deg,#ff7bd555,#ff4fb022)}
+  .app:nth-child(5){background:linear-gradient(160deg,#c8ff4d55,#8fd41f22)}
+  .app:nth-child(6){background:linear-gradient(160deg,#8ad8ff55,#3aa5e022)}
+  .app:nth-child(7){background:linear-gradient(160deg,#d3b3ff55,#9a6bff22)}
+  .app:nth-child(8){background:linear-gradient(160deg,#ffd36b55,#e0a52f22)}
+  .app:nth-child(9){background:linear-gradient(160deg,#ff9a8a55,#e0564a22)}
+  .app:nth-child(10){background:linear-gradient(160deg,#9affd855,#28c9a022)}
+  .app:nth-child(11){background:linear-gradient(160deg,#b8c6ff55,#6f83d822)}
+  .app:nth-child(12){background:linear-gradient(160deg,#ffc7e555,#e073ae22)}
+  .dock{
+    position:absolute;left:16px;right:16px;bottom:16px;height:72px;z-index:2;
+    border-radius:22px;background:#ffffff0f;border:1px solid #ffffff12;
+    display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:10px;
+  }
+  .dock i{display:block;border-radius:12px;background:linear-gradient(160deg,#ffffff2e,#ffffff0d)}
+  .tap{
+    position:absolute;width:36px;height:36px;border-radius:50%;border:2px solid #c8ff4d;
+    left:90px;top:243px;z-index:5;animation:tap 2.8s infinite ease-out;
+  }
+  @keyframes tap{0%{transform:scale(.4);opacity:0}30%{opacity:.9}100%{transform:scale(1.5);opacity:0}}
+  .log{display:flex;flex-direction:column;gap:0;min-width:0}
+  .log h3{font-size:13px;color:var(--dim2);letter-spacing:.14em;text-transform:uppercase;margin:0 0 14px}
+  .row{display:flex;gap:14px;padding:12px 0;border-bottom:1px solid #16161b;font-size:14px}
+  .row .t{color:var(--dim2);font-variant-numeric:tabular-nums;font-size:12.5px;min-width:44px}
+  .row .m{color:#d5d5dd}
+  .row.ok .m{color:var(--accent)}
+  .takeover{margin-top:18px;display:flex;gap:10px;align-items:center;color:var(--dim);font-size:13px}
+  .watchbar{display:flex;align-items:center;gap:10px;margin-top:auto;padding-top:20px}
+  .watchbar code{
+    font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;color:#cfd3da;
+    background:#131318;border:1px solid var(--line);border-radius:8px;padding:8px 11px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .shots{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+  .shots i{display:block;height:80px;border-radius:9px;border:1px solid var(--line);
+    background:linear-gradient(160deg,#1a2635,#0d131a)}
+
+  /* sections */
+  section{padding:26px 0 10px}
+  h2{font-size:clamp(24px,3vw,32px);letter-spacing:-.02em;margin:0 0 8px;font-weight:600}
+  .lead{color:var(--dim);margin:0 0 28px;max-width:60ch}
+  .cols{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px}
+  .card .n{font-size:12px;color:var(--accent);font-weight:600;letter-spacing:.1em;margin-bottom:10px}
+  .card h4{margin:0 0 6px;font-size:16px;font-weight:600}
+  .card p{margin:0;color:var(--dim);font-size:14px}
+
+  .feat{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-top:8px}
+  .feat div{background:var(--panel);padding:20px}
+  .feat h4{margin:0 0 6px;font-size:15px}
+  .feat p{margin:0;color:var(--dim);font-size:14px}
+
+  table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
+  th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line)}
+  th{color:var(--dim2);font-weight:600;font-size:12px;letter-spacing:.1em;text-transform:uppercase}
+  td{color:#d8d8e0}
+
+  pre{
+    background:#0a0a0d;border:1px solid var(--line);border-radius:var(--radius);
+    padding:18px;overflow:auto;font-size:13.5px;color:#cfd3da;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin:12px 0 0;
+  }
+  .pricing{display:grid;grid-template-columns:1fr;gap:16px;margin-top:8px;max-width:560px}
+  .plan{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:22px}
+  .plan.hi{border-color:#2f3a1c;background:linear-gradient(180deg,#101408,#0e0e11)}
+  .price{font-size:34px;letter-spacing:-.02em;margin:6px 0 2px}
+  .price small{font-size:13px;color:var(--dim2);letter-spacing:0}
+  .plan ul{margin:14px 0 0;padding-left:18px;color:var(--dim);font-size:14px}
+  .plan li{margin:6px 0}
+
+  footer{margin-top:64px;border-top:1px solid var(--line);padding:26px 0 60px;color:var(--dim2);font-size:13px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+  @media (max-width:860px){
+    .demo{grid-template-columns:1fr;justify-items:center}
+    .cols{grid-template-columns:1fr}
+    .feat{grid-template-columns:1fr}
+    .pricing{grid-template-columns:1fr}
+    .navlinks{display:none}
+  }
+  @media (max-width:520px){
+    .wrap{padding:0 18px}
+    nav{padding:18px 0;gap:12px}
+    .logo{font-size:15px}
+    .btn.small{padding:8px 13px;font-size:12px;white-space:nowrap}
+    header{padding:40px 0 28px}
+    .hero-note{font-size:12px}
+    .demo{padding:18px}
+    .phone{width:min(280px,100%);height:560px}
+    .clock .time{font-size:44px}
+    .clock{top:56px}
+    .search{top:158px}
+    .appgrid{top:214px}
+    .tap{left:80px;top:219px}
+    .shots{display:none}
+    section{padding:20px 0 6px}
+    h2{font-size:23px}
+    table,thead,tbody,tr,th,td{display:block}
+    thead{display:none}
+    tr{padding:14px 0;border-bottom:1px solid var(--line)}
+    td{border:0;padding:2px 0}
+    td:first-child{color:var(--text);font-weight:600}
+    td:nth-child(2){color:var(--accent)}
+    td:nth-child(3){font-size:13px;color:var(--dim)}
+    pre{font-size:11px;padding:14px;line-height:1.6}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <nav>
+      <div class="logo"><span class="dot"></span> phonelink</div>
+      <div class="navlinks">
+        <a href="#how">How it works</a>
+        <a href="#limits">Limits</a>
+        <a href="#pricing">Pricing</a>
+      </div>
+    </nav>
+
+    <h1>A phone in your browser, for every <span class="chip"><span id="rot">agent</span></span> you run.</h1>
+    <p class="sub">
+      A real Android phone for any agent, inside your own GitHub Codespace.
+      Resumes in about 15 seconds, streams to a browser, and is still there next
+      time. Stopping is safe — only deleting the Codespace erases the phone.
+    </p>
+    <div class="hero-cta">
+      <button class="btn" onclick="document.getElementById('demo').scrollIntoView({behavior:'smooth'})">See the phone</button>
+      <a class="btn ghost" href="#how">How it works</a>
+    </div>
+    <p class="hero-note">Runs on the Codespaces hours already in your GitHub plan. No card. No repo access. One scope: Codespaces.</p>
+
+    <div class="agents">
+      <p>WORKS WITH EVERY AGENT</p>
+      <div class="agentrow">
+        <span>T3 Code</span><span>Claude Code</span><span>Codex</span><span>OpenCode</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="demo" id="demo">
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><span>5G ▮▮▮</span></div>
+        <div class="clock">
+          <div class="time">9:41</div>
+          <div class="date">Wed, Nov 5</div>
+        </div>
+        <div class="search">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          Search
+        </div>
+        <div class="appgrid">
+          <div class="app"></div><div class="app"></div><div class="app"></div><div class="app"></div>
+          <div class="app"></div><div class="app"></div><div class="app"></div><div class="app"></div>
+          <div class="app"></div><div class="app"></div><div class="app"></div><div class="app"></div>
+        </div>
+        <div class="dock"><i></i><i></i><i></i><i></i></div>
+        <div class="tap"></div>
+      </div>
+    </div>
+    <div class="log">
+      <h3>Live steps — phone-7f2a</h3>
+      <div class="row"><span class="t">12:04</span><span class="m">creating codespace · standardLinux32gb</span></div>
+      <div class="row"><span class="t">12:04</span><span class="m">installing sdk + avd</span></div>
+      <div class="row ok"><span class="t">12:05</span><span class="m">phone booted in 15s (snapshot)</span></div>
+      <div class="row"><span class="t">12:05</span><span class="m">adb install app-debug.apk</span></div>
+      <div class="row"><span class="t">12:06</span><span class="m">launch com.example.app</span></div>
+      <div class="row"><span class="t">12:06</span><span class="m">tap (540, 1200)</span></div>
+      <div class="row ok"><span class="t">12:06</span><span class="m">screenshot saved · you can watch</span></div>
+      <div class="takeover">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l2 2"/></svg>
+        Agent is driving. Press <strong style="color:#f4f4f5">Take over</strong> to type yourself.
+      </div>
+      <div class="watchbar">
+        <code>https://damp-cape-8443.app.github.dev</code>
+        <a class="btn ghost small" href="#" style="margin-left:auto">Open</a>
+      </div>
+      <div class="shots"><i></i><i></i><i></i></div>
+    </div>
+  </div>
+
+  <section id="how">
+    <h2>Three steps, one of them yours</h2>
+    <p class="lead">You paste a prompt. Your agent does the setup. You watch a phone appear.</p>
+    <div class="cols">
+      <div class="card"><div class="n">01</div><h4>Connect</h4><p>One GitHub approval. The scope is Codespaces only — no repo, no code, nothing else.</p></div>
+      <div class="card"><div class="n">02</div><h4>Boot</h4><p>We create a slot in your own account, install Android, and resume from a saved snapshot in about 15 seconds.</p></div>
+      <div class="card"><div class="n">03</div><h4>Watch</h4><p>You get a stream URL. Tap, type, drag, or let the agent drive. Leaving is safe — the phone is still there when you come back.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What the agent gets</h2>
+    <p class="lead">A skill file, four endpoints, and real adb behind them.</p>
+    <pre>POST   /v1/phones              → { id, adb, stream_url }
+GET    /v1/phones/:id/screenshot
+POST   /v1/phones/:id/tap       { x, y }
+POST   /v1/phones/:id/stop      → snapshot, keep the phone, stop billing</pre>
+    <div class="feat" style="margin-top:18px">
+      <div><h4>Real Android, real adb</h4><p>API 36 with Google APIs. Your existing scripts and tests work unchanged.</p></div>
+      <div><h4>Snapshot boot</h4><p>About 15 seconds back to a working phone, with your app still installed.</p></div>
+      <div><h4>Take over anytime</h4><p>Agents pause when you touch the screen and resume when you hand back.</p></div>
+      <div><h4>Zero repo access</h4><p>The token can only manage codespaces. It cannot read your code, and nothing is deleted automatically.</p></div>
+    </div>
+  </section>
+
+  <section id="limits">
+    <h2>Honest limits</h2>
+    <p class="lead">Measured on a 4 vCPU / 16 GB slot, November 2026. We publish these because the numbers are the promise.</p>
+    <table>
+      <thead><tr><th>Thing</th><th>Limit</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Phones per slot</td><td>1 default, 2 max</td><td>3 phones saturate 98% of 4 vCPU</td></tr>
+        <tr><td>Idle stop</td><td>4 hours</td><td>set at create; GitHub stops a slot left idle</td></tr>
+        <tr><td>Monthly hours</td><td>30 free / 45 Pro</td><td>120 or 180 core-hours ÷ 4 cores</td></tr>
+        <tr><td>Boot</td><td>15 s resume, 60–160 s cold</td><td>Snapshot vs full boot</td></tr>
+        <tr><td>Saved phone</td><td>On by default</td><td>Stop keeps it; named backups are opt-in</td></tr>
+        <tr><td>Retention</td><td>7 days after last stop</td><td>Fixed at create; GitHub emails 1 day before deletion</td></tr>
+      </tbody>
+    </table>
+
+    <div class="feat" style="margin-top:22px">
+      <div><h4>Default: stop, don't wipe</h4><p>The phone's disk and snapshot stay on your slot. Nothing to clean up, and the next boot resumes in about 15 seconds.</p></div>
+      <div><h4>On request: named backups</h4><p><code>keep.sh</code> saves hash-checked copies beside the live phone, so one bad save cannot destroy the only good one. About 2–3 GB each, two kept.</p></div>
+    </div>
+  </section>
+
+  <section id="pricing">
+    <h2>Free, because you bring the compute</h2>
+    <p class="lead">Your Codespace, your included hours. We never bill for machine time, and we never resell GitHub.</p>
+    <div class="pricing">
+      <div class="plan hi">
+        <div style="font-size:12px;color:var(--accent);letter-spacing:.12em;font-weight:600">FREE, FOREVER</div>
+        <div class="price">$0 <small>no card</small></div>
+        <ul>
+          <li>1 phone per slot, 2 max</li>
+          <li>Stop and resume, no wipe</li>
+          <li>Browser stream + agent API</li>
+          <li>Named backups with <code>keep.sh</code></li>
+          <li>Recording archive</li>
+          <li>Prebuilt slot, no SDK download</li>
+          <li>Runs on your GitHub hours</li>
+        </ul>
+        <p style="color:var(--dim2);font-size:13px;margin-top:18px">Machine time comes from your GitHub quota. Nothing here is ever billed.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div>phonelink · a phone in your browser</div>
+    <div>Built on GitHub Codespaces · runs on your quota · no repo access</div>
+  </footer>
+</div>
+
+<script>
+  const words = ["agent","QA run","CI job","scraper","side project"];
+  let i = 0;
+  const rot = document.getElementById("rot");
+  setInterval(() => {
+    i = (i + 1) % words.length;
+    rot.style.opacity = 0;
+    setTimeout(() => { rot.textContent = words[i]; rot.style.opacity = 1; }, 160);
+  }, 2400);
+  rot.style.transition = "opacity .16s ease";
+</script>
+</body>
+</html>

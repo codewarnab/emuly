@@ -1,0 +1,25 @@
+.hint { border: 1px solid var(--control-line); color: var(--dim); background: var(--panel); border-radius: 6px; padding: 5px 9px; white-space: nowrap; font-size: 13px; }
+.dialog { border: 1px solid var(--line); border-radius: 16px; padding: 0; width: min(600px, calc(100% - 32px)); max-height: min(740px, calc(100dvh - 48px)); background: var(--panel); color: var(--text); box-shadow: 0 24px 64px var(--shadow); }
+.dialog::backdrop { background: var(--overlay); }
+.dialogBody { padding: 24px; }
+.dialog header { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
+.dialog h2 { font: 500 23px var(--font-display), sans-serif; letter-spacing: -.035em; margin: 0; }
+.dialog header button, .toast button { color: var(--dim); border: 1px solid var(--line); background: var(--panel2); border-radius: 6px; font-size: 13px; padding: 5px 9px; }
+.search { width: 100%; padding: 12px; background: var(--bg); color: var(--text); border: 1px solid var(--control-line); border-radius: 8px; margin-bottom: 16px; }
+.commands { max-height: min(440px, 55dvh); overflow-y: auto; padding: 4px; margin: 0 -4px; }
+.command { width: 100%; text-align: left; border: 0; border-radius: 8px; padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--text); background: transparent; font-size: 14px; }
+.command small { display: block; font-size: 13px; color: var(--dim); }
+.command[aria-selected="true"] { background: var(--accent-soft); }
+.command[aria-disabled="true"] { color: var(--dim); }
+.command kbd { flex: none; color: var(--dim); font: 12px var(--font-body),sans-serif; }
+.help { color: var(--dim); font-size: 13px; margin: 16px 0 0; }
+.shortcuts h3 { margin: 24px 0 8px; font-size: 14px; color: var(--dim); }
+.shortcuts p { display: flex; justify-content: space-between; gap: 24px; font-size: 14px; padding: 8px 0; margin: 0; border-bottom: 1px solid var(--line2); }
+.shortcuts kbd { white-space: nowrap; }
+.toasts { position: fixed; bottom: 24px; right: 24px; z-index: 100; display: grid; gap: 8px; width: min(420px, calc(100% - 40px)); pointer-events: none; }
+.toast { pointer-events: auto; display: flex; align-items: center; gap: 16px; justify-content: space-between; background: var(--panel); border: 1px solid var(--control-line); border-radius: 12px; padding: 16px; font-size: 14px; box-shadow: 0 8px 32px var(--shadow); animation: appear 150ms ease-out; }
+@keyframes appear { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@media(max-width: 680px) { .dialogBody { padding: 20px; } .dialog h2 { font-size: 20px; } .command { padding: 12px 8px; } .toasts { bottom: 20px; right: 20px; } }
+
+.copyFallback { display: block; margin-top: 12px; color: var(--dim); font-size: 13px; }
+.copyFallback textarea { display: block; width: 100%; min-height: 100px; padding: 12px; margin-top: 8px; border: 1px solid var(--control-line); border-radius: 8px; background: var(--panel); color: var(--text); font: 13px/1.6 var(--mono); }

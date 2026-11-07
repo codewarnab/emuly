@@ -1,0 +1,25 @@
+{
+  "name": "phonelink",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -H 127.0.0.1 --port 4321",
+    "build": "next build",
+    "start": "next start -H 127.0.0.1 --port 4321",
+    "lint": "tsc --noEmit",
+    "test": "node --conditions=react-server --test --experimental-strip-types lib/*.test.ts"
+  },
+  "dependencies": {
+    "next": "16.4.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5"
+  },
+  "packageManager": "pnpm@12.8.1"
+}

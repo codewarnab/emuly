@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>phonelink console — UI direction v1</title>
+<style>
+  :root{
+    --bg:#08080a; --panel:#0e0e11; --panel2:#111116; --line:#1e1e24; --line2:#16161b;
+    --text:#f4f4f5; --dim:#8a8a94; --dim2:#5c5c66; --accent:#c8ff4d; --danger:#ff7a7a;
+    --amber:#ffd166; --radius:14px;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#050506;color:var(--text)}
+  body{font:14px/1.55 ui-sans-serif,-apple-system,"Segoe UI",Inter,sans-serif;-webkit-font-smoothing:antialiased}
+  a{color:inherit;text-decoration:none}
+  code,.mono{font-family:var(--mono)}
+
+  .board{max-width:1280px;margin:0 auto;padding:44px 28px 90px}
+  .boardhead{border-bottom:1px solid var(--line);padding-bottom:26px;margin-bottom:44px}
+  .boardhead h1{font-size:30px;letter-spacing:-.03em;margin:0 0 8px;font-weight:600}
+  .boardhead p{color:var(--dim);margin:0;max-width:78ch;font-size:14.5px}
+  .tokens{display:flex;gap:8px;margin-top:20px;flex-wrap:wrap;align-items:center}
+  .sw{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:999px;padding:5px 11px;font-size:11.5px;color:var(--dim)}
+  .sw i{width:11px;height:11px;border-radius:3px;display:block}
+
+  .block{margin-bottom:60px}
+  .blocklabel{display:flex;gap:14px;align-items:flex-start;margin-bottom:16px}
+  .idx{font:600 11px/1 var(--mono);color:var(--accent);border:1px solid #2f3a1c;background:#12180a;border-radius:6px;padding:6px 7px;margin-top:2px}
+  .blocklabel h2{font-size:19px;margin:0 0 3px;letter-spacing:-.02em;font-weight:600}
+  .blocklabel p{margin:0;color:var(--dim);font-size:13.5px;max-width:76ch}
+
+  /* browser chrome */
+  .browser{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--bg)}
+  .chrome{display:flex;align-items:center;gap:7px;padding:9px 12px;background:#0b0b0e;border-bottom:1px solid var(--line)}
+  .chrome i{width:8px;height:8px;border-radius:50%;background:#232329;display:block}
+  .chrome .url{margin-left:8px;font:11.5px var(--mono);color:var(--dim2);background:#08080a;border:1px solid var(--line);border-radius:6px;padding:3px 10px}
+
+  /* ---------- shared app shell ---------- */
+  .app{min-height:520px}
+  .topbar{display:flex;align-items:center;gap:22px;padding:14px 22px;border-bottom:1px solid var(--line);background:#0a0a0d}
+  .brand{display:flex;align-items:center;gap:8px;font-weight:600;letter-spacing:-.02em;font-size:14px}
+  .brand .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px #c8ff4d88}
+  .topnav{display:flex;gap:18px;color:var(--dim);font-size:13px}
+  .topnav .on{color:var(--text)}
+  .spacer{flex:1}
+  .quota{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:5px 11px}
+  .quota b{color:var(--text);font-weight:600}
+  .quota .bar{width:46px;height:4px;border-radius:99px;background:#1b1b21;overflow:hidden}
+  .quota .bar i{display:block;height:100%;width:41%;background:var(--accent)}
+  .avatar{width:26px;height:26px;border-radius:50%;background:linear-gradient(150deg,#3a4a22,#1d2413);border:1px solid #2f3a1c;display:grid;place-items:center;font-size:10.5px;font-weight:600;color:#d9f59b}
+
+  .pagewrap{padding:26px 22px 30px}
+  .pagehead{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:20px}
+  .pagehead h3{margin:0 0 4px;font-size:21px;letter-spacing:-.02em;font-weight:600}
+  .pagehead p{margin:0;color:var(--dim);font-size:13px}
+
+  /* buttons */
+  .btn{display:inline-flex;align-items:center;gap:7px;background:var(--text);color:#0a0a0b;border:0;border-radius:999px;padding:9px 16px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+  .btn.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+  .btn.ghost:hover{border-color:#2c2c34}
+  .btn.dim{background:#17171c;color:var(--text);border:1px solid var(--line)}
+  .btn.tiny{padding:6px 12px;font-size:12px}
+  .btn.danger{background:#241010;color:#ff9a9a;border:1px solid #3d1a1a}
+
+  /* cards */
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .pcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:12px}
+  .pcard.on{border-color:#26301a;background:linear-gradient(180deg,#0f1209,#0e0e11)}
+  .pcard .head{display:flex;align-items:center;gap:8px}
+  .pcard .name{font-size:13.5px;font-weight:600;letter-spacing:-.01em}
+  .pcard .body{display:flex;gap:13px}
+  .thumb{width:74px;height:150px;border-radius:12px;border:1px solid #2a2a31;padding:3px;background:linear-gradient(180deg,#15151a,#0b0b0e);flex-none}
+  .thumb .scr{width:100%;height:100%;border-radius:9px;background:radial-gradient(120% 80% at 12% -10%,#2f5474 0%,#1a2a42 45%,#0a0f16 100%);position:relative;overflow:hidden;display:flex;flex-direction:column;gap:5px;padding:6px 5px}
+  .thumb .sb{display:flex;justify-content:space-between;font-size:5.5px;color:#cfe0ee;opacity:.9}
+  .thumb .tm{font-size:15px;color:#eef5fc;text-align:center;font-weight:300;letter-spacing:-.03em;margin-top:4px}
+  .thumb .aps{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;margin-top:4px}
+  .thumb .aps i{aspect-ratio:1;border-radius:3px;background:#ffffff1f;display:block}
+  .meta{display:flex;flex-direction:column;gap:5px;font-size:11.5px;min-width:0}
+  .meta div{display:flex;justify-content:space-between;gap:8px}
+  .meta .k{color:var(--dim2)}
+  .meta .v{color:#d5d5dd;font-family:var(--mono);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pcard .foot{display:flex;gap:7px;align-items:center;margin-top:auto;padding-top:11px;border-top:1px solid var(--line2)}
+  .pcard .foot .btn{margin-left:auto}
+
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;border:1px solid;letter-spacing:.01em}
+  .pill i{width:5px;height:5px;border-radius:50%;background:currentColor;display:block}
+  .pill.run{color:var(--accent);border-color:#2f3a1c;background:#12180a}
+  .pill.stop{color:var(--dim);border-color:#242429;background:#101014}
+  .pill.boot{color:var(--amber);border-color:#3a2f14;background:#171206}
+  .pill.err{color:var(--danger);border-color:#3a1c1c;background:#180a0a}
+
+  .addcard{border:1px dashed #24242b;border-radius:var(--radius);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--dim2);font-size:12.5px;min-height:214px;background:#0a0a0d}
+  .addcard .plus{width:30px;height:30px;border-radius:50%;border:1px solid #24242b;display:grid;place-items:center;font-size:15px;color:var(--dim)}
+  .addcard b{color:var(--dim);font-weight:500;font-size:12.5px}
+  .addcard span{font-size:11px}
+
+  /* usage strip */
+  .strip{margin-top:16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);padding:14px 16px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  .strip .lab{font-size:11px;letter-spacing:.14em;color:var(--dim2);font-weight:600}
+  .strip .big{font-size:15px;font-weight:600}
+  .strip .big small{color:var(--dim2);font-weight:400;font-size:12px}
+  .track{flex:1;min-width:160px;height:6px;border-radius:99px;background:#16161b;overflow:hidden}
+  .track i{display:block;height:100%;width:41%;background:linear-gradient(90deg,#8fd41f,#c8ff4d)}
+  .strip .link{font-size:12px;color:var(--dim);border-bottom:1px solid #2a2a31;padding-bottom:1px}
+  .fineprint{color:var(--dim2);font-size:11.5px;margin:10px 2px 0;display:flex;gap:16px;flex-wrap:wrap}
+  .fineprint span{display:flex;align-items:center;gap:6px}
+  .fineprint b{color:var(--dim);font-weight:500}
+
+  /* ---------- phone detail ---------- */
+  .detail{display:grid;grid-template-columns:322px 1fr;gap:20px;padding:22px}
+  .stage{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:12px;align-items:center}
+  .phone{width:268px;height:536px;border-radius:30px;border:1px solid #2a2a31;background:linear-gradient(180deg,#15151a,#0b0b0e);padding:10px;position:relative;box-shadow:0 24px 50px -28px #000}
+  .phone .scr{width:100%;height:100%;border-radius:21px;overflow:hidden;position:relative;background:radial-gradient(120% 80% at 12% -10%,#2f5474 0%,#1a2a42 45%,#0a0f16 100%),#0a0f16}
+  .phone .notch{position:absolute;top:9px;left:50%;transform:translateX(-50%);width:70px;height:18px;border-radius:999px;background:#050506;z-index:4}
+  .phone .sb{position:relative;z-index:3;display:flex;justify-content:space-between;padding:9px 15px 0;font-size:10px;color:#dbe6f0}
+  .phone .clk{position:absolute;top:52px;left:0;right:0;text-align:center;z-index:2}
+  .phone .clk .t{font-size:44px;font-weight:300;letter-spacing:-.04em;line-height:1;color:#eef5fc}
+  .phone .clk .d{font-size:10px;color:#a7bccd;margin-top:6px}
+  .phone .grid4{position:absolute;top:190px;left:20px;right:20px;display:grid;grid-template-columns:repeat(4,1fr);gap:14px 13px;z-index:2}
+  .phone .grid4 i{aspect-ratio:1;border-radius:11px;background:#ffffff12;border:1px solid #ffffff14;display:block}
+  .phone .grid4 i:nth-child(1){background:linear-gradient(160deg,#8ab4ff55,#4d7cff22)}
+  .phone .grid4 i:nth-child(2){background:linear-gradient(160deg,#ffb86b55,#ff8a3d22)}
+  .phone .grid4 i:nth-child(3){background:linear-gradient(160deg,#7bffb455,#2fd47a22)}
+  .phone .grid4 i:nth-child(4){background:linear-gradient(160deg,#ff7bd555,#ff4fb022)}
+  .phone .grid4 i:nth-child(5){background:linear-gradient(160deg,#c8ff4d55,#8fd41f22)}
+  .phone .grid4 i:nth-child(6){background:linear-gradient(160deg,#8ad8ff55,#3aa5e022)}
+  .controls{display:flex;gap:6px;width:100%}
+  .ctl{flex:1;height:34px;border-radius:9px;border:1px solid var(--line);background:#111116;display:grid;place-items:center;color:var(--dim);cursor:pointer}
+  .ctl:hover{color:var(--text);border-color:#2c2c34}
+  .takeover{width:100%;display:flex;align-items:center;gap:8px;border:1px solid #2f3a1c;background:#10160a;border-radius:10px;padding:9px 11px;font-size:11.5px;color:#cbe88f}
+  .takeover b{color:var(--text);font-weight:600}
+  .takeover .sw2{margin-left:auto;width:30px;height:17px;border-radius:99px;background:var(--accent);position:relative;flex-none}
+  .takeover .sw2::after{content:"";position:absolute;right:2px;top:2px;width:13px;height:13px;border-radius:50%;background:#0a0a0b}
+
+  .tabs{display:flex;gap:18px;border-bottom:1px solid var(--line);margin-bottom:14px;font-size:12.5px}
+  .tabs span{color:var(--dim);padding:0 0 10px;cursor:pointer}
+  .tabs .on{color:var(--text);border-bottom:2px solid var(--accent);margin-bottom:-1px}
+
+  .logbox{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+  .logbox .rh{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .logbox .rh h4{margin:0;font-size:11px;letter-spacing:.14em;color:var(--dim2);text-transform:uppercase;font-weight:600}
+  .live{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--accent)}
+  .live i{width:5px;height:5px;border-radius:50%;background:var(--accent);display:block;box-shadow:0 0 8px var(--accent)}
+  .row{display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--line2);font-size:12.5px}
+  .row:last-child{border-bottom:0}
+  .row .t{color:var(--dim2);font-variant-numeric:tabular-nums;font-size:11px;min-width:40px;font-family:var(--mono)}
+  .row .m{color:#d5d5dd}
+  .row.ok .m{color:var(--accent)}
+  .row .m code{background:#131318;border:1px solid var(--line);border-radius:4px;padding:1px 4px;font-size:11px}
+
+  .subgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+  .mini{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .mini h5{margin:0 0 8px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim2);font-weight:600}
+  .kv{display:flex;justify-content:space-between;font-size:12px;padding:3px 0}
+  .kv .k{color:var(--dim2)}
+  .kv .v{font-family:var(--mono);font-size:11.5px;color:#d5d5dd}
+  .urlrow{display:flex;gap:8px;align-items:center;margin-top:12px;background:#0a0a0d;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+  .urlrow code{font-size:11.5px;color:#cfd3da;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* ---------- login ---------- */
+  .login{display:grid;place-items:center;padding:52px 24px;min-height:560px;background:radial-gradient(circle 620px at 50% -10%,rgba(34,46,20,.5),transparent 70%)}
+  .login .card{width:100%;max-width:430px;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:26px}
+  .login .mark{display:flex;align-items:center;gap:9px;font-weight:600;letter-spacing:-.02em;margin-bottom:22px}
+  .login .mark .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 14px #c8ff4d88}
+  .login h3{font-size:23px;letter-spacing:-.025em;margin:0 0 6px;font-weight:600}
+  .login .sub{color:var(--dim);font-size:13.5px;margin:0 0 20px}
+  .gh{width:100%;display:flex;align-items:center;justify-content:center;gap:9px;background:var(--text);color:#0a0a0b;border:0;border-radius:10px;padding:12px;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit}
+  .scopes{margin-top:18px;border-top:1px solid var(--line);padding-top:16px;display:flex;flex-direction:column;gap:9px}
+  .scope{display:flex;gap:9px;font-size:12.5px;color:var(--dim);align-items:flex-start;line-height:1.45}
+  .scope b{color:#d5d5dd;font-weight:500}
+  .tick{width:14px;height:14px;flex-none;display:grid;place-items:center;border-radius:50%;font-size:9px;margin-top:1px}
+  .tick.y{background:#1a2410;color:var(--accent);border:1px solid #2f3a1c}
+  .tick.n{background:#16161b;color:var(--dim2);border:1px solid #24242b}
+  .login .foot{margin-top:18px;font-size:11.5px;color:var(--dim2);text-align:center;line-height:1.6}
+
+  /* ---------- small states ---------- */
+  .states{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .statebox{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:14px}
+  .statebox h5{margin:0 0 9px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim2);font-weight:600}
+  .statebox p{margin:8px 0 0;font-size:11.5px;color:var(--dim2);line-height:1.5}
+  .dialog{border:1px solid #3a1c1c;border-radius:14px;background:#120c0c;padding:18px}
+  .dialog h4{margin:0 0 6px;font-size:14px}
+  .dialog p{margin:0 0 12px;font-size:12px;color:#c9a5a5;line-height:1.5}
+  .field{width:100%;background:#0a0808;border:1px solid #3a1c1c;border-radius:8px;padding:8px 10px;color:#ffb3b3;font-family:var(--mono);font-size:11.5px}
+  .dialog .acts{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+
+  /* ---------- mobile ---------- */
+  .mobileframe{width:390px;border:1px solid var(--line);border-radius:26px;overflow:hidden;background:var(--bg)}
+  .m-top{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}
+  .m-body{padding:16px}
+  .m-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+  .m-card .top{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .m-card .nm{font-size:13px;font-weight:600}
+  .m-card .row2{display:flex;gap:10px}
+  .m-thumb{width:56px;height:112px;border-radius:10px;border:1px solid #2a2a31;background:radial-gradient(120% 80% at 12% -10%,#2f5474,#1a2a42 45%,#0a0f16);flex-none}
+  .m-actions{display:flex;gap:6px;margin-top:10px}
+  .m-actions .btn{flex:1;justify-content:center}
+  .tabbar{display:flex;gap:2px;border-top:1px solid var(--line);padding:8px;background:#0a0a0d}
+  .tabbar div{flex:1;text-align:center;font-size:10.5px;color:var(--dim2);padding:6px 0;border-radius:8px}
+  .tabbar .on{color:var(--accent);background:#12180a}
+
+  .note{display:flex;gap:10px;border:1px solid #2f3a1c;background:#10160a;border-radius:12px;padding:12px 14px;font-size:12px;color:#c9e08f;margin-top:14px}
+  .note b{color:#e9ffc2;font-weight:600}
+</style>
+</head>
+<body>
+<div class="board">
+
+  <header class="boardhead">
+    <h1>phonelink console — UI direction v1</h1>
+    <p>Same dark tokens as the landing page. Phone-first, built around the two honest constraints: two phones max per slot, and compute is the user's own GitHub quota. Exactly one destructive action in the whole product, buried behind a typed confirm.</p>
+    <div class="tokens">
+      <span class="sw"><i style="background:#08080a"></i>bg #08080a</span>
+      <span class="sw"><i style="background:#0e0e11"></i>panel</span>
+      <span class="sw"><i style="background:#1e1e24"></i>line</span>
+      <span class="sw"><i style="background:#c8ff4d"></i>accent</span>
+      <span class="sw"><i style="background:#ff7a7a"></i>danger</span>
+      <span class="sw"><i style="background:#ffd166"></i>booting</span>
+      <span class="sw">radius 14 · mono for ids</span>
+    </div>
+  </header>
+
+  <!-- 01 LOGIN -->
+  <section class="block">
+    <div class="blocklabel">
+      <span class="idx">01</span>
+      <div>
+        <h2>Sign in — the trust screen</h2>
+        <p>Anyone can use it, so the first screen has to answer "what do you get access to" before asking for a GitHub account. It mirrors the landing promise: Codespaces only.</p>
+      </div>
+    </div>
+    <div class="browser" style="max-width:760px">
+      <div class="chrome"><i></i><i></i><i></i><span class="url">app.phonelink.dev/login</span></div>
+      <div class="app login">
+        <div class="card">
+          <div class="mark"><span class="dot"></span> phonelink</div>
+          <h3>Sign in to your phones</h3>
+          <p class="sub">Your phone runs in your own GitHub account. We never host the compute.</p>
+          <button class="gh">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+            Continue with GitHub
+          </button>
+          <div class="scopes">
+            <div class="scope"><span class="tick y">✓</span><span><b>Manage your codespaces.</b> Create, start, stop, and read the slots your phones live in.</span></div>
+            <div class="scope"><span class="tick n">—</span><span><b>No repo scope.</b> We cannot read your code, issues, pull requests, or secrets.</span></div>
+            <div class="scope"><span class="tick n">—</span><span><b>No billing scope.</b> We never see your payment details or charge you.</span></div>
+          </div>
+          <p class="foot">Free forever · compute comes from the hours already in your GitHub plan<br>Revoke access anytime from your GitHub settings</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 02 DASHBOARD -->
+  <section class="block">
+    <div class="blocklabel">
+      <span class="idx">02</span>
+      <div>
+        <h2>Dashboard — "your phones"</h2>
+        <p>A card per phone, never more than two. The card is a control surface, not a stat sheet: state, what it costs you, and one obvious action. The quota meter sits underneath because it is the only place money ever enters the conversation.</p>
+      </div>
+    </div>
+    <div class="browser">
+      <div class="chrome"><i></i><i></i><i></i><span class="url">app.phonelink.dev/app</span></div>
+      <div class="app">
+        <div class="topbar">
+          <div class="brand"><span class="dot"></span> phonelink</div>
+          <div class="topnav"><span class="on">Phones</span><span>Backups</span><span>Usage</span></div>
+          <div class="spacer"></div>
+          <div class="quota"><span class="bar"><i></i></span><b>26.4 h</b> left this month</div>
+          <div class="avatar">SU</div>
+        </div>
+
+        <div class="pagewrap">
+          <div class="pagehead">
+            <div>
+              <h3>Your phones</h3>
+              <p>Two max. Each one is a codespace in <span class="mono" style="color:#b9b9c2">sutanukaa</span>'s account.</p>
+            </div>
+            <button class="btn">+ New phone</button>
+          </div>
+
+          <div class="grid">
+            <div class="pcard on">
+              <div class="head">
+                <span class="name">phone-7f2a</span>
+                <span class="pill run"><i></i>running</span>
+              </div>
+              <div class="body">
+                <div class="thumb"><div class="scr">
+                  <div class="sb"><span>9:41</span><span>5G</span></div>
+                  <div class="tm">9:41</div>
+                  <div class="aps"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                </div></div>
+                <div class="meta">
+                  <div><span class="k">slot</span><span class="v">damp-cape-wr7q</span></div>
+                  <div><span class="k">machine</span><span class="v">4 vCPU / 16 GB</span></div>
+                  <div><span class="k">up</span><span class="v">1 h 12 m</span></div>
+                  <div><span class="k">boot</span><span class="v">15 s snapshot</span></div>
+                  <div><span class="k">idle stop</span><span class="v">in 2 h 48 m</span></div>
+                </div>
+              </div>
+              <div class="foot">
+                <button class="btn ghost tiny">Stop</button>
+                <button class="btn tiny">Open phone →</button>
+              </div>
+            </div>
+
+            <div class="pcard">
+              <div class="head">
+                <span class="name">phone-3c19</span>
+                <span class="pill stop"><i></i>stopped</span>
+              </div>
+              <div class="body">
+                <div class="thumb"><div class="scr" style="filter:saturate(.35) brightness(.75)">
+                  <div class="sb"><span>9:41</span><span>5G</span></div>
+                  <div class="tm">9:41</div>
+                  <div class="aps"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                </div></div>
+                <div class="meta">
+                  <div><span class="k">slot</span><span class="v">silent-oyster-fce3</span></div>
+                  <div><span class="k">saved</span><span class="v">4 h ago</span></div>
+                  <div><span class="k">disk</span><span class="v">26.1 GB</span></div>
+                  <div><span class="k">resume</span><span class="v">~15 s</span></div>
+                  <div><span class="k">delete on</span><span class="v">Nov 12</span></div>
+                </div>
+              </div>
+              <div class="foot">
+                <button class="btn ghost tiny">Backups</button>
+                <button class="btn tiny">Wake →</button>
+              </div>
+            </div>
+
+            <div class="addcard">
+              <div class="plus">+</div>
+              <b>Add a second phone</b>
+              <span>2 max · 1 more slot available</span>
+            </div>
+          </div>
+
+          <div class="strip">
+            <span class="lab">THIS MONTH</span>
+            <span class="big">18.6 h <small>of 45 h used</small></span>
+            <span class="track"><i></i></span>
+            <a class="link" href="#">GitHub billing ↗</a>
+          </div>
+          <div class="fineprint">
+            <span><b>Stop</b> keeps the phone on disk and stops billing</span>
+            <span><b>Delete</b> is the only thing that erases it</span>
+            <span><b>4 h</b> idle → GitHub stops the slot for you</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 PHONE -->
+  <section class="block">
+    <div class="blocklabel">
+      <span class="idx">03</span>
+      <div>
+        <h2>Phone — the live screen</h2>
+        <p>The phone is the product, so it gets the real estate. Screen on the left, what the agent is doing on the right, controls under the thumb. Tabs keep apps, backups, and the one dangerous action out of the way.</p>
+      </div>
+    </div>
+    <div class="browser">
+      <div class="chrome"><i></i><i></i><i></i><span class="url">app.phonelink.dev/app/phones/phone-7f2a</span></div>
+      <div class="app">
+        <div class="topbar">
+          <div class="brand"><span class="dot"></span> phonelink</div>
+          <div class="topnav" style="color:#5c5c66"><span>Phones</span><span style="color:#3d3d46">/</span><span class="on">phone-7f2a</span></div>
+          <div class="spacer"></div>
+          <span class="pill run"><i></i>running · 1 h 12 m</span>
+          <button class="btn ghost tiny">Stop</button>
+          <div class="avatar">SU</div>
+        </div>
+
+        <div class="detail">
+          <div class="stage">
+            <div class="phone">
+              <div class="notch"></div>
+              <div class="scr">
+                <div class="sb"><span>9:41</span><span>5G ▮▮▮</span></div>
+                <div class="clk"><div class="t">9:41</div><div class="d">Fri, Nov 6</div></div>
+                <div class="grid4"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              </div>
+            </div>
+            <div class="controls">
+              <div class="ctl">⌂</div><div class="ctl">←</div><div class="ctl">⟳</div><div class="ctl">⤓</div>
+            </div>
+            <div class="takeover">Agent is driving · <b>take over</b><span class="sw2"></span></div>
+          </div>
+
+          <div>
+            <div class="tabs"><span class="on">Agent log</span><span>Apps</span><span>Backups</span><span style="color:#7a3a3a">Danger</span></div>
+
+            <div class="logbox">
+              <div class="rh"><h4>Live steps · phone-7f2a</h4><span class="live"><i></i>streaming</span></div>
+              <div class="row"><span class="t">12:04</span><span class="m">waking codespace <code>damp-cape-wr7q</code></span></div>
+              <div class="row ok"><span class="t">12:04</span><span class="m">phone booted in 15 s (snapshot)</span></div>
+              <div class="row"><span class="t">12:05</span><span class="m">adb install <code>app-debug.apk</code> · 24.8 MB</span></div>
+              <div class="row"><span class="t">12:05</span><span class="m">launch <code>com.example.app</code></span></div>
+              <div class="row"><span class="t">12:06</span><span class="m">tap (540, 1200)</span></div>
+              <div class="row"><span class="t">12:06</span><span class="m">input text "hello world"</span></div>
+              <div class="row ok"><span class="t">12:06</span><span class="m">screenshot saved · view</span></div>
+              <div class="row"><span class="t">12:07</span><span class="m">waiting for your next prompt…</span></div>
+            </div>
+
+            <div class="urlrow">
+              <code>https://damp-cape-8443.app.github.dev</code>
+              <button class="btn tiny" style="margin-left:auto">Copy</button>
+            </div>
+
+            <div class="subgrid">
+              <div class="mini">
+                <h5>This phone</h5>
+                <div class="kv"><span class="k">android</span><span class="v">API 36 · Google APIs</span></div>
+                <div class="kv"><span class="k">memory</span><span class="v">2.9 GB / 16 GB</span></div>
+                <div class="kv"><span class="k">cpu</span><span class="v">180% / 400%</span></div>
+                <div class="kv"><span class="k">adb</span><span class="v">localhost:15555</span></div>
+              </div>
+              <div class="mini">
+                <h5>Last backup</h5>
+                <div class="kv"><span class="k">generation</span><span class="v">gen-3</span></div>
+                <div class="kv"><span class="k">size</span><span class="v">2.4 GB</span></div>
+                <div class="kv"><span class="k">hash</span><span class="v">ok · verified</span></div>
+                <div class="kv"><span class="k">kept</span><span class="v">2 generations</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 STATES -->
+  <section class="block">
+    <div class="blocklabel">
+      <span class="idx">04</span>
+      <div>
+        <h2>States and the one dangerous action</h2>
+        <p>Every state has a sentence a non-technical user can act on. Delete asks for the phone's name, not a checkbox — because it is the only irreversible thing here.</p>
+      </div>
+    </div>
+    <div class="states">
+      <div class="statebox">
+        <h5>State pills</h5>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <span class="pill run"><i></i>running</span>
+          <span class="pill boot"><i></i>booting</span>
+          <span class="pill stop"><i></i>stopped</span>
+          <span class="pill err"><i></i>needs you</span>
+        </div>
+        <p><b style="color:#d5d5dd">needs you</b> = quota exhausted, no KVM, or the slot was deleted on GitHub. One sentence + one fix button.</p>
+      </div>
+      <div class="statebox">
+        <h5>Empty state</h5>
+        <div style="border:1px dashed #24242b;border-radius:10px;padding:14px;text-align:center">
+          <div style="font-size:12.5px;color:#d5d5dd;margin-bottom:4px">No phone yet</div>
+          <div style="font-size:11px;color:#5c5c66;margin-bottom:10px">First boot takes 60–160 s. After that, 15 s.</div>
+          <button class="btn tiny">Create a phone</button>
+        </div>
+        <p>No "loading spinner of doom": the first boot is slow and we say so before it starts.</p>
+      </div>
+      <div class="statebox" style="grid-column:span 2;border-color:#3a1c1c;background:#120c0c">
+        <h5 style="color:#a06a6a">Danger tab · delete codespace</h5>
+        <div class="dialog">
+          <h4>Delete phone-7f2a?</h4>
+          <p>This deletes the codespace behind the phone. Apps, screenshots, and the saved snapshot are erased. There is no undo, and no backup is kept unless you made one.</p>
+          <input class="field" value="phone-7f2a" readonly>
+          <div class="acts">
+            <button class="btn ghost tiny">Cancel</button>
+            <button class="btn danger tiny">Delete forever</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 MOBILE -->
+  <section class="block">
+    <div class="blocklabel">
+      <span class="idx">05</span>
+      <div>
+        <h2>Mobile — the phone in the phone</h2>
+        <p>Most people will open this on a phone, so the dashboard collapses to a list and the stage goes full-bleed. The screen is the page.</p>
+      </div>
+    </div>
+    <div style="display:flex;gap:20px;flex-wrap:wrap">
+      <div class="mobileframe">
+        <div class="m-top">
+          <div class="brand" style="font-size:13px"><span class="dot"></span> phonelink</div>
+          <div class="spacer"></div>
+          <span class="pill stop" style="font-size:10px"><i></i>26.4 h</span>
+          <div class="avatar" style="width:22px;height:22px;font-size:9px">SU</div>
+        </div>
+        <div class="m-body">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div style="font-size:16px;font-weight:600;letter-spacing:-.02em">Your phones</div>
+            <button class="btn tiny">+ New</button>
+          </div>
+          <div class="m-card">
+            <div class="top"><span class="nm">phone-7f2a</span><span class="pill run" style="font-size:10px"><i></i>running</span></div>
+            <div class="row2">
+              <div class="m-thumb"></div>
+              <div class="meta" style="font-size:11px">
+                <div><span class="k">up</span><span class="v">1 h 12 m</span></div>
+                <div><span class="k">boot</span><span class="v">15 s</span></div>
+                <div><span class="k">idle stop</span><span class="v">2 h 48 m</span></div>
+              </div>
+            </div>
+            <div class="m-actions"><button class="btn ghost tiny">Stop</button><button class="btn tiny">Open phone</button></div>
+          </div>
+          <div class="m-card">
+            <div class="top"><span class="nm">phone-3c19</span><span class="pill stop" style="font-size:10px"><i></i>stopped</span></div>
+            <div class="row2">
+              <div class="m-thumb" style="filter:saturate(.35) brightness(.75)"></div>
+              <div class="meta" style="font-size:11px">
+                <div><span class="k">saved</span><span class="v">4 h ago</span></div>
+                <div><span class="k">resume</span><span class="v">~15 s</span></div>
+                <div><span class="k">delete on</span><span class="v">Nov 12</span></div>
+              </div>
+            </div>
+            <div class="m-actions"><button class="btn ghost tiny">Backups</button><button class="btn tiny">Wake</button></div>
+          </div>
+        </div>
+        <div class="tabbar"><div class="on">Phones</div><div>Backups</div><div>Usage</div></div>
+      </div>
+
+      <div style="flex:1;min-width:300px;max-width:520px">
+        <div class="note"><b>Deliberate omissions.</b> No settings page in v1 (machine type and idle timeout are set at create and shown, not edited). No chat box — the agent lives in the user's own terminal. No billing UI: the meter links to GitHub instead of pretending we control the quota.</div>
+        <div class="note" style="border-color:#24242b;background:#0e0e11;color:#8a8a94"><b style="color:#d5d5dd">One rule for every screen:</b> say what the user's GitHub is doing, never claim we do it for them. That is the entire trust story of a BYO-account product.</div>
+      </div>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>
