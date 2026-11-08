@@ -6,11 +6,9 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getAccessToken } from "./github-token.ts";
-import { db } from "../data/db.ts";
+import { asyncDb } from "../data/async-db.ts";
 import { openDatabase } from "../data/database.ts";
 import { seal, open } from "../auth/crypto.ts";
-import { createClient } from "../data/async-database.ts";
-import { pathToFileURL } from "node:url";
 import { insertSession } from "../auth/session-store.ts";
 
 test("tokens refresh once for concurrent callers, persist encrypted, and invalidate sessions on failure", async () => {
@@ -19,9 +17,8 @@ test("tokens refresh once for concurrent callers, persist encrypted, and invalid
   process.env.PHONELINK_TOKEN_KEY = randomBytes(32).toString("base64");
   process.env.PHONELINK_GITHUB_CLIENT_ID = "synthetic-client";
   process.env.PHONELINK_GITHUB_CLIENT_SECRET = "synthetic-secret";
-  openDatabase(process.env.PHONELINK_DB!).close();
-  const database = db();
-  const client = createClient({ url: pathToFileURL(process.env.PHONELINK_DB!).href });
+  const database = openDatabase(process.env.PHONELINK_DB!);
+  const client = asyncDb();
   let calls = 0;
   let refuse = false;
   const timestamp = Date.parse("2026-11-07T00:00:00.000Z");
@@ -67,6 +64,7 @@ test("tokens refresh once for concurrent callers, persist encrypted, and invalid
   } finally {
     client.close();
     database.close();
+    globalThis.gc?.();
     await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });

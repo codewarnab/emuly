@@ -16,7 +16,7 @@ For local development, leave `PHONELINK_DATABASE_URL` unset and run `pnpm db:mig
 
 Hosted connection settings are `PHONELINK_DATABASE_URL` and `PHONELINK_DATABASE_AUTH_TOKEN`. Supply credentials through the existing secret mechanism. The migration command also accepts URL-file and token-file paths as its two positional arguments. Neither command arguments nor logs contain credential values.
 
-Do not enable hosted mode for the full application yet. Display preferences and GitHub token refresh still use synchronous SQLite. Their `db()` entry point rejects hosted mode rather than silently using a different local database. Shared OAuth refresh coordination remains part of the later migration work.
+Do not enable hosted mode for the full application yet. All application database consumers now use async libSQL. Shared OAuth refresh and phone/scheduled-operation coordination remain unfinished. Do not cut over a multi-instance deployment until that work and import acceptance are complete.
 
 No existing SQLite data has been imported to Turso. No active deployment configuration has changed. The test database is left empty after hosted integration checks.
 
@@ -64,3 +64,13 @@ Next: migrate phone operations, activity events, poller writes, and remaining sh
 Validation: typecheck, production build, and the full local suite passed (135 passed; one hosted test skipped). Explicit Turso integration passed separately. It covers creation intent before HTTP, uncertain POST recovery without resubmission, lifecycle/run/activity rollback on failed fan-out, one stopped notification after reconciliation, account-scoped notice acknowledgement, and poller backoff across restarts. The hosted test database was cleared afterward. Existing setup tracing warnings remain. Tests/build include unrelated working-tree UI/runner edits, excluded from this PR. No real GitHub phone operation, browser flow, or deployment was exercised.
 
 Next: migrate display preferences and GitHub token refresh. Add shared coordination for refresh and phone/scheduled operations. Hosted application cutover, import rehearsal, Cron, transport/storage, and Vercel acceptance remain unfinished. PR #14 stays open and unmerged.
+
+## Display preferences and token refresh batch (2026-11-08)
+
+- Display quality reads/writes and their pages/action now await libSQL. Defaults, validation, and per-account settings remain unchanged.
+- GitHub access-token lookup, encrypted pair rotation, and session invalidation now await libSQL. The provider registers pending work before the first database await. Concurrent callers in one process share one refresh and its rotated pair. A user blocked during refresh cannot receive the returned access token.
+- Runtime application imports of native SQLite are gone. Legacy native helpers remain for migration/interoperability tests and the explicit migration command. No deployment settings or existing data changed.
+
+Validation: typecheck, production build, full local suite (135 passed; one hosted check skipped), and explicit Turso checks passed. Hosted checks now cover display isolation/validation, concurrent refresh, encrypted rotated values, token reuse without another exchange, sanitized refresh rejection, and account-scoped session invalidation. Provider HTTP uses synthetic responses; no real OAuth exchange or browser flow was exercised. The hosted database was cleared afterward. Existing setup tracing warnings remain. Unrelated UI/runner edits remain excluded from the PR.
+
+Next: add shared coordination for OAuth refresh and phone/scheduled operations. Refresh deduplication remains process-local; multiple application instances can still race to rotate one refresh token. Hosted cutover/import rehearsal, Cron, transport/storage, and Vercel acceptance remain pending. Keep PR #14 open and unmerged.

@@ -1,3 +1,4 @@
+import { asyncDb } from "../../../../../lib/data/async-db";
 import Link from "next/link";
 import { shortMessage } from "../../../../../lib/shared/short-message";
 import { phoneName } from "../../../../../lib/shared/phone-name";
@@ -25,7 +26,6 @@ import { DangerPanel } from "@/components/phone/danger-panel";
 import { Button } from "@/components/ui/button";
 import { Pill } from "@/components/ui/pill";
 import { mockLog, mockDetail, mockPhones } from "@/lib/shared/fixtures";
-import { db } from "../../../../../lib/data/db";
 import { streamQuality } from "../../../../../lib/shared/display-settings";
 import { PhoneApps } from "@/components/phone/phone-apps";
 
@@ -147,7 +147,7 @@ async function StoredPhone({ phone, user, search, syncError }: {
         <h1 className={s.srOnly}>Phone details</h1>
       <section className={`${s.stage} ${s.disconnected} ${screenReady ? s.liveStage : ""}`} aria-label="Phone screen">
         {screenReady &&
-          <PhoneScreen key={phone.id} id={phone.id} resting={false} live quality={streamQuality(db(), user.id)} />}
+          <PhoneScreen key={phone.id} id={phone.id} resting={false} live quality={await streamQuality(asyncDb(), user.id)} />}
         {phone.state !== "running" && phone.state !== "stopped" && <div className={s.emptyPhone} aria-hidden />}
         {!screenReady && <h2>{status.title}</h2>}
         {phone.state === "running" && phone.android_state === "booting" && <AndroidElapsed started={phone.android_started_at} />}
