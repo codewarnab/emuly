@@ -1,6 +1,6 @@
 import type { PillKind } from "@/components/ui/pill";
 
-/** Mock data for Phase 1 — matches design/console-v1.html boards 02/03.
+/** Mock data for Phase 1 console screens.
     Replaced by DB-backed data in Phase 2+. */
 
 export type LogPart = { type: "text" | "code"; value: string };

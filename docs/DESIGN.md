@@ -179,7 +179,6 @@ Disabled controls and decorative device artwork are excluded from text/control t
 - `lib/phones.ts`: presentation metadata only.
 - `lib/session.ts`: `await connection()` before session reads so time-dependent expiry
   runs at request time. Session creation, expiry and cookie semantics are unchanged.
-- `preview/redesign/`: final PNGs, measurement reports and screenshot index.
 
 No dependencies added. No production database, OAuth scopes, auth routes, cookie settings,
 DB schema, environment files or historical HTML changed. No commits.
@@ -242,7 +241,9 @@ workspace using the unchanged dependency installation. No new dependencies. Repl
 62 screenshots: landing, login, populated/empty dashboards, all phone tabs, stopped phone,
 account menus and keyboard focus. Page captures cover 1440 / 1024 / 390px, both themes;
 54 page checks returned 200 with no horizontal overflow or browser exceptions. Added
-200% text crops and native-size landing sections in preview/redesign/details. Dev logs
-contain no unstable Date.now/prerender errors. Used only fake sessions/users/phones in
-a disposable design DB; no real GitHub calls. Temporary DB/key/session files were removed
-and the port 4321 server stopped. Auth semantics and the historical site stay intact.
+200% text crops and native-size landing sections as extra crops. Those screenshots, and
+the `design/` board and `site/` page they were diffed against, were later deleted from the
+repo. Dev logs contain no unstable Date.now/prerender errors. Used only fake
+sessions/users/phones in a disposable design DB; no real GitHub calls. Temporary
+DB/key/session files were removed and the port 4321 server stopped. Auth semantics and
+the historical site stay intact.

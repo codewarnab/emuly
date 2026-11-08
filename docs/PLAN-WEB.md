@@ -1,6 +1,7 @@
 # phonelink web app — implementation plan
 
-Status: draft, 2026-11-06. Design board: `design/console-v1.html`.
+Status: draft, 2026-11-06. The design board file was deleted; `docs/DESIGN.md` now holds
+the live visual system.
 Scope: turn the Next.js landing page into a working product where **anyone signs in with
 GitHub and drives an Android phone that runs in their own Codespace**. Build and test it
 locally first; hosting is not part of this plan.
@@ -55,13 +56,13 @@ Two hard constraints shape everything:
   app/
     layout.tsx              root layout, metadata
     page.tsx                landing page (server component)
-    landing.module.css      scoped port of site/index.html
+    landing.module.css      scoped landing styles (ported from the legacy HTML)
     globals.css             tokens + reset, shared with the console
     rotating-word.tsx       client leaf (hero word rotation)
     scroll-button.tsx       client leaf (smooth scroll)
-  design/console-v1.html    approved UI direction
+  design/console-v1.html    approved UI direction (deleted; see docs/DESIGN.md)
   docs/                     conversation, keep-plan, this plan
-  site/index.html           legacy static page (keep until launch)
+  site/index.html           legacy static page (deleted)
 ```
 
 Verified: `pnpm build` clean, `/` prerenders static, and a pixel diff against the legacy

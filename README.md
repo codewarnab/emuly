@@ -93,7 +93,12 @@ app/
   login/            sign-in page
   (app)/app/        console: dashboard, phones/[id]
   auth/             OAuth start, callback, logout routes
-components/         UI (CSS Modules, no UI library), command menu, toasts, theme toggle
+components/
+  phone/            device lifecycle, screen, apps, cards, mutations
+  settings/          settings forms, settings provider, tabs
+  ui/                primitives: buttons, dialogs, pills, tabs, toasts, log feed
+  shell/             topbar, account menu, keyboard tools, notices
+  marketing/         landing hero
 lib/                env, crypto (AES-256-GCM), SQLite (node:sqlite), sessions, GitHub OAuth
 proxy.ts            protects /app/* (Next 16 replacement for middleware)
 public/agents/      agent logos (from svgl.app)
@@ -104,8 +109,6 @@ docs/
   HANDOFF-PROMPT.md rules and product facts
   CONVERSATION.md   original design discussion and measurements
   PLAN-KEEP.md, PROBLEM-KEEP.md, SPIKE-RESULTS.md
-preview/redesign/   screenshots of every screen, light and dark, 1440/1024/390
-site/index.html     the original static landing page (historical)
 ```
 
 ## Decisions in one screen

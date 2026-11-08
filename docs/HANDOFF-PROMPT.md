@@ -33,12 +33,16 @@ app/
   globals.css           shared tokens: --bg --panel --line --text --dim --dim2 --accent
   rotating-word.tsx     client leaf, hero word rotation
   scroll-button.tsx     client leaf, smooth scroll
-design/console-v1.html  APPROVED UI board. All console styling comes from here.
+design/console-v1.html  APPROVED UI board (deleted; see docs/DESIGN.md)
 docs/PLAN-WEB.md        implementation plan: schema, auth, phases, safety rules
 docs/CONVERSATION.md    original design discussion and measurements
-site/index.html         legacy static landing page. Keep. It is the diff baseline.
-preview/*.png           landing renders at 1440 and 430 wide
+docs/DESIGN.md          design system, tokens and component inventory
+site/index.html         legacy static landing page (deleted)
+preview/*.png           landing renders at 1440 and 430 wide (deleted)
 ```
+
+The UI board, the legacy landing HTML and the preview renders are no longer in the repo.
+Read `docs/DESIGN.md` and `components/console.module.css` for the live visual system.
 
 ## 3. Verified environment
 
@@ -51,8 +55,9 @@ preview/*.png           landing renders at 1440 and 430 wide
   - `start`: `next start -H 127.0.0.1 --port 4321`
   - `lint`: `tsc --noEmit`
 - `pnpm build` passes. `/` prerenders as static.
-- Landing page is pixel-verified against `site/index.html`: 139 differing pixels in one
-  20×20 box at 1440 px, caused only by the looping tap-ripple animation frame.
+- The landing page was pixel-verified against the legacy `site/index.html` during the
+  port: 139 differing pixels in one 20×20 box at 1440 px, caused only by the looping
+  tap-ripple animation frame. That baseline has since been deleted from the repo.
 
 ## 4. Non-negotiable rules
 
@@ -117,7 +122,7 @@ Full detail is in `docs/PLAN-WEB.md` section 10. Summary:
 | Phase | Work | Est. | Gate |
 |---|---|---|---|
 | 0 | Two spikes: codespace-only token creates a codespace; `gh cs ssh` works with that token | 3–5 h | Written result in `docs/SPIKE-RESULTS.md` |
-| 1 | App shell and components from `design/console-v1.html`, mock data | 4–6 h | `/app` matches the board at 1440 and 390 px |
+| 1 | App shell and components from `docs/DESIGN.md`, mock data | 4–6 h | `/app` matches the documented measurements at 1440 and 390 px |
 | 2 | SQLite, sessions, GitHub OAuth, `requireUser()` | 6–8 h | Second account signs in, reloads, logs out |
 | 3 | Dashboard with real read-only GitHub data | 6–8 h | Live state within 30 s |
 | 4 | Create, start, stop | 8–10 h | Stop then wake keeps installed apps |
@@ -131,12 +136,13 @@ others without asking, unless a gate fails.
 ## 8. How to verify your own work
 
 - `pnpm build` must pass and `pnpm lint` must be clean before you report.
-- Landing page diff: screenshot `http://127.0.0.1:4321/` and compare with
-  `site/index.html`. Only tap-ripple pixels may differ.
+- Landing page: screenshot `http://127.0.0.1:4321/` and check layout, theme and tap
+  ripple by eye. The old pixel baseline is no longer in the repo.
 - Screenshot tool available:
   `~/.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux-arm64/chrome-headless-shell`
   with flags `--no-sandbox --hide-scrollbars --window-size=W,H --screenshot=path URL`.
-- Console screens: diff against `design/console-v1.html` rendered at 1440 and 390 px.
+- Console screens: compare against the tokens and measurements in `docs/DESIGN.md` at
+  1440 and 390 px.
 - Never claim a screen is correct from code alone. Look at the pixels.
 
 ## 9. How to report
@@ -175,7 +181,7 @@ You are building the phonelink console in /home/ubuntu/code/phonelink.
 First, read these files in this order, fully:
 1. docs/HANDOFF-PROMPT.md   (the brief, rules, and facts)
 2. docs/PLAN-WEB.md         (the implementation plan and phases)
-3. design/console-v1.html   (the approved UI; all console styling comes from it)
+3. docs/DESIGN.md           (the approved UI system, tokens and measurements)
 4. app/page.tsx and app/globals.css (the finished landing page and its tokens)
 
 Then start at Phase 0 of the plan.
@@ -188,7 +194,7 @@ Hard constraints, in priority order:
   specific item. Stopping is always fine, and stopping must never wipe the phone.
 - One OAuth scope only: codespace. Never ask for repo.
 - Only touch codespaces named phonelink-* that exist in our own database for that user.
-- Do not change the landing page. Its pixel diff against site/index.html must stay clean.
+- Do not change the landing page. It is finished and verified.
 - Free forever. One plan. No paid tier, no waitlist, no "coming soon".
 - Never print or commit secrets. Use .env.local.
 
