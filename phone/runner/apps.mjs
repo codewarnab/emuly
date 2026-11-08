@@ -113,7 +113,8 @@ export async function createApps({ root, sdk, run, adb, exclusive, booted }) {
       "--ro-bind", sdk, "/sdk", "--ro-bind", file(record.id), "/input.apk"];
     // Ubuntu x86_64 has a separate loader path; arm64 generally does not.
     try { await lstat("/lib64"); common.push("--ro-bind", "/lib64", "/lib64"); } catch {}
-    for (const name of await readdir("/etc")) if (/^java-\d+-openjdk$/.test(name)) common.push("--ro-bind", `/etc/${name}`, `/etc/${name}`);
+    // JVM config binds are optional. A host without /etc/java-* still runs the parser.
+    try { for (const name of await readdir("/etc")) if (/^java-\d+-openjdk$/.test(name)) common.push("--ro-bind", `/etc/${name}`, `/etc/${name}`); } catch {}
     // RLIMIT_NPROC counts every process for the host UID, including unrelated Codespace services.
     // Keep parser CPU/address-space limits without preventing namespace creation on a busy UID.
     const sandbox = (tool, args) => run("prlimit", ["--as=2147483648", "--cpu=60", "--", "bwrap", ...common, tool, ...args], { timeout: 60_000 });

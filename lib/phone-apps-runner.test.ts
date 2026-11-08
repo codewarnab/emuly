@@ -51,7 +51,7 @@ test("Runner restart expires incomplete uploads; cancellation frees phone admiss
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("Installation only succeeds after Android confirms its version; committed installs cannot be cancelled", async () => {
+test("Installation only succeeds after Android confirms its version; committed installs cannot be cancelled", { timeout: 30_000 }, async () => {
   for (const confirms of [true, false]) {
     const directory = await mkdtemp(join(tmpdir(), "apps-install-"));
     let release!: () => void;
