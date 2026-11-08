@@ -387,7 +387,9 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
     try {
       claim(userId, id, "delete");
       await github.deleteCodespace(userId, id);
-      disconnect?.(userId, id, phone(userId, id).codespace_name);
+      const previous = phone(userId, id);
+      trackRun(previous, { id: 0, name: previous.codespace_name, state: "Deleted" }, "deleted", "phonelink");
+      disconnect?.(userId, id, previous.codespace_name);
       database.prepare("UPDATE phones SET state = 'deleted', state_detail = NULL WHERE user_id = ? AND id = ?").run(userId, id);
       event(userId, id, "step", "delete accepted");
       return id;

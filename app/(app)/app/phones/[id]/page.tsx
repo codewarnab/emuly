@@ -141,7 +141,8 @@ async function StoredPhone({ phone, user, search, syncError }: {
       {(!syncError || syncError.kind === "other") && <PhoneRefresh />}
         <h1 className={s.srOnly}>Phone details</h1>
       <section className={`${s.stage} ${s.disconnected}`} aria-label="Phone screen">
-        <PhoneScreen key={phone.id} id={phone.id} resting={phone.state === "stopped"} live={phone.state === "running" && phone.android_state === "ready"} />
+        {phone.state === "running" && phone.android_state === "ready" &&
+          <PhoneScreen key={phone.id} id={phone.id} resting={false} live />}
         {phone.state !== "running" && phone.state !== "stopped" && <div className={s.emptyPhone} aria-hidden />}
         <Pill kind={phoneCard(phone).state}>{phone.state}</Pill>
         <h2>{phone.state === "stopped" ? "Resting" : phone.state === "error" ? "Phone did not start" : setupFailed ? "Setup failed"

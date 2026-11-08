@@ -1,0 +1,115 @@
+.page {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(ellipse at 50% 42%, var(--accent-soft), transparent 65%);
+}
+.header {
+  width: min(1200px, 100%);
+  margin: 0 auto;
+  padding: 26px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 24px 72px;
+}
+.art {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  width: min(440px, 100%);
+  height: 250px;
+  margin-bottom: 36px;
+  isolation: isolate;
+}
+.orbit {
+  position: absolute;
+  z-index: -1;
+  width: 340px;
+  height: 230px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  transform: rotate(-24deg);
+}
+.orbit::after {
+  content: "";
+  position: absolute;
+  inset: 23px -34px;
+  border: 1px dashed var(--line);
+  border-radius: 50%;
+  transform: rotate(46deg);
+}
+.four {
+  font: 600 clamp(100px, 19vw, 168px)/1 var(--font-display), sans-serif;
+  letter-spacing: -.08em;
+  color: var(--accent);
+}
+.phone {
+  width: 114px;
+  height: 210px;
+  padding: 7px;
+  flex: none;
+  border: 2px solid var(--device-edge);
+  border-radius: 26px;
+  background: var(--device);
+  box-shadow: 12px 22px 36px -14px var(--shadow);
+  transform: rotate(9deg);
+  animation: float 6s ease-in-out infinite;
+}
+.screen {
+  height: 100%;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  overflow: hidden;
+  border-radius: 18px;
+  background: var(--screen);
+  color: var(--screen-ink);
+}
+.camera { position: absolute; top: 9px; width: 5px; height: 5px; border-radius: 50%; background: var(--device); }
+.signal { width: 56px; height: 56px; }
+.screenLabel { font: 8px var(--mono); letter-spacing: .08em; }
+.homeIndicator { position: absolute; bottom: 9px; width: 30px; height: 3px; border-radius: 3px; background: var(--screen-muted); }
+.sparkOne, .sparkTwo { position: absolute; color: var(--accent); font: 300 25px var(--font-display), sans-serif; }
+.sparkOne { left: 38px; top: 20px; }
+.sparkTwo { right: 34px; bottom: 18px; font-size: 18px; }
+.dot { position: absolute; right: 55px; top: 35px; width: 7px; height: 7px; background: var(--safe); border-radius: 50%; }
+.eyebrow { margin: 0 0 18px; font: 11px/1.6 var(--mono); letter-spacing: .14em; color: var(--dim); }
+.main h1 { margin: 0; font: 600 clamp(30px, 5vw, 46px)/1.2 var(--font-display), sans-serif; letter-spacing: -.055em; }
+.description { max-width: 480px; margin: 20px 0 30px; color: var(--dim); font-size: 16px; line-height: 1.8; }
+.actions { display: flex; align-items: center; justify-content: center; gap: 24px; flex-wrap: wrap; }
+.primary { display: inline-flex; gap: 10px; align-items: center; justify-content: center; min-height: 48px; padding: 12px 21px; border-radius: 12px; background: var(--accent); color: var(--on-accent); font-size: 14px; font-weight: 600; transition: transform .2s, box-shadow .2s; }
+.primary:hover { transform: translateY(-2px); box-shadow: 0 8px 20px var(--shadow); }
+.secondary { display: inline-flex; align-items: center; gap: 10px; min-height: 48px; font-size: 14px; color: var(--dim); }
+.secondary:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 5px; }
+.hint { max-width: 360px; margin: 32px 0 0; font-size: 12px; color: var(--dim2); }
+.footer { padding: 20px 24px; text-align: center; color: var(--dim2); font-size: 12px; border-top: 1px solid var(--line2); }
+@keyframes float { 0%, 100% { transform: translateY(0) rotate(9deg); } 50% { transform: translateY(-9px) rotate(6deg); } }
+@media (max-width: 480px) {
+  .header { padding: 20px 24px; }
+  .main { padding-top: 24px; padding-bottom: 40px; }
+  .art { height: 220px; gap: 14px; margin-bottom: 24px; }
+  .phone { width: 96px; height: 180px; border-radius: 23px; }
+  .screen { border-radius: 15px; }
+  .orbit { width: 250px; height: 180px; }
+  .actions { gap: 8px 20px; }
+  .eyebrow { font-size: 9px; }
+  .lineBreak { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .phone { animation: none; }
+  .primary { transition: none; }
+}

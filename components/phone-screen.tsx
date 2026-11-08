@@ -168,10 +168,21 @@ export function PhoneScreen({ id, live, resting }: { id: string; live: boolean; 
         const link = document.createElement("a"); link.href = url; link.download = `${id}.png`; link.click();
         if (blob) setTimeout(() => URL.revokeObjectURL(url), 1000);
       }}>Screenshot</Button>
-      <label>Quality <select value={quality} onChange={event => setQuality(event.target.value)}>
-        <option value="auto">Auto</option><option value="sharp">Sharp 1080p</option><option value="saver">Saver 720p / 15 fps</option>
-      </select></label>
     </div>
+    <fieldset className={s.qualityPicker}>
+      <legend>Stream quality</legend>
+      <div className={s.qualityOptions}>
+        {([
+          ["auto", "Auto", "Adapts to connection"],
+          ["sharp", "Sharp", "1080p"],
+          ["saver", "Saver", "720p · 15 fps"],
+        ] as const).map(([value, label, detail]) => <label key={value} className={s.qualityOption}>
+          <input type="radio" name={`quality-${id}`} value={value} checked={quality === value}
+            onChange={() => setQuality(value)} />
+          <span><strong>{label}</strong><small>{detail}</small></span>
+        </label>)}
+      </div>
+    </fieldset>
     <p role="status">{!live ? resting ? "Resting" : "Waiting for Android..." : !video.supported ? "Screenshot view" : video.active ? `${video.stats.fps} fps / ${video.stats.delay} ms delay` : frame || video.painted ? "Reconnecting... / screenshot view" : "Connecting..."}</p>
     {error && live && !video.active && <p role="status">{error}</p>}
   </div>;
