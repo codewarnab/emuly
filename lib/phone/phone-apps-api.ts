@@ -1,6 +1,7 @@
 import "server-only";
 import { APK_CHUNK_BYTES, APK_MAX_BYTES, installFinished } from "./phone-apps-contract.ts";
 import type { AppsPath, AppsRequest } from "./phone-link.ts";
+import { PhoneResponseError, parseAppsResponse, parsePhoneError, parseRunnerUpdate, readPhoneResponse } from "./phone-response.ts";
 
 type Phone = { state: string; android_state: string };
 const global = globalThis as unknown as { __appAdmission?: Map<string, { userId: number; key: string; expires: number }>; __appTransfers?: number };
@@ -53,7 +54,7 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade }: {
       }
       const route = parts.join("/");
       if (route === "apps/update" && request.method === "POST" && upgrade) {
-        return Response.json(await upgrade(identity.id, id), { headers });
+        return Response.json(parseRunnerUpdate(await upgrade(identity.id, id)), { headers });
       }
       const resource = /^app-installs\/([0-9a-f-]{36})(?:\/(content|complete|cancel))?$/.exec(route);
       const allowed = (request.method === "GET" && (["apps", "app-installs"].includes(route) || (resource && !resource[2])))
@@ -98,12 +99,17 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade }: {
         }
       }
       const response = await runner(identity.id, id, `/${route}` as AppsPath, options);
-      const payload = await response.json();
-      if (payload.stage && installFinished(payload.stage)) admission.delete(admissionId);
-      if (route === "app-installs" && request.method === "GET" && payload.operations?.every((item: { stage: string }) => installFinished(item.stage))) admission.delete(admissionId);
+      const payload = response.ok
+        ? await readPhoneResponse(response, value => parseAppsResponse(value, route, request.method))
+        : await readPhoneResponse(response, parsePhoneError);
+      if (response.ok && (resource || (route === "app-installs" && request.method === "POST"))
+        && "stage" in payload && installFinished(payload.stage)) admission.delete(admissionId);
+      if (response.ok && route === "app-installs" && request.method === "GET"
+        && "operations" in payload && payload.operations.every(item => installFinished(item.stage))) admission.delete(admissionId);
       if (!response.ok && route === "app-installs" && request.method === "POST" && response.status !== 409) admission.delete(admissionId);
       return Response.json(payload, { status: response.ok && route === "app-installs" && request.method === "POST" ? 202 : response.status, headers });
     } catch (error) {
+      if (error instanceof PhoneResponseError) return Response.json({ error: error.message, errorCode: "invalid_response" }, { status: 502, headers });
       return Response.json({ error: error instanceof InputError ? error.message : "Phone connection unavailable. Refresh status before retrying.", errorCode: error instanceof InputError ? "invalid_request" : "connection_unavailable" },
         { status: error instanceof InputError ? error.status : 502, headers });
     } finally { if (transfer) global.__appTransfers = Math.max(0, (global.__appTransfers ?? 1) - 1); }
