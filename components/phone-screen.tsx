@@ -9,7 +9,6 @@ const controlIcons = {
   back: <path d="m14 6-6 6 6 6" />,
   home: <circle cx="12" cy="12" r="6" />,
   recent: <rect x="6" y="6" width="12" height="12" rx="2" />,
-  rotate: <><path d="M4 9a8 8 0 0 1 14-3l2 2M20 3v5h-5M20 15A8 8 0 0 1 6 18l-2-2M4 21v-5h5" /></>,
   volumeUp: <><path d="M11 5 6 9H3v6h3l5 4zM15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14" /></>,
   volumeDown: <><path d="M11 5 6 9H3v6h3l5 4zM16 12h5" /></>,
   screenshot: <><path d="m8 5 1-2h6l1 2h4v15H4V5z" /><circle cx="12" cy="12" r="4" /></>,
@@ -147,10 +146,10 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
   const reconnecting = live && !fresh;
   const connectionLabel = !live ? resting ? "Resting" : "Waiting for Android"
     : video.active ? "Live" : screenshotFresh ? "Screenshot view" : frame || video.painted ? "Reconnecting · showing last image" : "Connecting";
-  function control(key: "home" | "back" | "recent" | "rotate" | "volumeUp" | "volumeDown", label: string) {
+  function control(key: "home" | "back" | "recent" | "volumeUp" | "volumeDown", label: string) {
     return <button type="button" className={s.control} aria-label={label} title={label}
       disabled={!fresh || inputPending || (!video.active && !["home", "back"].includes(key))}
-      onClick={() => { if (!video.send(key === "rotate" ? { type: "rotate" } : { type: "key", key })) void input({ type: "key", key }); }}>
+      onClick={() => { if (!video.send({ type: "key", key })) void input({ type: "key", key }); }}>
       <ControlIcon name={key} /><span className={s.tooltip}>{label}</span>
     </button>;
   }
@@ -222,7 +221,6 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
     <div className={s.tools} role="group" aria-label="Device tools">
       {control("volumeUp", "Volume up")}{control("volumeDown", "Volume down")}
       <span className={s.divider} />
-      {control("rotate", "Rotate")}
       <button type="button" className={s.control} aria-label="Screenshot" title="Screenshot" disabled={!frame && !video.painted} onClick={async () => {
         const blob = video.painted && showCanvas ? await new Promise<Blob | null>(resolve => canvas.current!.toBlob(resolve, "image/png")) : null;
         const url = blob ? URL.createObjectURL(blob) : frame;

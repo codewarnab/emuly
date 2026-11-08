@@ -1,7 +1,7 @@
 "use client";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { mutatePhone } from "../app/actions/phones";
+import { usePhoneAction } from "./use-phone-action";
 import { copyText, useToast } from "./ui-provider";
 import s from "./console.module.css";
 
@@ -9,10 +9,9 @@ import s from "./console.module.css";
 export function PhoneCardMenu({ id, codespace }: { id: string; codespace: string | null }) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [result, action, pending] = useActionState(mutatePhone, { message: "" });
+  const [, action, pending] = usePhoneAction();
   const notify = useToast();
   const root = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (result.message) notify(result.message); }, [result, notify]);
   useEffect(() => {
     if (!open) return;
     const close = (event: Event) => {

@@ -6,14 +6,12 @@ import { mutatePhone, phoneCreationOptions } from "../app/actions/phones";
 import { Button } from "./button";
 import { Dialog } from "./dialog";
 import { IdleTimeoutField } from "./idle-timeout-field";
-import { useToast } from "./ui-provider";
+import { usePhoneAction } from "./use-phone-action";
 import type { Usage } from "../lib/usage";
 import s from "./console.module.css";
 
 export function PhoneMutation({ id, state }: { id: string; state: string }) {
-  const [result, action, pending] = useActionState(mutatePhone, { message: "" });
-  const notify = useToast();
-  useEffect(() => { if (result.message) notify(result.message); }, [result, notify]);
+  const [, action, pending] = usePhoneAction();
   const operation = state === "stopped" || state === "error" || state === "needsyou" ? "start" : "stop";
   return <form action={action} className={s.phoneMutation}>
     <input type="hidden" name="operation" value={operation} />
@@ -23,9 +21,7 @@ export function PhoneMutation({ id, state }: { id: string; state: string }) {
 }
 
 export function KeepPhone({ id }: { id: string }) {
-  const [result, action, pending] = useActionState(mutatePhone, { message: "" });
-  const notify = useToast();
-  useEffect(() => { if (result.message) notify(result.message); }, [result, notify]);
+  const [, action, pending] = usePhoneAction();
   return <form action={action} className={s.keepPhone}>
     <input type="hidden" name="operation" value="keep" />
     <input type="hidden" name="phoneId" value={id} />
@@ -127,9 +123,7 @@ export function PhoneRefresh() {
 }
 
 export function StopAll({ count }: { count: number }) {
-  const [result, action, pending] = useActionState(mutatePhone, { message: "" });
-  const notify = useToast();
-  useEffect(() => { if (result.message) notify(result.message); }, [result, notify]);
+  const [, action, pending] = usePhoneAction();
   if (!count) return null;
   return <form action={action}><input type="hidden" name="operation" value="stopAll" />
     <Button variant="ghost" disabled={pending}>{pending ? "Stopping..." : "Stop all running"}</Button>
