@@ -12,13 +12,11 @@ test("migrate applies a migration added after the connection was opened", () => 
   try {
     const { user_version: latest } = database.prepare("PRAGMA user_version").get() as { user_version: number };
     // Simulate a connection opened before the latest migration existed.
-    database.exec(`ALTER TABLE phones DROP COLUMN android_state;
-      ALTER TABLE phones DROP COLUMN android_started_at;
-      ALTER TABLE phones DROP COLUMN android_error;
+    database.exec(`DROP TABLE display_settings;
       PRAGMA user_version = ${latest - 1}`);
     migrate(database);
     assert.equal((database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, latest);
-    assert.ok(database.prepare("SELECT android_state, android_started_at, android_error FROM phones"));
+    assert.ok(database.prepare("SELECT stream_quality FROM display_settings"));
     migrate(database); // no-op when current
   } finally {
     database.close();

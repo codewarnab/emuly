@@ -14,6 +14,7 @@ export const PHONE_TABS = ["log", "apps", "backups", "danger"] as const;
 export const SETTINGS_TABS = [
   { label: "Hours", href: "/app/settings/hours", key: "1", shortcut: "g s" },
   { label: "Webhooks", href: "/app/settings/webhooks", key: "2", shortcut: "g w" },
+  { label: "Display", href: "/app/settings/display", key: "3", shortcut: "g d" },
 ] as const;
 export const SETTINGS_KEYS = { endpoint: "n", autoStop: "Enter", autoKeep: "Enter", test: "Enter" } as const;
 export function phoneTabHref(id: string, tab: string) {

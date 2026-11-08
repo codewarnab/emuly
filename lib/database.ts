@@ -166,6 +166,12 @@ const MIGRATIONS = [
   ALTER TABLE phones ADD COLUMN android_started_at TEXT;
   ALTER TABLE phones ADD COLUMN android_error TEXT;
   `,
+  `
+  CREATE TABLE display_settings (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    stream_quality TEXT NOT NULL DEFAULT 'auto' CHECK (stream_quality IN ('auto', 'sharp', 'saver'))
+  );
+  `,
 ];
 
 export function openDatabase(filename: string): DatabaseSync {

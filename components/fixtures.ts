@@ -12,6 +12,7 @@ export type PhoneRow = {
   /** 5 meta rows on the card, [key, value] */
   meta: Array<[string, string]>;
   thumbDim?: boolean;
+  screenReady?: boolean;
   foot: { ghost: string; primary: string };
 };
 

@@ -2,14 +2,28 @@
 import { useEffect, useRef, useState } from "react";
 import { usePhoneVideo } from "./use-phone-video";
 import { screenPoint, phoneKeys } from "../lib/phone-video";
-import { Button } from "./button";
-import s from "./console.module.css";
+import s from "./phone-screen.module.css";
+import type { StreamQuality } from "../lib/display-settings";
 
-export function PhoneScreen({ id, live, resting }: { id: string; live: boolean; resting: boolean }) {
+const controlIcons = {
+  back: <path d="m14 6-6 6 6 6" />,
+  home: <circle cx="12" cy="12" r="6" />,
+  recent: <rect x="6" y="6" width="12" height="12" rx="2" />,
+  rotate: <><path d="M4 9a8 8 0 0 1 14-3l2 2M20 3v5h-5M20 15A8 8 0 0 1 6 18l-2-2M4 21v-5h5" /></>,
+  volumeUp: <><path d="M11 5 6 9H3v6h3l5 4zM15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14" /></>,
+  volumeDown: <><path d="M11 5 6 9H3v6h3l5 4zM16 12h5" /></>,
+  screenshot: <><path d="m8 5 1-2h6l1 2h4v15H4V5z" /><circle cx="12" cy="12" r="4" /></>,
+};
+
+function ControlIcon({ name }: { name: keyof typeof controlIcons }) {
+  return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"
+    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{controlIcons[name]}</svg>;
+}
+
+export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: string; live: boolean; resting: boolean; quality?: StreamQuality }) {
   const [frame, setFrame] = useState("");
   const [error, setError] = useState("");
   const [inputPending, setInputPending] = useState(false);
-  const [quality, setQuality] = useState("auto");
   const canvas = useRef<HTMLCanvasElement>(null);
   const video = usePhoneVideo(id, live, quality, canvas);
   const stage = useRef<HTMLDivElement>(null);
@@ -102,8 +116,23 @@ export function PhoneScreen({ id, live, resting }: { id: string; live: boolean; 
     return () => element?.removeEventListener("wheel", handler);
   }, []);
   const showCanvas = video.painted && (video.active || !live || !frame);
+  const connectionLabel = !live ? resting ? "Resting" : "Waiting for Android"
+    : video.active ? "Live" : frame || video.painted ? "Screenshot view" : "Connecting";
+  function control(key: "home" | "back" | "recent" | "rotate" | "volumeUp" | "volumeDown", label: string) {
+    return <button type="button" className={s.control} aria-label={label} title={label}
+      disabled={!live || inputPending || (!video.active && !["home", "back"].includes(key))}
+      onClick={() => { if (!video.send(key === "rotate" ? { type: "rotate" } : { type: "key", key })) void input({ type: "key", key }); }}>
+      <ControlIcon name={key} /><span className={s.tooltip}>{label}</span>
+    </button>;
+  }
   return <div className={s.screenPanel}>
-    <div ref={stage} className={`${s.screenTouch} ${!live || (video.supported && !video.active) || !!error ? s.screenDim : ""}`}
+    <header className={s.header}>
+      <h2>Live screen</h2>
+      <span className={s.connection} data-live={live && video.active} role="status"><i aria-hidden="true" />{connectionLabel}</span>
+    </header>
+    <div className={s.viewer}>
+    <div className={s.display}>
+    <div ref={stage} className={`${s.screenTouch} ${!live ? s.screenDim : ""}`}
       role="application" tabIndex={live ? 0 : -1} aria-label="Phone screen. Focus to use keyboard and paste."
       onPointerDown={event => {
         event.currentTarget.focus();
@@ -157,34 +186,27 @@ export function PhoneScreen({ id, live, resting }: { id: string; live: boolean; 
       {frame && <img ref={image} src={frame} alt="Android screen" className={s.screenImage} style={{ display: showCanvas ? "none" : "block" }} />}
       {!frame && !video.painted && <div className={s.screenPlaceholder}>{live ? "Connecting to the screen..." : resting ? "Resting" : "Waiting for Android..."}</div>}
     </div>
-    <div className={s.screenControls}>
-      {([ ["home", "Home"], ["back", "Back"], ["recent", "Recent apps"], ["rotate", "Rotate"],
-        ["volumeUp", "Volume up"], ["volumeDown", "Volume down"] ] as const).map(([key, label]) =>
-        <Button key={key} tiny variant="ghost" disabled={!live || inputPending || (!video.active && !["home", "back"].includes(key))}
-          onClick={() => { if (!video.send(key === "rotate" ? { type: "rotate" } : { type: "key", key })) void input({ type: "key", key }); }}>{label}</Button>)}
-      <Button tiny variant="ghost" disabled={!frame && !video.painted} onClick={async () => {
+    <div className={s.navigation} role="group" aria-label="Android navigation">
+      {control("back", "Back")}{control("home", "Home")}{control("recent", "Recent apps")}
+    </div>
+    </div>
+    <div className={s.tools} role="group" aria-label="Device tools">
+      {control("volumeUp", "Volume up")}{control("volumeDown", "Volume down")}
+      <span className={s.divider} />
+      {control("rotate", "Rotate")}
+      <button type="button" className={s.control} aria-label="Screenshot" title="Screenshot" disabled={!frame && !video.painted} onClick={async () => {
         const blob = video.painted && showCanvas ? await new Promise<Blob | null>(resolve => canvas.current!.toBlob(resolve, "image/png")) : null;
         const url = blob ? URL.createObjectURL(blob) : frame;
         const link = document.createElement("a"); link.href = url; link.download = `${id}.png`; link.click();
         if (blob) setTimeout(() => URL.revokeObjectURL(url), 1000);
-      }}>Screenshot</Button>
+      }}><ControlIcon name="screenshot" /><span className={s.tooltip}>Screenshot</span></button>
     </div>
-    <fieldset className={s.qualityPicker}>
-      <legend>Stream quality</legend>
-      <div className={s.qualityOptions}>
-        {([
-          ["auto", "Auto", "Adapts to connection"],
-          ["sharp", "Sharp", "1080p"],
-          ["saver", "Saver", "720p · 15 fps"],
-        ] as const).map(([value, label, detail]) => <label key={value} className={s.qualityOption}>
-          <input type="radio" name={`quality-${id}`} value={value} checked={quality === value}
-            onChange={() => setQuality(value)} />
-          <span><strong>{label}</strong><small>{detail}</small></span>
-        </label>)}
-      </div>
-    </fieldset>
-    <p role="status">{!live ? resting ? "Resting" : "Waiting for Android..." : !video.supported ? "Screenshot view" : video.active ? `${video.stats.fps} fps / ${video.stats.delay} ms delay` : frame || video.painted ? "Reconnecting... / screenshot view" : "Connecting..."}</p>
-    {error && live && !video.active && <p role="status">{error}</p>}
+    </div>
+    <footer className={s.footer}>
+      <span>{video.active ? "Click to control · Type to send text" : "Click the screen to tap"}</span>
+      <span role="status">{video.active ? `${video.stats.fps} fps · ${video.stats.delay} ms` : live && video.supported ? "Reconnecting…" : ""}</span>
+    </footer>
+    {error && live && !video.active && <p className={s.error} role="status">{error}</p>}
   </div>;
 
 }

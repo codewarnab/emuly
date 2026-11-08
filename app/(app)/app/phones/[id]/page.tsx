@@ -23,6 +23,8 @@ import { DangerPanel } from "../../../../../components/danger-panel";
 import { Button } from "../../../../../components/button";
 import { Pill } from "../../../../../components/pill";
 import { mockLog, mockDetail, mockPhones } from "../../../../../components/fixtures";
+import { db } from "../../../../../lib/db";
+import { streamQuality } from "../../../../../lib/display-settings";
 
 /** Board block 03 — the live screen. Stage left, log right, tabs on top.
     Also board 04: the Danger tab holds the one destructive action. */
@@ -132,22 +134,23 @@ async function StoredPhone({ phone, user, search, syncError }: {
   const tab = (rawTab && tabSet.has(rawTab) ? rawTab : "log") as Tab;
   // A failed setup keeps the phone booting and retries, so the stage shows the failure instead of waiting.
   const setupFailed = phone.state === "booting" && /^(Phone setup failed|Could not reach the codespace)/.test(phone.state_detail ?? "");
+  const screenReady = phone.state === "running" && phone.android_state === "ready";
   return <>
     <KeyboardTools phones={listPhones(user.id).map(item => ({ id: item.id, name: item.id }))} />
     <Topbar breadcrumb={["Phones", phone.id]}>
       <Avatar initials={user.initials} login={user.login} />
     </Topbar>
-    <main className={s.detail} id="main-content" tabIndex={-1}>
+    <main className={`${s.detail} ${screenReady ? s.detailLive : ""}`} id="main-content" tabIndex={-1}>
       {(!syncError || syncError.kind === "other") && <PhoneRefresh />}
         <h1 className={s.srOnly}>Phone details</h1>
-      <section className={`${s.stage} ${s.disconnected}`} aria-label="Phone screen">
-        {phone.state === "running" && phone.android_state === "ready" &&
-          <PhoneScreen key={phone.id} id={phone.id} resting={false} live />}
+      <section className={`${s.stage} ${s.disconnected} ${screenReady ? s.liveStage : ""}`} aria-label="Phone screen">
+        {screenReady &&
+          <PhoneScreen key={phone.id} id={phone.id} resting={false} live quality={streamQuality(db(), user.id)} />}
         {phone.state !== "running" && phone.state !== "stopped" && <div className={s.emptyPhone} aria-hidden />}
-        <Pill kind={phoneCard(phone).state}>{phone.state}</Pill>
+        {!screenReady && <><Pill kind={phoneCard(phone).state}>{phone.state}</Pill>
         <h2>{phone.state === "stopped" ? "Resting" : phone.state === "error" ? "Phone did not start" : setupFailed ? "Setup failed"
           : phone.state === "running" ? phone.android_state === "failed" ? "Android boot failed"
-          : phone.android_state === "ready" ? "Live screen" : "Starting Android" : phone.state === "booting" && phone.state_detail ? "Installing Android" : "Starting the codespace"}</h2>
+          : phone.android_state === "ready" ? "Live screen" : "Starting Android" : phone.state === "booting" && phone.state_detail ? "Installing Android" : "Starting the codespace"}</h2></>}
         {phone.state === "running" && phone.android_state === "booting" && <AndroidElapsed started={phone.android_started_at} />}
         {phone.state === "running" && phone.android_state === "failed" && <><p>{phone.android_error}</p><RetryBoot id={phone.id} /></>}
         {phone.state !== "running" && <>
@@ -159,9 +162,12 @@ async function StoredPhone({ phone, user, search, syncError }: {
         {setupFailed && <p>phonelink tries again in about 10 minutes.</p>}
         {syncError && <SyncNotice error={syncError} />}
         {/* The one action that fits the state, next to the state it fixes. */}
+        <div className={screenReady ? s.liveStageFooter : undefined}>
+        {screenReady && <Pill kind={phoneCard(phone).state}>{phone.state}</Pill>}
         {phone.codespace_name.startsWith("pending:")
           ? phone.state === "error" && <Link className={`${s.btn} ${s.btnTiny} ${s.btnGhost}`} href={`/app/phones/${encodeURIComponent(phone.id)}?tab=danger`}>Delete this phone</Link>
           : <PhoneMutation id={phone.id} state={phone.keeping ? "keeping" : phone.state} />}
+        </div>
       </section>
       <div>
         <Tabs active={tab} phoneId={phone.id} />

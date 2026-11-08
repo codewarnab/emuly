@@ -6,10 +6,11 @@ import { Pill } from "./pill";
 import type { PhoneRow } from "./fixtures";
 import { PhoneMutation, KeepPhone } from "./phone-mutations";
 import type { Retention } from "../lib/retention";
+import { PhonePreview } from "./phone-preview";
 
-export function Thumb({ dim, sbRight = "5G" }: { dim?: boolean; sbRight?: string }) {
+export function Thumb({ dim, sbRight = "5G", id, ready }: { dim?: boolean; sbRight?: string; id?: string; ready?: boolean }) {
   return (
-    <div className={s.thumb}>
+    <PhonePreview id={id} ready={ready}>
       <div className={`${s.scr} ${dim ? s.scrDim : ""}`}>
         <div className={s.sb}>
           <span>9:41</span>
@@ -27,7 +28,7 @@ export function Thumb({ dim, sbRight = "5G" }: { dim?: boolean; sbRight?: string
           <i />
         </div>
       </div>
-    </div>
+    </PhonePreview>
   );
 }
 
@@ -43,7 +44,7 @@ export function PhoneCard({ phone, controlState, retention, codespace = null }: 
         <PhoneCardMenu id={phone.id} codespace={codespace} />
       </div>
       <div className={s.pcardBody}>
-        <Thumb dim={phone.thumbDim} />
+        <Thumb id={phone.id} ready={phone.screenReady} dim={phone.thumbDim} />
         <div className={s.meta}>
           {phone.meta.map(([k, v]) => (
             <div key={k}>

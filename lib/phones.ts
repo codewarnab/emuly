@@ -45,6 +45,7 @@ export function phoneCard(phone: Phone): PhoneRow {
     name: phone.id,
     state: state === "running" || state === "stopped" || state === "booting" ? state : "needsyou",
     thumbDim: phone.state !== "running",
+    screenReady: phone.state === "running" && phone.android_state === "ready",
     meta: [
       ["Status", phone.state === "error" && phone.state_detail ? shortMessage(phone.state_detail)
         : phone.state === "running" ? "Running" : phone.state === "stopped" ? "Resting · wakes in about 15 s"

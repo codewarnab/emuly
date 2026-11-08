@@ -1,0 +1,31 @@
+.screenPanel { --screen-height: max(360px, calc(100dvh - 240px)); width: 100%; min-width: 0; }
+.header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 0 0 12px; }
+.header h2 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -.02em; }
+.connection { display: flex; align-items: center; gap: 7px; color: var(--dim); font-size: 11px; }
+.connection i { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
+.connection[data-live="true"] i { background: var(--safe); box-shadow: 0 0 0 3px var(--safe-soft); }
+.viewer { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.display { min-width: 0; max-width: 100%; }
+.screenTouch { width: fit-content; max-width: 100%; margin: auto; background: #0b0e14; border-radius: 14px; overflow: hidden; cursor: crosshair; touch-action: none; outline: 1px solid var(--line); box-shadow: 0 4px 16px var(--shadow); }
+.screenTouch:focus-visible { outline: 2px solid #b6caff; outline-offset: 4px; }
+.screenImage { display: block; width: auto; height: auto; max-width: 100%; max-height: var(--screen-height); }
+.screenDim { opacity: .5; }
+.screenPlaceholder { display: grid; place-items: center; width: calc(var(--screen-height) * .5); max-width: 100%; aspect-ratio: 1 / 2; padding: 24px; color: #c5d0e1; text-align: center; font-size: 13px; }
+.navigation { display: flex; justify-content: center; gap: 22px; padding-top: 4px; }
+.tools { flex: 0 0 36px; display: flex; flex-direction: column; align-items: center; gap: 6px; align-self: center; }
+.control { position: relative; display: grid; place-items: center; flex: none; width: 36px; height: 40px; padding: 0; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--dim); transition: background .15s, color .15s; }
+.control:not(:disabled):hover { color: var(--text); background: var(--panel2); }
+.control:not(:disabled):active { background: var(--accent-soft); }
+.control:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.control:disabled { color: var(--dim); opacity: .4; }
+.tooltip { position: absolute; z-index: 10; right: calc(100% + 8px); width: max-content; padding: 5px 8px; border: 1px solid #465165; border-radius: 6px; background: #1b2535; color: #fff; font-size: 11px; pointer-events: none; visibility: hidden; opacity: 0; transition: opacity .15s; }
+.control:hover .tooltip, .control:focus-visible .tooltip { visibility: visible; opacity: 1; }
+.navigation .tooltip { right: 50%; bottom: calc(100% + 8px); transform: translateX(50%); }
+.divider { width: 18px; height: 1px; margin: 5px 0; background: var(--line); }
+.footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; padding: 8px 0 12px; color: var(--dim); font-size: 10px; }
+.footer > :last-child { font-family: var(--mono); }
+.error { margin: 0; padding: 0 20px 16px; color: var(--danger); font-size: 12px; }
+@media (max-width: 420px) {
+  .viewer { gap: 6px; }
+  .control { width: 36px; height: 44px; }
+}

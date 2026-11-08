@@ -124,7 +124,7 @@ export function KeyboardTools({ phones }: { phones?: PhoneChoice[] }) {
       <h3>Everywhere</h3><p><span>Command menu</span><kbd>⌘K / Ctrl K</kbd></p><p><span>Show shortcuts</span><kbd>?</kbd></p><p><span>Toggle dark mode</span><kbd>t</kbd></p><p><span>Close menu or dialog</span><kbd>Esc</kbd></p>
       {phones && <><h3>Navigation</h3><p><span>Go to Phones</span><kbd>g then p</kbd></p><p><span>Open phones 1–9</span><kbd>g then 1–9</kbd></p>
       {SETTINGS_TABS.map(item => <p key={item.key}><span>Go to Settings: {item.label}</span><kbd>{item.shortcut}</kbd></p>)}
-      <h3>In Settings</h3><p><span>Hours / Webhooks tab</span><kbd>{SETTINGS_TABS.map(item => item.key).join(" / ")}</kbd></p>
+      <h3>In Settings</h3><p><span>Settings tabs</span><kbd>{SETTINGS_TABS.map(item => item.key).join(" / ")}</kbd></p>
       <p><span>Focus Endpoint URL on Webhooks</span><kbd>{SETTINGS_KEYS.endpoint}</kbd></p>
       <h3>On a phone</h3><p><span>Agent log / Apps / Backups / Danger tab</span><kbd>1 / 2 / 3 / 4</kbd></p><p><span>Wake / Stop (unavailable)</span><kbd>w / s</kbd></p><p><span>Copy stream URL</span><kbd>c</kbd></p></>}
       <p className={s.help}>Shortcuts pause while you type. Deleting a phone has no shortcut.</p>
