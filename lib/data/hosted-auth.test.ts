@@ -11,6 +11,10 @@ import { createDiagnostics } from "../diagnostics/diagnostics.ts";
 import { createWebhookService } from "../webhooks/webhooks.ts";
 import { createWebhookOutbox } from "../webhooks/webhook-outbox.ts";
 import { seal, open } from "../auth/crypto-core.ts";
+import { createPhoneService } from "../phone/phone-mutations.ts";
+import { createGitHubClient, GitHubError, type Codespace } from "../github/github.ts";
+import { createStatePoller } from "../phone/poller.ts";
+import { unreadAutoStops, acknowledgeAutoStops } from "../shared/hours.ts";
 import { randomBytes } from "node:crypto";
 
 // This contract covers the actual async auth functions and migration runner together.
@@ -115,6 +119,67 @@ for (const hosted of [false, true]) {
       assert.equal((await readUsage(client, 1, clock)).used_core_hours, 8);
       assert.equal((await readUsage(client, 1, clock)).allowance_core_hours, 50);
       assert.equal((await readUsage(client, 2, clock)).used_core_hours, 0);
+      // Exercise the production phone service and poller against the same hosted client.
+      let created: Codespace | undefined;
+      let creates = 0;
+      let phoneClock = Date.parse("2026-11-08T00:00:00.000Z");
+      const machine = { name: "standardLinux32gb", display_name: "4-core", cpus: 4, memory_in_bytes: 16 * 1024 ** 3 };
+      const github = createGitHubClient({ database: client, accessToken: async () => "synthetic-token",
+        fetch: async (url, init) => {
+          if (String(url).endsWith("/machines")) return Response.json({ machines: [machine] });
+          if (init?.method === "POST") {
+            creates++;
+            const body = JSON.parse(String(init.body));
+            const intent = (await client.execute({ sql: "SELECT outcome FROM phone_creations WHERE phone_id = ?", args: [body.display_name] })).rows[0];
+            assert.equal(intent.outcome, "unconfirmed", "intent commits before provider HTTP");
+            created = { id: 567, name: "hosted-owned", display_name: body.display_name, state: "Starting", machine };
+            throw new Error("synthetic lost response");
+          }
+          return Response.json({ codespaces: created ? [created] : [] });
+        } });
+      const phones = createPhoneService({ database: client, github, encrypt: value => seal(value, key), clock: () => phoneClock });
+      await assert.rejects(phones.create(2, { repository: "fixture/template", repositoryId: 123, idleTimeoutMin: 30 }));
+      await phones.sync(2);
+      assert.equal(creates, 1, "reconciliation never resubmits an uncertain POST");
+      const phoneId = created!.display_name!;
+      assert.equal((await client.execute({ sql: "SELECT outcome FROM phone_creations WHERE phone_id = ?", args: [phoneId] })).rows[0].outcome, "confirmed");
+      const phoneHook = await hooks.create(2, { url: "https://receiver.example", events: ["phone.stopped"] });
+      const eventsBefore = Number((await client.execute({ sql: "SELECT count(*) AS n FROM events WHERE user_id = 2", args: [] })).rows[0].n);
+      await client.execute("CREATE TRIGGER reject_phone_fanout BEFORE INSERT ON webhook_deliveries WHEN NEW.type = 'phone.stopped' BEGIN SELECT RAISE(ABORT, 'synthetic fanout failure'); END");
+      created!.state = "Shutdown";
+      phoneClock += 60_000;
+      await assert.rejects(phones.sync(2));
+      assert.equal((await client.execute({ sql: "SELECT state FROM phones WHERE id = ?", args: [phoneId] })).rows[0].state, "booting");
+      assert.equal(Number((await client.execute("SELECT count(*) AS n FROM runs WHERE stopped_at IS NULL AND phone_id != 'synthetic-phone'")).rows[0].n), 1);
+      assert.equal(Number((await client.execute("SELECT count(*) AS n FROM events WHERE user_id = 2")).rows[0].n), eventsBefore);
+      await client.execute("DROP TRIGGER reject_phone_fanout");
+      await phones.sync(2);
+      await phones.sync(2);
+      assert.equal((await hooks.deliveries(2, phoneHook.id)).length, 1);
+      assert.equal(Number((await client.execute({ sql: "SELECT count(*) AS n FROM runs WHERE phone_id = ? AND stopped_at IS NULL", args: [phoneId] })).rows[0].n), 0);
+      await hooks.remove(2, phoneHook.id);
+      await client.execute({ sql: "INSERT INTO events (user_id, ts, kind, message) VALUES (2, ?, 'hours.auto_stopped', 'synthetic stop')", args: [new Date(phoneClock).toISOString()] });
+      const notices = await unreadAutoStops(client, 2);
+      await acknowledgeAutoStops(client, 1, notices.map(n => n.id));
+      assert.equal((await unreadAutoStops(client, 2)).length, 1);
+      await acknowledgeAutoStops(client, 2, notices.map(n => n.id));
+      assert.equal((await unreadAutoStops(client, 2)).length, 0);
+      let syncs = 0;
+      const tick = createStatePoller({ database: client, clock: () => phoneClock, sync: async () => { syncs++; } });
+      await tick();
+      assert.ok(syncs >= 2, "poller reads and persists its state asynchronously");
+      const limited = createStatePoller({ database: client, clock: () => phoneClock,
+        sync: async userId => { if (userId === 2) throw new GitHubError("synthetic limit", 429); } });
+      await limited();
+      assert.equal((await client.execute("SELECT error_code FROM poller_retries WHERE user_id = 2")).rows[0].error_code, "rate_limited");
+      const retried: number[] = [];
+      const restarted = createStatePoller({ database: client, clock: () => phoneClock, sync: async userId => { retried.push(userId); } });
+      await restarted();
+      assert.ok(!retried.includes(2), "a fresh poller respects persisted backoff");
+      phoneClock += 300_001;
+      await restarted();
+      assert.ok(retried.includes(2));
+      assert.equal((await client.execute("SELECT user_id FROM poller_retries WHERE user_id = 2")).rows.length, 0);
       const original = await insertSession(client, 1);
       await migrateHosted(client);
       assert.equal(Number((await client.execute("SELECT count(*) AS n FROM schema_migrations")).rows[0].n), MIGRATIONS.length);
@@ -147,7 +212,7 @@ for (const hosted of [false, true]) {
       assert.equal(Number((await client.execute("SELECT count(*) AS n FROM sessions")).rows[0].n), 0);
     } catch (error) {
       // Provider exceptions can contain connection details; do not print them.
-      if (error instanceof assert.AssertionError) throw error;
+      if (!hosted || error instanceof assert.AssertionError) throw error;
       throw new Error("Async database integration failed; provider details suppressed");
     } finally {
       try {

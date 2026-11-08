@@ -36,7 +36,7 @@ async function readBounded(request: Request, limit: number) {
 /** One authorization boundary for inventory, operations, binary upload and launch. */
 export function createPhoneAppsApi({ user, phone, runner, upgrade }: {
   user: () => Promise<{ id: number } | null>;
-  phone: (userId: number, id: string) => Phone | undefined;
+  phone: (userId: number, id: string) => Phone | undefined | Promise<Phone | undefined>;
   runner: (userId: number, id: string, path: AppsPath, options: AppsRequest) => Promise<Response>;
   upgrade?: (userId: number, id: string) => Promise<{ status: string }>;
 }) {
@@ -45,7 +45,7 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade }: {
     try {
       const identity = await user();
       if (!identity) bad(401, "Sign in again.");
-      const stored = phone(identity.id, id);
+      const stored = await phone(identity.id, id);
       if (!stored) bad(404, "Phone not found.");
       if (stored.state !== "running" || stored.android_state !== "ready") bad(409, "Start the phone to use Apps.");
       if (request.method !== "GET") {

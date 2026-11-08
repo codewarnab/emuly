@@ -13,7 +13,7 @@
  * second free personal account. Re-read the Terms before building it.
  */
 import "server-only";
-import type { DatabaseSync } from "node:sqlite";
+import type { DatabaseQueries } from "../data/async-database.ts";
 
 /** The only GitHub HTTP transport, including OAuth. Tests supply a fake fetch. */
 export function githubFetch(url: string, init: RequestInit, fetcher: typeof fetch = fetch) {
@@ -68,7 +68,7 @@ export type CreateCodespace = {
 };
 
 export function createGitHubClient({ database, accessToken, fetch: fetcher = fetch }: {
-  database: DatabaseSync;
+  database: DatabaseQueries;
   accessToken: (userId: number) => Promise<string>;
   fetch?: typeof fetch;
 }) {
@@ -92,21 +92,21 @@ export function createGitHubClient({ database, accessToken, fetch: fetcher = fet
     return response;
   }
 
-  function assertOwnedCodespace(userId: number, phoneId: string) {
-    const phone = database.prepare(`SELECT codespace_name, state FROM phones
-      WHERE user_id = ? AND id = ? AND state != 'deleted'`).get(userId, phoneId) as
+  async function assertOwnedCodespace(userId: number, phoneId: string) {
+    const phone = (await database.execute({ sql: `SELECT codespace_name, state FROM phones
+      WHERE user_id = ? AND id = ? AND state != 'deleted'`, args: [userId, phoneId] })).rows[0] as unknown as
       { codespace_name: string; state: string } | undefined;
     if (!phone) throw new Error("Phone not found");
     return phone;
   }
 
   async function getCodespace(userId: number, phoneId: string) {
-    const phone = assertOwnedCodespace(userId, phoneId);
+    const phone = await assertOwnedCodespace(userId, phoneId);
     return readCodespace(await request(userId, `/user/codespaces/${encodeURIComponent(phone.codespace_name)}`));
   }
 
   async function mutate(userId: number, phoneId: string, operation: "start" | "stop") {
-    const phone = assertOwnedCodespace(userId, phoneId);
+    const phone = await assertOwnedCodespace(userId, phoneId);
     const response = await request(userId, `/user/codespaces/${encodeURIComponent(phone.codespace_name)}/${operation}`, "POST");
     // Stop commonly returns 202 with no JSON. Reconcile with GET before claiming Shutdown.
     if (operation === "stop") { await response.body?.cancel(); return; }
@@ -117,11 +117,10 @@ export function createGitHubClient({ database, accessToken, fetch: fetcher = fet
     assertOwnedCodespace,
     getCodespace,
     async listCodespaces(userId: number): Promise<Codespace[]> {
-      const names = new Set(database.prepare("SELECT codespace_name FROM phones WHERE user_id = ? AND state != 'deleted'")
-        .all(userId).map(row => String(row.codespace_name)));
-      const displays = new Set(database.prepare(`SELECT c.display_name FROM phone_creations c
+      const names = new Set((await database.execute({ sql: "SELECT codespace_name FROM phones WHERE user_id = ? AND state != 'deleted'", args: [userId] })).rows.map(row => String(row.codespace_name)));
+      const displays = new Set((await database.execute({ sql: `SELECT c.display_name FROM phone_creations c
         JOIN phones p ON p.id = c.phone_id WHERE p.user_id = ? AND p.state != 'deleted'
-        AND c.outcome = 'unconfirmed'`).all(userId).map(row => String(row.display_name)));
+        AND c.outcome = 'unconfirmed'`, args: [userId] })).rows.map(row => String(row.display_name)));
       const result: Codespace[] = [];
       let more = true;
       for (let page = 1; more; page++) {
@@ -155,8 +154,8 @@ export function createGitHubClient({ database, accessToken, fetch: fetcher = fet
       return data.machines;
     },
     async createCodespace(userId: number, phoneId: string, input: CreateCodespace) {
-      const phone = assertOwnedCodespace(userId, phoneId);
-      const operation = database.prepare("SELECT display_name, outcome FROM phone_creations WHERE phone_id = ?").get(phoneId);
+      const phone = await assertOwnedCodespace(userId, phoneId);
+      const operation = (await database.execute({ sql: "SELECT display_name, outcome FROM phone_creations WHERE phone_id = ?", args: [phoneId] })).rows[0];
       if (phone.state !== "pending" || phone.codespace_name !== `pending:${phoneId}`) {
         throw new Error("Phone creation already requested");
       }
@@ -167,7 +166,7 @@ export function createGitHubClient({ database, accessToken, fetch: fetcher = fet
     stopCodespace: (userId: number, phoneId: string) => mutate(userId, phoneId, "stop"),
     // DELETE /user/codespaces/{name}. A 404 means GitHub already deleted it.
     async deleteCodespace(userId: number, phoneId: string) {
-      const phone = assertOwnedCodespace(userId, phoneId);
+      const phone = await assertOwnedCodespace(userId, phoneId);
       if (phone.codespace_name.startsWith("pending:")) return;
       try {
         const response = await request(userId, `/user/codespaces/${encodeURIComponent(phone.codespace_name)}`, "DELETE");

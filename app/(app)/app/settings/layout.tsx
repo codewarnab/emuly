@@ -27,7 +27,7 @@ async function SettingsShell({ children }: { children: React.ReactNode }) {
       <SettingsTabs />
       <SettingsProvider initial={{ idle: settings.default_idle_min, autoStop: settings.auto_stop_before_empty,
         autoKeep: settings.auto_keep, plan, allowance: settings.allowance_core_hours }}>
-        <KeyboardTools phones={listPhones(user.id).map(phone => ({ id: phone.id, name: phone.name }))} />
+        <KeyboardTools phones={(await listPhones(user.id)).map(phone => ({ id: phone.id, name: phone.name }))} />
         <Suspense fallback={<div className={s.skeletonLine} />}>{children}</Suspense>
       </SettingsProvider>
     </main>

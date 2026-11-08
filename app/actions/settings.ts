@@ -39,5 +39,5 @@ export async function savePlan(form: FormData) {
 export async function dismissAutoStops(ids: number[]) {
   const user = await requireUser();
   if (!Array.isArray(ids) || ids.length > 50 || ids.some(id => !Number.isSafeInteger(id) || id < 1)) return;
-  acknowledgeAutoStops(db(), user.id, ids);
+  await acknowledgeAutoStops(asyncDb(), user.id, ids);
 }

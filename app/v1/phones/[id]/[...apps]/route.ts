@@ -17,7 +17,7 @@ const handle = createPhoneAppsApi({ user: getUser, phone: findPhone, runner: asy
   const current = upgrades.get(key);
   if (current) return current;
   const work = (async () => {
-    const phone = findPhone(userId, id);
+    const phone = (await findPhone(userId, id));
     if (!phone) throw new Error("Phone not found");
     const result = await setup(userId, phone.codespace_name);
     const status = result.state;

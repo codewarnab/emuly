@@ -28,7 +28,7 @@ function fixture() {
   for (const id of [1, 2]) database.prepare(`INSERT INTO users
     (id, github_id, login, token_cipher, token_scopes, created_at, last_seen_at)
     VALUES (?, ?, 'fixture', ?, 'codespace', '2026-11-01', '2026-11-01')`).run(id, id, Buffer.from("fixture"));
-  const github = createGitHubClient({ database, accessToken: async id => `synthetic-${id}`, fetch: async (url, init) => {
+  const github = createGitHubClient({ database: asyncDatabase, accessToken: async id => `synthetic-${id}`, fetch: async (url, init) => {
     const path = new URL(String(url)).pathname;
     if (path === "/user/codespaces") return Response.json({ codespaces: [...spaces.values(),
       { id: 999, name: "foreign-unregistered", state: "Available", machine: { name: "fixture", cpus: 64 } }] });
@@ -47,8 +47,8 @@ function fixture() {
     return Response.json(space);
   } });
   const emit = (event: OutgoingEvent) => { outgoing.push(event); };
-  const service = createPhoneService({ database, diagnosticsDatabase: asyncDatabase, github, clock, emit, encrypt: value => Buffer.from(value) });
-  const makeTick = () => createStatePoller({ database, settingsDatabase: asyncDatabase, clock, emit, sync: service.sync, autoStop: service.autoStop });
+  const service = createPhoneService({ database: asyncDatabase, github, clock, emit, encrypt: value => Buffer.from(value) });
+  const makeTick = () => createStatePoller({ database: asyncDatabase, clock, emit, sync: service.sync, autoStop: service.autoStop });
   return {
     asyncDatabase, database, spaces, calls, outgoing, failures, service, clock, makeTick,
     setTime(value: string) { time = Date.parse(value); }, advance(ms: number) { time += ms; },
@@ -115,13 +115,13 @@ test("enabling auto-stop below the boundary stops only owned phones once, preser
     assert.deepEqual(f.calls, ["/user/codespaces/generated-phone-aaaa/stop"]);
     assert.equal(f.database.prepare("SELECT state FROM phones WHERE id = 'phone-bbbb'").get()?.state, "running");
     assert.equal(f.outgoing.filter(e => e.type === "hours.auto_stopped").length, 1);
-    assert.equal(unreadAutoStops(f.database, 1).length, 1);
-    const notices = unreadAutoStops(f.database, 1);
-    acknowledgeAutoStops(f.database, 2, notices.map(n => n.id));
-    assert.equal(unreadAutoStops(f.database, 1).length, 1);
-    acknowledgeAutoStops(f.database, 1, notices.map(n => n.id));
-    acknowledgeAutoStops(f.database, 1, notices.map(n => n.id));
-    assert.deepEqual(unreadAutoStops(f.database, 1), []);
+    assert.equal((await unreadAutoStops(f.asyncDatabase, 1)).length, 1);
+    const notices = (await unreadAutoStops(f.asyncDatabase, 1));
+    await acknowledgeAutoStops(f.asyncDatabase, 2, notices.map(n => n.id));
+    assert.equal((await unreadAutoStops(f.asyncDatabase, 1)).length, 1);
+    await acknowledgeAutoStops(f.asyncDatabase, 1, notices.map(n => n.id));
+    await acknowledgeAutoStops(f.asyncDatabase, 1, notices.map(n => n.id));
+    assert.deepEqual((await unreadAutoStops(f.asyncDatabase, 1)), []);
     f.advance(60_000);
     f.spaces.get("generated-phone-aaaa")!.state = "Shutdown";
     await tick();
@@ -147,7 +147,7 @@ test("auto-stop retries failed phones, skips accepted phones, and backs off rate
     const tick = f.makeTick();
     await tick();
     assert.deepEqual(f.calls, ["/user/codespaces/generated-phone-aaaa/stop", "/user/codespaces/generated-phone-bbbb/stop", "/user/codespaces/generated-phone-dddd/stop"]);
-    assert.equal(unreadAutoStops(f.database, 1).length, 0);
+    assert.equal((await unreadAutoStops(f.asyncDatabase, 1)).length, 0);
     f.failures.clear();
     f.advance(299_999);
     await tick();
@@ -155,7 +155,7 @@ test("auto-stop retries failed phones, skips accepted phones, and backs off rate
     f.advance(1);
     await tick();
     assert.equal(f.calls.length, 6);
-    assert.equal(unreadAutoStops(f.database, 1).length, 1, "one toast for one auto-stop run");
+    assert.equal((await unreadAutoStops(f.asyncDatabase, 1)).length, 1, "one toast for one auto-stop run");
     await tick();
     assert.equal(f.calls.length, 6);
   } finally { await f.close(); }
@@ -169,7 +169,7 @@ test("auto-stop can protect more than six phones in one tick without the interac
     await updateSettings(f.asyncDatabase, 1, { allowance_core_hours: 1, auto_stop_before_empty: true });
     await f.makeTick()();
     assert.equal(f.calls.length, 8);
-    assert.equal(unreadAutoStops(f.database, 1).length, 1, "one toast for one auto-stop run");
+    assert.equal((await unreadAutoStops(f.asyncDatabase, 1)).length, 1, "one toast for one auto-stop run");
     await f.makeTick()();
     assert.equal(f.calls.length, 8);
   } finally { await f.close(); }

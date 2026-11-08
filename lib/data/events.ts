@@ -13,7 +13,7 @@ export type OutgoingEvent = {
   /** Internal routing for the Test button; never serialized into the payload. */
   webhookId?: string;
 };
-export type EventEmitter = (event: OutgoingEvent) => void | Promise<unknown>;
+export type EventEmitter = (event: OutgoingEvent, queries?: DatabaseQueries) => void | Promise<unknown>;
 function safeText(value: string) {
   return value.replace(/(?:gh[opsu]_|github_pat_)[A-Za-z0-9_]+/g, "[redacted]")
     .replace(/(?:https?|wss?):\/\/\S+/gi, "[url removed]")

@@ -78,19 +78,19 @@ async function PhoneContent({
 }) {
   const user = await requireUser();
   const { id } = await params;
-  let phone = findPhone(user.id, id);
+  let phone = (await findPhone(user.id, id));
   const mock = process.env.PHONELINK_MOCK === "1" && id === "phone-7f2a";
   if (!phone && !mock) notFound();
   if (!mock && phone) {
     const syncError = await syncPhoneState(user.id);
-    phone = findPhone(user.id, id);
+    phone = (await findPhone(user.id, id));
     if (!phone) notFound();
     return <StoredPhone phone={phone} user={user} search={searchParams} syncError={syncError} />;
   }
 
   return (
     <>
-      <KeyboardTools phones={listPhones(user.id).map(item => ({ id: item.id, name: item.name,
+      <KeyboardTools phones={(await listPhones(user.id)).map(item => ({ id: item.id, name: item.name,
         ...(item.id === mockDetail.phone ? { stream: mockDetail.streamUrl, adb: mockDetail.thisPhone.find(([key]) => key === "adb")?.[1] } : {}),
       }))} />
       <Topbar breadcrumb={["Phones", phoneName(mockDetail.phone)]}>
@@ -138,7 +138,7 @@ async function StoredPhone({ phone, user, search, syncError }: {
   const screenReady = !phone.keeping && phone.state === "running" && phone.android_state === "ready";
   const status = phoneStatus(phone);
   return <>
-    <KeyboardTools phones={listPhones(user.id).map(item => ({ id: item.id, name: item.name }))} />
+    <KeyboardTools phones={(await listPhones(user.id)).map(item => ({ id: item.id, name: item.name }))} />
     <Topbar breadcrumb={["Phones", phone.name]}>
       <Avatar initials={user.initials} login={user.login} />
     </Topbar>
@@ -168,7 +168,7 @@ async function StoredPhone({ phone, user, search, syncError }: {
         <Tabs active={tab} phoneId={phone.id} />
         <section role="tabpanel" className={s.tabPanel} id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} tabIndex={0}>
         {tab === "danger" ? <DangerPanel phoneName={phone.id} /> : tab === "apps" ? <PhoneApps key={phone.id} id={phone.id} ready={screenReady} /> :
-          <LogFeed rows={tab === "log" ? phoneEvents(user.id, phone.id) : []} live={false}
+          <LogFeed rows={tab === "log" ? (await phoneEvents(user.id, phone.id)) : []} live={false}
             running={tab === "log" ? `Current status: ${status.title}` : undefined} emptyMessage={tab === "backups" ? "No backups yet." : "No activity yet."} />}
         </section>
         <div className={s.subgrid}>

@@ -54,10 +54,10 @@ function fixture() {
     }
     return Response.json(space);
   };
-  const makeService = () => createPhoneService({ database, diagnosticsDatabase: asyncDatabase, clock, emit, encrypt: value => Buffer.from(value),
-    github: createGitHubClient({ database, accessToken: async () => "synthetic-token", fetch: fetcher }) });
+  const makeService = () => createPhoneService({ database: asyncDatabase, clock, emit, encrypt: value => Buffer.from(value),
+    github: createGitHubClient({ database: asyncDatabase, accessToken: async () => "synthetic-token", fetch: fetcher }) });
   let service = makeService();
-  const makeTick = () => createStatePoller({ database, settingsDatabase: asyncDatabase, clock, emit, sync: service.sync,
+  const makeTick = () => createStatePoller({ database: asyncDatabase, clock, emit, sync: service.sync,
     autoKeep: service.autoKeep, autoStop: service.autoStop });
   return {
     asyncDatabase, get database() { return database; }, get service() { return service; },

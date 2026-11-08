@@ -1,8 +1,9 @@
+import { asyncDb } from "../data/async-db.ts";
 import "server-only";
 import { shortMessage } from "../shared/short-message.ts";
 import { phoneName } from "../shared/phone-name.ts";
 import { phoneStatus, phoneEventMessage } from "./phone-status.ts";
-import { db } from "../data/db.ts";
+
 import type { PhoneRow } from "@/lib/shared/fixtures";
 import type { LogRow } from "@/components/ui/log-feed";
 
@@ -34,16 +35,15 @@ const columns = `id, codespace_name, machine, state, state_detail, created_at, r
   EXISTS(SELECT 1 FROM phone_keeps WHERE phone_id = phones.id) AS keeping,
   EXISTS(SELECT 1 FROM phone_setup_attempts WHERE phone_id = phones.id AND failed = 1) AS setup_failed`;
 
-export function listPhones(userId: number): Phone[] {
-  const rows = db().prepare(`SELECT ${columns} FROM phones WHERE user_id = ? AND state != 'deleted'
+export async function listPhones(userId: number): Promise<Phone[]> {
+  const rows = (await asyncDb().execute({ sql: `SELECT ${columns} FROM phones WHERE user_id = ? AND state != 'deleted'
     ORDER BY CASE WHEN state = 'running' THEN 0 WHEN state IN ('booting', 'pending', 'stopping') THEN 1 ELSE 2 END,
-      COALESCE(last_started_at, last_stopped_at, created_at) DESC, id`).all(userId) as unknown as Omit<Phone, "name">[];
+      COALESCE(last_started_at, last_stopped_at, created_at) DESC, id`, args: [userId] })).rows as unknown as Omit<Phone, "name">[];
   return rows.map(row => ({ ...row, name: phoneName(row.id) }));
 }
 
-export function findPhone(userId: number, id: string): Phone | undefined {
-  const row = db().prepare(`SELECT ${columns} FROM phones WHERE user_id = ? AND id = ? AND state != 'deleted'`)
-    .get(userId, id) as Omit<Phone, "name"> | undefined;
+export async function findPhone(userId: number, id: string): Promise<Phone | undefined> {
+  const row = (await asyncDb().execute({ sql: `SELECT ${columns} FROM phones WHERE user_id = ? AND id = ? AND state != 'deleted'`, args: [userId, id] })).rows[0] as unknown as Omit<Phone, "name"> | undefined;
   return row && { ...row, name: phoneName(row.id) };
 }
 
@@ -64,9 +64,9 @@ export function phoneCard(phone: Phone): PhoneRow {
   };
 }
 
-export function phoneEvents(userId: number, id: string): LogRow[] {
-  const rows = db().prepare(`SELECT ts, kind, message FROM events WHERE user_id = ? AND phone_id = ?
-    ORDER BY ts DESC, id DESC LIMIT 50`).all(userId, id) as { ts: string; kind: string; message: string }[];
+export async function phoneEvents(userId: number, id: string): Promise<LogRow[]> {
+  const rows = (await asyncDb().execute({ sql: `SELECT ts, kind, message FROM events WHERE user_id = ? AND phone_id = ?
+    ORDER BY ts DESC, id DESC LIMIT 50`, args: [userId, id] })).rows as unknown as { ts: string; kind: string; message: string }[];
   return rows.map(row => ({ time: `${row.ts.slice(11, 19)} UTC`, at: row.ts, ok: row.kind === "step", error: row.kind === "error",
     parts: [{ type: "text", value: phoneEventMessage(row.message.length > 100 ? shortMessage(row.message) : row.message) }] }));
 }
