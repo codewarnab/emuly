@@ -5,14 +5,14 @@ type ScreenPhone = { state: string; android_state: string };
 /** Session identity and ownership are checked on every frame and input request. */
 export function createPhoneScreenApi({ user, phone, runner }: {
   user: () => Promise<{ id: number } | null>;
-  phone: (userId: number, id: string) => ScreenPhone | undefined;
+  phone: (userId: number, id: string) => ScreenPhone | undefined | Promise<ScreenPhone | undefined>;
   runner: (userId: number, id: string, path: RunnerPath, body?: Record<string, unknown>) => Promise<Response>;
 }) {
   const json = (error: string, status: number) => Response.json({ error }, { status, headers: { "Cache-Control": "private, no-store" } });
   return async function screen(request: Request, id: string) {
     const identity = await user();
     if (!identity) return json("Sign in again.", 401);
-    const stored = phone(identity.id, id);
+    const stored = await phone(identity.id, id);
     if (!stored) return json("Phone not found.", 404);
     if (stored.state !== "running" || stored.android_state !== "ready") return json("Android is not ready.", 409);
     if (request.method === "POST") {

@@ -286,7 +286,7 @@ test("poller flushes endpoints without phones and prevents overlapping ticks", a
     await f.service().test(1, hook.id);
     let calls = 0;
     const flush = f.outbox(async () => { calls++; return 200; });
-    const tick = createStatePoller({ database: f.database, settingsDatabase: f.asyncDatabase, clock: f.clock, sync: async () => assert.fail("No phone sync expected"), deliver: flush });
+    const tick = createStatePoller({ database: f.asyncDatabase, clock: f.clock, sync: async () => assert.fail("No phone sync expected"), deliver: flush });
     await Promise.all([tick(), tick(), tick()]);
     assert.equal(calls, 1); assert.equal((await f.service().deliveries(1, hook.id))[0]?.state, "ok");
   } finally { await f.close(); }
@@ -300,7 +300,7 @@ test("phone operations enqueue actual lifecycle events once, preserving stop rea
     let space: Codespace = { id: 101, name: "owned-space", state: "Provisioning", machine };
     let refuseStart = false;
     let deleted = false;
-    const github = createGitHubClient({ database: f.database, accessToken: async () => "synthetic-token", fetch: async (url, init) => {
+    const github = createGitHubClient({ database: f.asyncDatabase, accessToken: async () => "synthetic-token", fetch: async (url, init) => {
       const path = new URL(String(url)).pathname;
       if (path.endsWith("/machines")) return Response.json({ machines: [machine] });
       if (path.endsWith("/start")) {
@@ -312,7 +312,7 @@ test("phone operations enqueue actual lifecycle events once, preserving stop rea
       return path === "/user/codespaces" ? Response.json({ codespaces: deleted ? [] : [space,
         { id: 999, name: "foreign-space", state: "Shutdown" }] }) : Response.json(space);
     } });
-    const service = createPhoneService({ database: f.database, diagnosticsDatabase: f.asyncDatabase, github, encrypt: f.encrypt, clock: f.clock });
+    const service = createPhoneService({ database: f.asyncDatabase, github, encrypt: f.encrypt, clock: f.clock });
     const id = await service.create(1, { repository: "fixture/template", repositoryId: 1, idleTimeoutMin: 30, devcontainerPath: ".devcontainer/devcontainer.json" });
     const events = () => f.database.prepare("SELECT type, body FROM webhook_deliveries WHERE webhook_id = ? ORDER BY rowid").all(hook.id)
       .map(row => ({ type: row.type, ...JSON.parse(String(row.body)) }));

@@ -16,7 +16,7 @@ For local development, leave `PHONELINK_DATABASE_URL` unset and run `pnpm db:mig
 
 Hosted connection settings are `PHONELINK_DATABASE_URL` and `PHONELINK_DATABASE_AUTH_TOKEN`. Supply credentials through the existing secret mechanism. The migration command also accepts URL-file and token-file paths as its two positional arguments. Neither command arguments nor logs contain credential values.
 
-Do not enable hosted mode for the full application yet. Phone operations, activity events, display preferences, auto-stop acknowledgements, most poller writes, and GitHub token refresh still use synchronous SQLite. Their `db()` entry point rejects hosted mode rather than silently using a different local database. Shared OAuth refresh coordination remains part of the later migration work.
+Do not enable hosted mode for the full application yet. Display preferences and GitHub token refresh still use synchronous SQLite. Their `db()` entry point rejects hosted mode rather than silently using a different local database. Shared OAuth refresh coordination remains part of the later migration work.
 
 No existing SQLite data has been imported to Turso. No active deployment configuration has changed. The test database is left empty after hosted integration checks.
 
@@ -53,3 +53,14 @@ Validation: full suite passed (135 passed, one hosted test skipped); the hosted 
 Validation: typecheck, production build, and full suite passed (135 passed, one hosted check skipped). Explicit Turso checks passed separately, including encrypted webhook delivery, sanitized payloads, test rate limits, ownership checks, and rollback of diagnostic records and aggregates when cursor writes fail. Duplicate collector batches aggregate once. The test database was cleared afterward. Existing phone setup tracing warnings remain. Tests/build include unrelated working-tree edits, excluded from this PR. No real receiver, browser flow, or deployed application was tested.
 
 Next: migrate phone operations, activity events, poller writes, and remaining shared helpers. Complete shared coordination, import rehearsal, scheduling, streaming/storage, and Vercel acceptance before merging and cutover.
+
+## Phone operations, activity and poller batch (2026-11-08)
+
+- Phone creation/recovery, start/stop/delete/keep, run accounting, setup attempts, Android boot state, activity reads/writes, runner ownership checks, and their page/API callers now await libSQL queries.
+- Rate checks and creation reservations commit before provider HTTP. Lifecycle changes, runs, activity events, and webhook fan-out share transaction handles. Setup and boot completion recheck durable attempts/state after remote calls. Diagnostics and remote work run outside phone transactions.
+- Poller retries, retention notices, hours notices, auto-stop summaries, and notice acknowledgements use async queries. Notice/event fan-out commits atomically. A fresh poller respects persisted rate-limit backoff.
+- Removed the synchronous event bridge and separate native phone/poller connections. Local SQLite remains the default through the async client.
+
+Validation: typecheck, production build, and the full local suite passed (135 passed; one hosted test skipped). Explicit Turso integration passed separately. It covers creation intent before HTTP, uncertain POST recovery without resubmission, lifecycle/run/activity rollback on failed fan-out, one stopped notification after reconciliation, account-scoped notice acknowledgement, and poller backoff across restarts. The hosted test database was cleared afterward. Existing setup tracing warnings remain. Tests/build include unrelated working-tree UI/runner edits, excluded from this PR. No real GitHub phone operation, browser flow, or deployment was exercised.
+
+Next: migrate display preferences and GitHub token refresh. Add shared coordination for refresh and phone/scheduled operations. Hosted application cutover, import rehearsal, Cron, transport/storage, and Vercel acceptance remain unfinished. PR #14 stays open and unmerged.

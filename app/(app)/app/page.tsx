@@ -28,7 +28,7 @@ async function Dashboard({ clock = Date.now }: { clock?: () => number }) {
   const user = await requireUser();
   if (!(await chosenPlan(asyncDb(), user.id))) redirect("/app/welcome");
   const syncError = await syncPhoneState(user.id);
-  const phones = listPhones(user.id);
+  const phones = (await listPhones(user.id));
   const usage = await readAccountUsage(user, clock);
   const settings = await userSettings(asyncDb(), user.id);
   const warning = hoursWarning(await readUsage(asyncDb(), user.id, clock), settings.auto_stop_before_empty);
