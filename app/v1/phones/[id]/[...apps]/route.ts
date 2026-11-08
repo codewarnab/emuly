@@ -4,10 +4,17 @@ import { runnerApps, runnerRequest, closeRunner } from "../../../../../lib/phone
 import { createPhoneSetup } from "../../../../../lib/phone/phone-setup";
 import { getAccessToken } from "../../../../../lib/github/github-token";
 import { createPhoneAppsApi } from "../../../../../lib/phone/phone-apps-api";
+import { asyncDb } from "../../../../../lib/data/async-db";
+import { sharedAppAdmission } from "../../../../../lib/phone/app-admission";
+import { withLease } from "../../../../../lib/data/coordination";
 
 const setup = createPhoneSetup({ token: getAccessToken });
 const upgrades = new Map<string, Promise<{ status: string }>>();
-const handle = createPhoneAppsApi({ user: getUser, phone: findPhone, runner: async (userId, id, path, options) => {
+const handle = createPhoneAppsApi({ user: getUser, phone: findPhone, sharedAdmission: {
+  current: (...args) => sharedAppAdmission(asyncDb()).current(...args),
+  claim: (...args) => sharedAppAdmission(asyncDb()).claim(...args),
+  release: (...args) => sharedAppAdmission(asyncDb()).release(...args),
+}, runner: async (userId, id, path, options) => {
   const health = await runnerRequest(userId, id, "/health");
   const status = await health.json();
   if (!status.capabilities?.includes("apkUpload")) return Response.json({ error: "Update the phone runner to use Apps.", errorCode: "runner_update_required" }, { status: 503 });
@@ -16,7 +23,7 @@ const handle = createPhoneAppsApi({ user: getUser, phone: findPhone, runner: asy
   const key = `${userId}:${id}`;
   const current = upgrades.get(key);
   if (current) return current;
-  const work = (async () => {
+  const work = withLease(asyncDb(), `setup:${id}`, async () => {
     const phone = (await findPhone(userId, id));
     if (!phone) throw new Error("Phone not found");
     const result = await setup(userId, phone.codespace_name);
@@ -24,7 +31,7 @@ const handle = createPhoneAppsApi({ user: getUser, phone: findPhone, runner: asy
     if (status === "failed") throw new Error("Phone setup failed. Try again.");
     if (status === "ready") closeRunner(userId, id, phone.codespace_name);
     return { status };
-  })().finally(() => upgrades.delete(key));
+  }).finally(() => upgrades.delete(key));
   upgrades.set(key, work);
   return work;
 } });

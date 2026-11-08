@@ -158,7 +158,7 @@ test("creation reserves its operation before machine lookup and blocks overlappi
     creating = assert.rejects(f.service.create(1, input), /machine is unavailable/);
     await entered.promise;
     f.advance(60_000);
-    await assert.rejects(f.service.create(1, input), /unconfirmed/);
+    await assert.rejects(f.service.create(1, input), /unconfirmed|already in progress/);
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM phones").get()?.n, 1);
     release.resolve();
     await creating;

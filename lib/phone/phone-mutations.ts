@@ -1,4 +1,6 @@
 import "server-only";
+import { waitUntil } from "@vercel/functions";
+import { withLease, independentWork } from "../data/coordination.ts";
 import type { SetupResult } from "./phone-setup.ts";
 import { validIdle } from "../shared/idle.ts";
 import { randomBytes } from "node:crypto";
@@ -42,7 +44,11 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
     throw new Error("PHONELINK_MAX_PHONES must be a positive integer or unset");
   }
   const busy = new Set<string>();
-  const background = (work: Promise<unknown>) => { void work.catch(() => { /* Reconciliation retries persisted state. */ }); };
+  const background = (work: Promise<unknown>) => {
+    const settled = work.catch(() => { /* Reconciliation retries persisted state. */ });
+    if (process.env.VERCEL) waitUntil(settled);
+    else void settled;
+  };
   const diagnostics = createDiagnostics(database);
   void diagnostics.reconcile();
   const iso = () => new Date(clock()).toISOString();
@@ -54,7 +60,8 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
   const SETUP_FAILURE_DETAIL = "Phone setup failed. phonelink tries again in about 10 minutes.";
   const booting = new Set<string>();
 
-  async function startBoot(userId: number, id: string) {
+  const startBoot = (userId: number, id: string) => independentWork(() => withLease(database, `boot:${id}`, () => performBoot(userId, id)));
+  async function performBoot(userId: number, id: string) {
     if (!runner || booting.has(id) || busy.has(id)) return;
     booting.add(id);
     const started = iso();
@@ -98,7 +105,8 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
     }
   }
 
-  async function startSetup(userId: number, id: string, codespaceName: string) {
+  const startSetup = (userId: number, id: string, codespaceName: string) => independentWork(() => withLease(database, `setup:${id}`, () => performSetup(userId, id, codespaceName)));
+  async function performSetup(userId: number, id: string, codespaceName: string) {
     if (!setup || settingUp.has(id)) return;
     settingUp.add(id);
     try {
@@ -473,7 +481,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
     } finally { busy.delete(id); }
   }
 
-  return {
+  const service = {
     async retryBoot(userId: number, id: string) {
       const stored = await phone(userId, id);
       if (stored.state !== "running" || (await keeping(id)) || busy.has(id) || booting.has(id)) throw new PhoneInputError("Wait until the phone is running.");
@@ -594,6 +602,19 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
       }
       return { stopped, errors };
     },
+  };
+  return {
+    ...service,
+    create: (...args: Parameters<typeof service.create>) => withLease(database, `phones:${args[0]}`, () => service.create(...args)),
+    start: (...args: Parameters<typeof service.start>) => withLease(database, `phones:${args[0]}`, () => service.start(...args)),
+    stop: (...args: Parameters<typeof service.stop>) => withLease(database, `phones:${args[0]}`, () => service.stop(...args)),
+    remove: (...args: Parameters<typeof service.remove>) => withLease(database, `phones:${args[0]}`, () => service.remove(...args)),
+    keep: (...args: Parameters<typeof service.keep>) => withLease(database, `phones:${args[0]}`, () => service.keep(...args)),
+    sync: (...args: Parameters<typeof service.sync>) => withLease(database, `phones:${args[0]}`, () => service.sync(...args)),
+    stopAll: (...args: Parameters<typeof service.stopAll>) => withLease(database, `phones:${args[0]}`, () => service.stopAll(...args)),
+    autoStop: (...args: Parameters<typeof service.autoStop>) => withLease(database, `phones:${args[0]}`, () => service.autoStop(...args)),
+    autoKeep: (...args: Parameters<typeof service.autoKeep>) => withLease(database, `phones:${args[0]}`, () => service.autoKeep(...args)),
+    retryBoot: (...args: Parameters<typeof service.retryBoot>) => withLease(database, `phones:${args[0]}`, () => service.retryBoot(...args)),
   };
 }
 
