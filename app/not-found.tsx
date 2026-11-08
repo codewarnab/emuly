@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { Brand } from "../components/topbar";
-import { ThemeToggle } from "../components/theme-toggle";
+import { Brand } from "@/components/shell/topbar";
+import { ThemeToggle } from "@/components/shell/theme-toggle";
 import s from "./not-found.module.css";
 
 export default function NotFound() {

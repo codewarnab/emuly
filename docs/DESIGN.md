@@ -164,11 +164,18 @@ Disabled controls and decorative device artwork are excluded from text/control t
 - `app/login/page.tsx`: sign-in design and theme navigation.
 - `app/(app)/layout.tsx`, `app/(app)/app/page.tsx`,
   `app/(app)/app/phones/[id]/page.tsx`: dashboard, mobile navigation and every detail tab.
-- `components/console.module.css`: shared console visual system.
-- `components/theme-toggle.tsx`, `copy-button.tsx`: theme persistence and clipboard feedback.
-- `components/topbar.tsx`, `phone-card.tsx`, `stage.tsx`, `mini.tsx`, `tabs.tsx`,
-  `log-feed.tsx`, `quota-strip.tsx`, `empty-state.tsx`, `add-card.tsx`,
-  `danger-panel.tsx`: navigation, account menu, devices, states and typed confirmation.
+- `components/console.module.css`, `components/interaction.module.css`: shared console
+  visual systems. Both stay at the `components/` root because they serve several groups.
+- `components/shell/theme-toggle.tsx`, `components/ui/copy-button.tsx`: theme persistence
+  and clipboard feedback.
+- `components/shell/topbar.tsx`, `components/phone/phone-card.tsx`,
+  `components/phone/stage.tsx`, `components/ui/mini.tsx`, `components/ui/tabs.tsx`,
+  `components/ui/log-feed.tsx`, `components/shell/quota-strip.tsx`,
+  `components/ui/empty-state.tsx`, `components/phone/danger-panel.tsx`: navigation,
+  account menu, devices, states and typed confirmation.
+- `components/phone/`, `components/settings/`, `components/ui/`, `components/shell/`,
+  `components/marketing/`: device lifecycle, settings forms, primitives, app chrome and
+  the landing visual. Imports use the `@/components/...` alias.
 - `lib/phones.ts`: presentation metadata only.
 - `lib/session.ts`: `await connection()` before session reads so time-dependent expiry
   runs at request time. Session creation, expiry and cookie semantics are unchanged.

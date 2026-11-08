@@ -1,9 +1,9 @@
 ﻿import { Suspense } from "react";
 import { requireUser } from "../../../../lib/auth";
-import { Topbar, Avatar } from "../../../../components/topbar";
-import { SettingsTabs } from "../../../../components/settings-tabs";
-import { SettingsProvider } from "../../../../components/settings-provider";
-import { KeyboardTools } from "../../../../components/keyboard-tools";
+import { Topbar, Avatar } from "@/components/shell/topbar";
+import { SettingsTabs } from "@/components/settings/settings-tabs";
+import { SettingsProvider } from "@/components/settings/settings-provider";
+import { KeyboardTools } from "@/components/shell/keyboard-tools";
 import { listPhones } from "../../../../lib/phones";
 import { db } from "../../../../lib/db";
 import { chosenPlan, userSettings } from "../../../../lib/settings";

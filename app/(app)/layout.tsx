@@ -1,11 +1,11 @@
-import { ConsoleLoading } from "../../components/console-loading";
+import { ConsoleLoading } from "@/components/ui/console-loading";
 import Link from "next/link";
 import { Suspense } from "react";
 import { requireUser } from "../../lib/auth";
 import s from "../../components/console.module.css";
 import { db } from "../../lib/db";
 import { unreadAutoStops } from "../../lib/hours";
-import { AutoStopNotice } from "../../components/auto-stop-notice";
+import { AutoStopNotice } from "@/components/shell/auto-stop-notice";
 import { webhookControl } from "../../lib/webhook-control";
 
 /** Console shell wrapper + mobile tabbar (board 05).

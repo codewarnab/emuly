@@ -3,8 +3,8 @@ import { requireUser } from "../../../../lib/auth";
 import { db } from "../../../../lib/db";
 import { chosenPlan } from "../../../../lib/settings";
 import { savePlan } from "../../../actions/settings";
-import { Topbar, Avatar } from "../../../../components/topbar";
-import { ConsoleLoading } from "../../../../components/console-loading";
+import { Topbar, Avatar } from "@/components/shell/topbar";
+import { ConsoleLoading } from "@/components/ui/console-loading";
 import s from "../../../../components/console.module.css";
 
 const PLANS = [

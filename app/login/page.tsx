@@ -1,5 +1,5 @@
-import { KeyboardTools } from "../../components/keyboard-tools";
-import { Topbar } from "../../components/topbar";
+import { KeyboardTools } from "@/components/shell/keyboard-tools";
+import { Topbar } from "@/components/shell/topbar";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getUser } from "../../lib/auth";

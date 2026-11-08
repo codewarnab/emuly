@@ -2,11 +2,11 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { getSession } from "../../lib/session";
 import type { Metadata } from "next";
-import { ThemeToggle } from "../../components/theme-toggle";
-import { Brand } from "../../components/topbar";
-import { CopyButton } from "../../components/copy-button";
-import { KeyboardTools } from "../../components/keyboard-tools";
-import { HeroPhone } from "../../components/hero-phone";
+import { ThemeToggle } from "@/components/shell/theme-toggle";
+import { Brand } from "@/components/shell/topbar";
+import { CopyButton } from "@/components/ui/copy-button";
+import { KeyboardTools } from "@/components/shell/keyboard-tools";
+import { HeroPhone } from "@/components/marketing/hero-phone";
 import { AGENT_PROMPT } from "../../lib/agent-prompt";
 import s from "./landing.module.css";
 

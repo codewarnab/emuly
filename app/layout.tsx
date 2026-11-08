@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Public_Sans, Sora } from "next/font/google";
 import "./globals.css";
-import { UIProvider } from "../components/ui-provider";
+import { UIProvider } from "@/components/ui/ui-provider";
 
 const body = Public_Sans({ subsets: ["latin"], variable: "--font-body", display: "swap" });
 const display = Sora({ subsets: ["latin"], variable: "--font-display", display: "swap" });

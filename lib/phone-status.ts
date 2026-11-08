@@ -1,4 +1,4 @@
-import type { PillKind } from "../components/pill";
+import type { PillKind } from "@/components/ui/pill";
 
 type StatusPhone = {
   state: string;
