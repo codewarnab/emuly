@@ -6,7 +6,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { GitHubError, type Codespace, type createGitHubClient } from "../github/github.ts";
 import { assertMutationRate } from "../data/rate-limit.ts";
 import { emitEvent, type EventEmitter } from "../data/events.ts";
-import { retentionExpiry } from "../data/retention.ts";
+import { decidePhoneTransition, decideRunChanges } from "./phone-lifecycle.ts";
 import { candidatePhoneName, PHONE_ID } from "../shared/phone-name.ts";
 import { createDiagnostics, measure, newDiagnosticId } from "../diagnostics/diagnostics.ts";
 
@@ -195,46 +195,25 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
   function trackRun(previous: StoredPhone, codespace: Codespace, state: string, source: string) {
     const open = database.prepare("SELECT id, cores, started_at FROM runs WHERE phone_id = ? AND stopped_at IS NULL")
       .get(previous.id) as { id: number; cores: number; started_at: string } | undefined;
-    const active = ["Available", "Starting", "Creating", "Provisioning", "Rebuilding"].includes(codespace.state);
-    const cores = codespace.machine?.cpus ?? previous.cores ?? (previous.machine === "basicLinux32gb" ? 2 : 4);
-    if (open && (state === "stopped" || state === "deleted" || (active && open.cores !== cores))) {
-      // last_used_at is activity, not a stop timestamp. Add the chosen idle window.
-      const idleEnd = Date.parse(codespace.last_used_at ?? "") + previous.idle_timeout_min * 60_000;
-      const end = state === "stopped" && source === "reconciled" && previous.state !== "stopping" && Number.isFinite(idleEnd)
-        ? Math.max(Date.parse(open.started_at), Math.min(clock(), idleEnd)) : clock();
-      database.prepare("UPDATE runs SET stopped_at = ? WHERE id = ?").run(new Date(end).toISOString(), open.id);
-    }
-    if (active && (!open || open.cores !== cores)) {
-      const lastUsed = Date.parse(codespace.last_used_at ?? "");
-      const knownStart = ["running", "booting"].includes(previous.state) ? Date.parse(previous.last_started_at ?? "") : lastUsed;
-      const started = !open && source === "reconciled" && Number.isFinite(knownStart)
-        ? Math.max(Date.parse(previous.last_stopped_at ?? "") || 0, Math.min(clock(), knownStart)) : clock();
-      database.prepare("INSERT INTO runs (phone_id, cores, started_at, source) VALUES (?, ?, ?, ?)")
-        .run(previous.id, cores, new Date(started).toISOString(), source);
-    }
+    const changes = decideRunChanges({ previous, codespace, state, source, open, now: clock() });
+    if (changes.close) database.prepare("UPDATE runs SET stopped_at = ? WHERE id = ?")
+      .run(changes.close.stoppedAt, changes.close.id);
+    if (changes.create) database.prepare("INSERT INTO runs (phone_id, cores, started_at, source) VALUES (?, ?, ?, ?)")
+      .run(previous.id, changes.create.cores, changes.create.startedAt, source);
   }
 
   function apply(userId: number, id: string, codespace: Codespace, source = "phonelink") {
     const previous = phone(userId, id);
-    const mapped = phoneState(codespace.state);
     const android = database.prepare("SELECT android_state FROM phones WHERE id = ?").get(id);
-    const needsSetup = setup && android?.android_state === "idle";
-    const state = codespace.state === "Available" && previous.state === "running" && !needsSetup ? "running"
-      : previous.state === "stopping" && ["booting", "stopping"].includes(mapped) ? "stopping" : mapped;
+    const { state, detail, lastStarted, lastStopped, retention } = decidePhoneTransition({
+      previous, codespace, androidState: String(android?.android_state ?? ""),
+      setupAvailable: Boolean(setup), setupFailure: setupFailure.get(id), now: clock(),
+    });
     if (["stopped", "error"].includes(previous.state) && state === "booting") {
       database.prepare("UPDATE phones SET stop_reason = NULL WHERE id = ?").run(id);
       diagnostics.operation(userId, id, "resume");
     }
     if (codespace.state === "Available" && previous.state !== "running") diagnostics.providerAvailable(userId, id);
-    const started = ["Available", "Starting"].includes(codespace.state);
-    const lastStarted = started && ["stopped", "error"].includes(previous.state) ? iso() : previous.last_started_at;
-    const lastStopped = state === "stopped" && previous.state !== "stopped" ? iso() : previous.last_stopped_at;
-    const retention = state === "stopped" ? retentionExpiry({ ...previous, last_stopped_at: lastStopped,
-      retention_at: codespace.retention_expires_at ?? (previous.state === "stopped" ? previous.retention_at : null) }) : null;
-    const detail = state === "running" ? null : codespace.state === "Available"
-      ? (setupFailure.get(id) ?? (setup ? "Installing Android and starting the runner. The first setup takes several minutes."
-        : "Codespace available. Phone setup is not connected yet."))
-      : state === "error" ? `GitHub reports ${codespace.state}. Check the codespace on GitHub.` : null;
     trackRun(previous, codespace, state, source);
     if (["stopped", "deleted", "stopping"].includes(state)) {
       if (["ShuttingDown", "Shutdown", "Deleted", "Failed"].includes(codespace.state)) {
@@ -594,14 +573,6 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
       return { stopped, errors };
     },
   };
-}
-
-function phoneState(state: string) {
-  if (state === "Shutdown") return "stopped";
-  if (state === "Deleted") return "deleted";
-  if (state === "ShuttingDown") return "stopping";
-  if (["Available", "Starting", "Creating", "Provisioning", "Rebuilding", "Queued", "Awaiting"].includes(state)) return "booting";
-  return "error";
 }
 
 export function redact(message: string) {
