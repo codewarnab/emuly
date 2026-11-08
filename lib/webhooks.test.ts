@@ -12,9 +12,9 @@ import { createWebhookService } from "./webhooks.ts";
 import { createWebhookOutbox } from "./webhook-outbox.ts";
 import { createWebhookApi } from "./webhook-api.ts";
 import { signWebhook, verifyWebhook, webhookTarget, type ResolveHost, type SendWebhook } from "./webhook-security.ts";
-import { createStatePoller } from "./poller.ts";
+import { createStatePoller } from "./phone/poller.ts";
 import { createGitHubClient, type Codespace } from "./github.ts";
-import { createPhoneService } from "./phone-mutations.ts";
+import { createPhoneService } from "./phone/phone-mutations.ts";
 
 const publicDns: ResolveHost = async () => [{ address: "93.184.216.34", family: 4 }];
 function fixture() {

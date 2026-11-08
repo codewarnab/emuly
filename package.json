@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "node server.mjs --production",
     "lint": "tsc --noEmit",
-    "test": "node --conditions=react-server --test --experimental-strip-types lib/*.test.ts"
+    "test": "node --conditions=react-server --test --experimental-strip-types \"lib/**/*.test.ts\""
   },
   "dependencies": {
     "@grpc/grpc-js": "1.14.3",

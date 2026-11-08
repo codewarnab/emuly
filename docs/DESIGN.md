@@ -176,7 +176,7 @@ Disabled controls and decorative device artwork are excluded from text/control t
 - `components/phone/`, `components/settings/`, `components/ui/`, `components/shell/`,
   `components/marketing/`: device lifecycle, settings forms, primitives, app chrome and
   the landing visual. Imports use the `@/components/...` alias.
-- `lib/phones.ts`: presentation metadata only.
+- `lib/phone/phones.ts`: presentation metadata only.
 - `lib/session.ts`: `await connection()` before session reads so time-dependent expiry
   runs at request time. Session creation, expiry and cookie semantics are unchanged.
 

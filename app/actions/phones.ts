@@ -2,11 +2,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireUser } from "../../lib/auth";
-import { phoneControl, templateRepository } from "../../lib/phone-control";
+import { phoneControl, templateRepository } from "../../lib/phone/phone-control";
 import { PHONE_MACHINE } from "../../lib/github";
 import { IDLE_MAX, IDLE_MIN, parseIdle } from "../../lib/idle";
 import { GitHubError } from "../../lib/github";
-import { PhoneInputError, redact } from "../../lib/phone-mutations";
+import { PhoneInputError, redact } from "../../lib/phone/phone-mutations";
 import { RateLimitError } from "../../lib/rate-limit";
 import { db } from "../../lib/db";
 import { saveAllowance, userSettings } from "../../lib/usage";

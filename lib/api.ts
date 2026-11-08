@@ -1,8 +1,8 @@
 import "server-only";
 import { getUser } from "./auth";
 import { db } from "./db";
-import { phoneControl, templateRepository } from "./phone-control";
-import { createPhoneApi } from "./phone-api";
+import { phoneControl, templateRepository } from "./phone/phone-control";
+import { createPhoneApi } from "./phone/phone-api";
 import { readUsage, userSettings } from "./usage";
 import { webhookControl } from "./webhook-control";
 import { createWebhookApi } from "./webhook-api";

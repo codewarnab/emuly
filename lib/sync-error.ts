@@ -1,5 +1,5 @@
 import { GitHubError } from "./github.ts";
-import { redact } from "./phone-mutations.ts";
+import { redact } from "./phone/phone-mutations.ts";
 import { shortMessage } from "./short-message.ts";
 
 export type SyncError = {

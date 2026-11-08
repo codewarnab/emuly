@@ -99,7 +99,10 @@ components/
   ui/                primitives: buttons, dialogs, pills, tabs, toasts, log feed
   shell/             topbar, account menu, keyboard tools, notices
   marketing/         landing hero
-lib/                env, crypto (AES-256-GCM), SQLite (node:sqlite), sessions, GitHub OAuth
+lib/
+  phone/            lifecycle, setup, runner link, stream, apps, video, poller
+  diagnostics       startup reports, contracts, browser API
+  env, crypto (AES-256-GCM), SQLite (node:sqlite), sessions, GitHub OAuth
 proxy.ts            protects /app/* (Next 16 replacement for middleware)
 public/agents/      agent logos (from svgl.app)
 docs/

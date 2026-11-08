@@ -4,8 +4,8 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { createApps } from "../phone/runner/apps.mjs";
-import { apkUrl, downloadApk } from "../phone/runner/apk-download.mjs";
+import { createApps } from "../../phone/runner/apps.mjs";
+import { apkUrl, downloadApk } from "../../phone/runner/apk-download.mjs";
 
 test("APK downloads reject unsafe protocols and private destinations before consuming bytes", async () => {
   for (const url of ["http://example.com/a.apk", "https://user:pass@example.com/a.apk", "https://example.com:8443/a.apk", "https://example.com/a.apk#fragment", "file:///tmp/a.apk"])

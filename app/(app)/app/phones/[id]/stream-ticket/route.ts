@@ -1,10 +1,10 @@
 ﻿import { getUser } from "../../../../../../lib/auth";
 import { getSession } from "../../../../../../lib/session";
-import { findPhone } from "../../../../../../lib/phones";
-import { runnerStream } from "../../../../../../lib/phone-runner";
-import { createPhoneStreamApi } from "../../../../../../lib/phone-stream-api";
+import { findPhone } from "../../../../../../lib/phone/phones";
+import { runnerStream } from "../../../../../../lib/phone/phone-runner";
+import { createPhoneStreamApi } from "../../../../../../lib/phone/phone-stream-api";
 import { db } from "../../../../../../lib/db";
-import { phoneObservations } from "../../../../../../lib/phone-observation";
+import { phoneObservations } from "../../../../../../lib/phone/phone-observation";
 
 const stream = createPhoneStreamApi({ user: async () => {
   const user = await getUser(), session = await getSession();

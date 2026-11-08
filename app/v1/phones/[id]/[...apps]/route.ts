@@ -1,9 +1,9 @@
 import { getUser } from "../../../../../lib/auth";
-import { findPhone } from "../../../../../lib/phones";
-import { runnerApps, runnerRequest, closeRunner } from "../../../../../lib/phone-runner";
-import { createPhoneSetup } from "../../../../../lib/phone-setup";
+import { findPhone } from "../../../../../lib/phone/phones";
+import { runnerApps, runnerRequest, closeRunner } from "../../../../../lib/phone/phone-runner";
+import { createPhoneSetup } from "../../../../../lib/phone/phone-setup";
 import { getAccessToken } from "../../../../../lib/github-token";
-import { createPhoneAppsApi } from "../../../../../lib/phone-apps-api";
+import { createPhoneAppsApi } from "../../../../../lib/phone/phone-apps-api";
 
 const setup = createPhoneSetup({ token: getAccessToken });
 const upgrades = new Map<string, Promise<{ status: string }>>();

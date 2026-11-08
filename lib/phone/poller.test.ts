@@ -3,14 +3,14 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase } from "./database.ts";
-import { createGitHubClient, type Codespace } from "./github.ts";
+import { openDatabase } from "../database.ts";
+import { createGitHubClient, type Codespace } from "../github.ts";
 import { createPhoneService } from "./phone-mutations.ts";
 import { createStatePoller } from "./poller.ts";
-import { updateSettings } from "./settings.ts";
-import { readUsage } from "./usage.ts";
-import { hoursWarning, unreadAutoStops, acknowledgeAutoStops } from "./hours.ts";
-import type { OutgoingEvent } from "./events.ts";
+import { updateSettings } from "../settings.ts";
+import { readUsage } from "../usage.ts";
+import { hoursWarning, unreadAutoStops, acknowledgeAutoStops } from "../hours.ts";
+import type { OutgoingEvent } from "../events.ts";
 
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "phonelink-poller-"));

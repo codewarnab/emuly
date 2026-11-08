@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
-import { createDiagnostics, newDiagnosticId } from "./diagnostics.ts";
-import { diagnosticId, type Step, type StepCode } from "./diagnostic-contract.ts";
+import { createDiagnostics, newDiagnosticId } from "../diagnostics.ts";
+import { diagnosticId, type Step, type StepCode } from "../diagnostic-contract.ts";
 
 type Owner = { userId: number; id: string };
 type Window = { operationId?: string; expires: number; inputUntil: number; lastInputSummary: number };

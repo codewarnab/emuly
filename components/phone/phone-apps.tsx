@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
-import { APK_CHUNK_BYTES, APK_MAX_BYTES, installFinished, type AppInstall, type InstalledApp } from "@/lib/phone-apps-contract";
+import { APK_CHUNK_BYTES, APK_MAX_BYTES, installFinished, type AppInstall, type InstalledApp } from "@/lib/phone/phone-apps-contract";
 import s from "@/components/phone/phone-apps.module.css";
 
 const stages: Record<string, string> = { uploading: "Uploading APK", downloading: "Downloading APK", validating: "Checking APK",

@@ -1,6 +1,6 @@
 ﻿"use client";
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { avcCodec, retryDelays, videoPacket } from "@/lib/phone-video";
+import { avcCodec, retryDelays, videoPacket } from "@/lib/phone/phone-video";
 import { phoneTiming } from "@/components/phone/phone-timing";
 
 export function usePhoneVideo(id: string, live: boolean, quality: string, canvas: RefObject<HTMLCanvasElement | null>) {

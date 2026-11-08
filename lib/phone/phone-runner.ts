@@ -1,7 +1,7 @@
 import "server-only";
-import { db } from "./db.ts";
-import { getAccessToken } from "./github-token.ts";
-import { codespaceExec, openCodespacePort } from "./codespace-tunnel.ts";
+import { db } from "../db.ts";
+import { getAccessToken } from "../github-token.ts";
+import { codespaceExec, openCodespacePort } from "../codespace-tunnel.ts";
 import { createPhoneLinks, type RunnerPath, type AppsPath, type AppsRequest } from "./phone-link.ts";
 import { phoneObservations } from "./phone-observation.ts";
 

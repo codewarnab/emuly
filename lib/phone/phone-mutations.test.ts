@@ -3,14 +3,14 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase } from "./database.ts";
-import { createGitHubClient, GitHubError, PHONE_MACHINE, type Codespace } from "./github.ts";
+import { openDatabase } from "../database.ts";
+import { createGitHubClient, GitHubError, PHONE_MACHINE, type Codespace } from "../github.ts";
 import { createPhoneService, PhoneInputError, UNCONFIRMED_CREATION_EXPIRY_MS } from "./phone-mutations.ts";
-import { RateLimitError } from "./rate-limit.ts";
-import { readUsage, saveAllowance } from "./usage.ts";
+import { RateLimitError } from "../rate-limit.ts";
+import { readUsage, saveAllowance } from "../usage.ts";
 import { createPhoneApi } from "./phone-api.ts";
 import { createStatePoller } from "./poller.ts";
-import { seal, open } from "./crypto-core.ts";
+import { seal, open } from "../crypto-core.ts";
 
 const key = Buffer.alloc(32, 7).toString("base64");
 const input = { repository: "fixture/template", repositoryId: 123, idleTimeoutMin: 30,

@@ -1,7 +1,7 @@
 import "server-only";
-import { shortMessage } from "./short-message.ts";
+import { shortMessage } from "../short-message.ts";
 import { phoneStatus, phoneEventMessage } from "./phone-status.ts";
-import { db } from "./db";
+import { db } from "../db";
 import type { PhoneRow } from "@/lib/fixtures";
 import type { LogRow } from "@/components/ui/log-feed";
 

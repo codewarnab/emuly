@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { issueStreamTicket, takeStreamTicket } from "./phone-stream-ticket.ts";
 import { avcCodec, screenPoint, videoPacket } from "./phone-video.ts";
-import { controlMessage, ScrcpyPackets } from "../phone/runner/scrcpy-protocol.mjs";
+import { controlMessage, ScrcpyPackets } from "../../phone/runner/scrcpy-protocol.mjs";
 
 const binding = { userId: 7, phoneId: "phone-a", origin: "http://localhost:4321", cookie: "session=synthetic",
   open: async () => { throw new Error("not used"); } };

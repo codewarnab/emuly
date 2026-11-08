@@ -1,13 +1,13 @@
 import Loading from "./loading";
 import { Suspense } from "react";
 import { requireUser } from "../../../lib/auth";
-import { listPhones, phoneCard } from "../../../lib/phones";
+import { listPhones, phoneCard } from "../../../lib/phone/phones";
 import { EmptyPhones } from "@/components/phone/empty-phones";
 import s from "../../../components/console.module.css";
 import { PhoneCollection } from "@/components/phone/phone-collection";
 import { QuotaStrip } from "@/components/shell/quota-strip";
 import { NewPhone, PhoneRefresh, StopAll } from "@/components/phone/phone-mutations";
-import { syncPhoneState } from "../../../lib/phone-control";
+import { syncPhoneState } from "../../../lib/phone/phone-control";
 import { SyncNotice } from "@/components/shell/sync-notice";
 import { Topbar, Avatar } from "@/components/shell/topbar";
 import { db } from "../../../lib/db";
