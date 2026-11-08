@@ -46,3 +46,9 @@ next-env.d.ts
 # local tooling
 /.herenow/
 !.env.example
+
+# Private scheduler configuration stays outside the repository.
+/deploy/vm/*.local
+/deploy/vm/endpoint
+/deploy/vm/secret
+__pycache__/

@@ -1,9 +1,12 @@
+import { pathToFileURL } from "node:url";
+import { rm } from "node:fs/promises";
+import { createClient } from "../data/async-database.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes, createHmac } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "../data/database.ts";
@@ -21,6 +24,7 @@ function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "phonelink-webhook-"));
   const filename = join(directory, "test.db");
   let database = openDatabase(filename);
+  const asyncDatabase = createClient({ url: pathToFileURL(filename).href });
   const key = randomBytes(32).toString("base64");
   let time = Date.parse("2026-11-07T12:00:00Z");
   const clock = () => time;
@@ -30,16 +34,16 @@ function fixture() {
     (id, github_id, login, token_cipher, token_scopes, created_at, last_seen_at)
     VALUES (?, ?, 'fixture', ?, 'codespace', '2026-11-01', '2026-11-01')`).run(id, id, encrypt("synthetic-token"));
   const service = (resolve = publicDns, baseUrl = "https://phonelink.example", send?: SendWebhook) =>
-    createWebhookService({ database, encrypt, clock, baseUrl, resolve,
-      deliver: createWebhookOutbox({ database, decrypt, clock, baseUrl, resolve, send }) });
+    createWebhookService({ database: asyncDatabase, encrypt, clock, baseUrl, resolve,
+      deliver: createWebhookOutbox({ database: asyncDatabase, decrypt, clock, baseUrl, resolve, send }) });
   return {
-    get database() { return database; }, clock, service, encrypt, decrypt,
+    asyncDatabase, get database() { return database; }, clock, service, encrypt, decrypt,
     advance(ms: number) { time += ms; },
     reopen() { database.close(); database = openDatabase(filename); },
     outbox(send?: SendWebhook, resolve = publicDns, baseUrl = "https://phonelink.example") {
-      return createWebhookOutbox({ database, decrypt, clock, baseUrl, resolve, send });
+      return createWebhookOutbox({ database: asyncDatabase, decrypt, clock, baseUrl, resolve, send });
     },
-    close() { database.close(); rmSync(directory, { recursive: true, force: true }); },
+    async close() { asyncDatabase.close(); database.close(); globalThis.gc?.(); await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); },
   };
 }
 
@@ -90,53 +94,53 @@ test("fan-out honors ownership and subscriptions, stores encrypted secrets, and 
     await service.create(2, { url: "https://other.example" });
     const disabled = await service.create(1, { url: "https://disabled.example", enabled: false });
     assert.notEqual(Buffer.from(f.database.prepare("SELECT secret_cipher FROM webhooks WHERE id = ?").get(all.id)!.secret_cipher as Uint8Array).toString(), all.secret);
-    assert.equal("secret" in service.list(1)[0]!, false);
-    service.emit({ userId: 1, type: "phone.stopped", createdAt: new Date(f.clock()).toISOString(), data: {
+    assert.equal("secret" in (await service.list(1))[0]!, false);
+    await service.emit({ userId: 1, type: "phone.stopped", createdAt: new Date(f.clock()).toISOString(), data: {
       phone: { id: "phone-aaaa", name: "owned-space", state: "stopped", machine: "4 vCPU", runner_secret: "private-runner" },
       reason: "idle_timeout", token: "private-token", secret: "private-secret", stream_url: "https://stream.invalid/?secret=private",
       message: "GitHub refused gho_123456789012345678901234 https://stream.invalid/?token=private wss://private@stream.invalid",
     } });
-    const deliveries = service.deliveries(1, all.id);
+    const deliveries = await service.deliveries(1, all.id);
     assert.equal(deliveries.length, 1);
-    assert.equal(service.deliveries(1, selected.id).length, 1);
-    assert.equal(service.deliveries(1, disabled.id).length, 0);
+    assert.equal((await service.deliveries(1, selected.id)).length, 1);
+    assert.equal((await service.deliveries(1, disabled.id)).length, 0);
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM webhook_deliveries").get()?.n, 2);
     const body = String(f.database.prepare("SELECT body FROM webhook_deliveries WHERE id = ?").get(deliveries[0]!.id)!.body);
     assert.doesNotMatch(body, /private|gho_|stream.invalid|runner_secret/);
     const event = JSON.parse(body);
     assert.equal(event.version, 1); assert.match(event.id, /^evt_/); assert.equal(event.data.reason, "idle_timeout");
-    const testDelivery = service.test(1, selected.id);
-    assert.equal(service.deliveries(1, selected.id)[0]?.type, "webhook.test");
-    assert.equal(service.deliveries(1, all.id).length, 1);
-    const replay = service.resend(1, selected.id, testDelivery.id);
+    const testDelivery = await service.test(1, selected.id);
+    assert.equal((await service.deliveries(1, selected.id))[0]?.type, "webhook.test");
+    assert.equal((await service.deliveries(1, all.id)).length, 1);
+    const replay = await service.resend(1, selected.id, testDelivery.id);
     assert.notEqual(replay.id, testDelivery.id);
-    assert.equal(service.deliveries(1, selected.id)[0]?.event_id, service.deliveries(1, selected.id)[1]?.event_id);
-    assert.throws(() => service.deliveries(2, all.id));
-    assert.throws(() => service.test(2, all.id));
-    assert.throws(() => service.remove(2, all.id));
-    assert.throws(() => service.resend(1, selected.id, deliveries[0]!.id));
+    assert.equal((await service.deliveries(1, selected.id))[0]?.event_id, (await service.deliveries(1, selected.id))[1]?.event_id);
+    await assert.rejects(service.deliveries(2, all.id));
+    await assert.rejects(service.test(2, all.id));
+    await assert.rejects(service.remove(2, all.id));
+    await assert.rejects(service.resend(1, selected.id, deliveries[0]!.id));
     await assert.rejects(service.update(2, all.id, { roll_secret: true }));
     const rotated = await service.update(1, all.id, { roll_secret: true });
     assert.notEqual(rotated.secret, all.secret);
     assert.equal(f.decrypt(f.database.prepare("SELECT secret_cipher FROM webhooks WHERE id = ?").get(all.id)!.secret_cipher as Uint8Array), rotated.secret);
-    for (let i = 0; i < 55; i++) { f.advance(5000); service.test(1, all.id); }
-    assert.equal(service.deliveries(1, all.id).length, 50);
-    service.remove(1, all.id);
+    for (let i = 0; i < 55; i++) { f.advance(5000); await service.test(1, all.id); }
+    assert.equal((await service.deliveries(1, all.id)).length, 50);
+    await service.remove(1, all.id);
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM webhook_deliveries WHERE webhook_id = ?").get(all.id)?.n, 0);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("outbox persists five retry delays across restarts, then fails; resend preserves the event ID", async () => {
   const f = fixture();
   try {
     const hook = await f.service().create(1, { url: "https://receiver.example" });
-    f.service().test(1, hook.id);
+    await f.service().test(1, hook.id);
     const calls: { body: string; headers: Record<string, string> }[] = [];
     const send: SendWebhook = async (_target, body, headers, signal) => { assert.ok(!signal.aborted); calls.push({ body, headers }); return 503; };
     const delays = [60_000, 300_000, 1_800_000, 7_200_000, 21_600_000];
     for (let i = 0; i < delays.length; i++) {
       await f.outbox(send)();
-      const delivery = f.service().deliveries(1, hook.id)[0]!;
+      const delivery = (await f.service().deliveries(1, hook.id))[0]!;
       assert.equal(delivery.attempt, i + 1);
       assert.equal(delivery.next_try_at, new Date(f.clock() + delays[i]!).toISOString());
       assert.equal(delivery.state, "pending");
@@ -144,21 +148,21 @@ test("outbox persists five retry delays across restarts, then fails; resend pres
       f.advance(1); f.reopen();
     }
     await f.outbox(send)();
-    const failed = f.service().deliveries(1, hook.id)[0]!;
+    const failed = (await f.service().deliveries(1, hook.id))[0]!;
     assert.equal(failed.attempt, 6); assert.equal(failed.state, "failed"); assert.equal(failed.next_try_at, null);
     await f.outbox(send)(); assert.equal(calls.length, 6);
     assert.ok(calls.every(call => call.headers["phonelink-delivery"] === failed.id));
     const rotated = await f.service().update(1, hook.id, { roll_secret: true });
-    f.service().resend(1, hook.id, failed.id);
+    await f.service().resend(1, hook.id, failed.id);
     await f.outbox(async (_target, body, headers) => {
       assert.equal(JSON.parse(body).id, failed.event_id);
       assert.ok(verifyWebhook(rotated.secret!, body, headers["phonelink-signature"]!, f.clock));
       assert.equal(headers["phonelink-event"], "webhook.test");
       return 204;
     })();
-    assert.equal(f.service().deliveries(1, hook.id)[0]?.state, "ok");
-    assert.equal(f.service().list(1)[0]?.failing_since, null);
-  } finally { f.close(); }
+    assert.equal((await f.service().deliveries(1, hook.id))[0]?.state, "ok");
+    assert.equal((await f.service().list(1))[0]?.failing_since, null);
+  } finally { await f.close(); }
 });
 
 test("only failures disable after three days without pending work; success resets the failure window", async () => {
@@ -166,39 +170,39 @@ test("only failures disable after three days without pending work; success reset
   try {
     const hook = await f.service().create(1, { url: "https://receiver.example" });
     const fail = async () => { throw new Error("synthetic network failure with private details"); };
-    f.service().test(1, hook.id); await f.outbox(fail)();
+    await f.service().test(1, hook.id); await f.outbox(fail)();
     f.advance(2 * 86_400_000);
     await f.outbox(async () => 200)();
-    assert.equal(f.service().list(1)[0]?.failing_since, null);
-    f.service().test(1, hook.id); await f.outbox(fail)();
+    assert.equal((await f.service().list(1))[0]?.failing_since, null);
+    await f.service().test(1, hook.id); await f.outbox(fail)();
     // Exhaust retries before three days, leaving no pending delivery.
     for (const delay of [60_000, 300_000, 1_800_000, 7_200_000, 21_600_000]) { f.advance(delay); await f.outbox(fail)(); }
-    assert.equal(f.service().deliveries(1, hook.id)[0]?.state, "failed");
-    const since = Date.parse(f.service().list(1)[0]!.failing_since!);
+    assert.equal((await f.service().deliveries(1, hook.id))[0]?.state, "failed");
+    const since = Date.parse((await f.service().list(1))[0]!.failing_since!);
     f.advance(since + 3 * 86_400_000 - 1 - f.clock()); await f.outbox(fail)();
-    assert.equal(f.service().list(1)[0]?.enabled, true);
+    assert.equal((await f.service().list(1))[0]?.enabled, true);
     f.advance(1); await f.outbox(fail)(); await f.outbox(fail)();
     // A quiet period after one failed event is not "3 days of only failures".
-    assert.equal(f.service().list(1)[0]?.enabled, true);
-    f.service().test(1, hook.id); await f.outbox(fail)();
-    assert.equal(f.service().list(1)[0]?.enabled, false);
+    assert.equal((await f.service().list(1))[0]?.enabled, true);
+    await f.service().test(1, hook.id); await f.outbox(fail)();
+    assert.equal((await f.service().list(1))[0]?.enabled, false);
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM events WHERE kind = 'webhook.disabled'").get()?.n, 1);
     await f.service().update(1, hook.id, { enabled: true });
-    assert.equal(f.service().list(1)[0]?.failing_since, null);
-    f.advance(5000); f.service().test(1, hook.id); await f.outbox(async () => 200)();
-    assert.equal(f.service().deliveries(1, hook.id)[0]?.state, "ok");
-  } finally { f.close(); }
+    assert.equal((await f.service().list(1))[0]?.failing_since, null);
+    f.advance(5000); await f.service().test(1, hook.id); await f.outbox(async () => 200)();
+    assert.equal((await f.service().deliveries(1, hook.id))[0]?.state, "ok");
+  } finally { await f.close(); }
 });
 
 test("delivery rechecks DNS after registration and refuses changed private answers without sending", async () => {
   const f = fixture();
   try {
     const hook = await f.service().create(1, { url: "https://receiver.example" });
-    f.service().test(1, hook.id);
+    await f.service().test(1, hook.id);
     let calls = 0;
     await f.outbox(async () => { calls++; return 200; }, async () => [{ address: "10.0.0.1", family: 4 }])();
-    assert.equal(calls, 0); assert.equal(f.service().deliveries(1, hook.id)[0]?.status, null);
-  } finally { f.close(); }
+    assert.equal(calls, 0); assert.equal((await f.service().deliveries(1, hook.id))[0]?.status, null);
+  } finally { await f.close(); }
 });
 
 test("API enforces authentication, origin, ownership and validation; secrets appear only on create and roll", async () => {
@@ -231,8 +235,8 @@ test("API enforces authentication, origin, ownership and validation; secrets app
     for (const response of [await api(request("DELETE"), hook.id), await api(request(), hook.id, "deliveries"),
       await api(request("POST"), hook.id, "test"), await api(request("POST"), hook.id, "deliveries", delivery.id),
       await api(request("PATCH", { roll_secret: true }), hook.id)]) assert.equal(response.status, 400);
-    assert.equal(f.service().list(1).length, 1);
-  } finally { f.close(); }
+    assert.equal((await f.service().list(1)).length, 1);
+  } finally { await f.close(); }
 });
 
 test("local receiver verifies wire signatures, refuses redirects, and aborts a stalled response after 10 seconds", async () => {
@@ -259,33 +263,33 @@ test("local receiver verifies wire signatures, refuses redirects, and aborts a s
     const resolve: ResolveHost = async () => [{ address: "127.0.0.1", family: 4 }];
     const service = f.service(resolve, "http://localhost:4321");
     const hook = await service.create(1, { url: `http://localhost:${address.port}/hook` }); secret = hook.secret;
-    service.test(1, hook.id);
+    await service.test(1, hook.id);
     await f.outbox(undefined, resolve, "http://localhost:4321")();
     assert.equal(received, 1); assert.equal(redirected, 0); assert.ok(valid);
-    assert.equal(service.deliveries(1, hook.id)[0]?.status, 302);
-    assert.equal(service.deliveries(1, hook.id)[0]?.state, "pending");
+    assert.equal((await service.deliveries(1, hook.id))[0]?.status, 302);
+    assert.equal((await service.deliveries(1, hook.id))[0]?.state, "pending");
     const stalled = await service.create(1, { url: `http://localhost:${address.port}/timeout` }); secret = stalled.secret;
-    service.test(1, stalled.id);
+    await service.test(1, stalled.id);
     const started = performance.now();
     await f.outbox(undefined, resolve, "http://localhost:4321")();
     assert.ok(performance.now() - started >= 9_500, "The request should receive its full 10-second deadline");
-    assert.equal(service.deliveries(1, stalled.id)[0]?.status, null);
-    assert.equal(service.deliveries(1, stalled.id)[0]?.state, "pending");
-    assert.equal(service.deliveries(1, stalled.id)[0]?.attempt, 1);
-  } finally { server.closeAllConnections(); server.close(); await once(server, "close"); f.close(); }
+    assert.equal((await service.deliveries(1, stalled.id))[0]?.status, null);
+    assert.equal((await service.deliveries(1, stalled.id))[0]?.state, "pending");
+    assert.equal((await service.deliveries(1, stalled.id))[0]?.attempt, 1);
+  } finally { server.closeAllConnections(); server.close(); await once(server, "close"); await f.close(); }
 });
 
 test("poller flushes endpoints without phones and prevents overlapping ticks", async () => {
   const f = fixture();
   try {
     const hook = await f.service().create(1, { url: "https://receiver.example" });
-    f.service().test(1, hook.id);
+    await f.service().test(1, hook.id);
     let calls = 0;
     const flush = f.outbox(async () => { calls++; return 200; });
-    const tick = createStatePoller({ database: f.database, clock: f.clock, sync: async () => assert.fail("No phone sync expected"), deliver: flush });
+    const tick = createStatePoller({ database: f.asyncDatabase, clock: f.clock, sync: async () => assert.fail("No phone sync expected"), deliver: flush });
     await Promise.all([tick(), tick(), tick()]);
-    assert.equal(calls, 1); assert.equal(f.service().deliveries(1, hook.id)[0]?.state, "ok");
-  } finally { f.close(); }
+    assert.equal(calls, 1); assert.equal((await f.service().deliveries(1, hook.id))[0]?.state, "ok");
+  } finally { await f.close(); }
 });
 
 test("phone operations enqueue actual lifecycle events once, preserving stop reasons and GitHub failure messages", async () => {
@@ -296,7 +300,7 @@ test("phone operations enqueue actual lifecycle events once, preserving stop rea
     let space: Codespace = { id: 101, name: "owned-space", state: "Provisioning", machine };
     let refuseStart = false;
     let deleted = false;
-    const github = createGitHubClient({ database: f.database, accessToken: async () => "synthetic-token", fetch: async (url, init) => {
+    const github = createGitHubClient({ database: f.asyncDatabase, accessToken: async () => "synthetic-token", fetch: async (url, init) => {
       const path = new URL(String(url)).pathname;
       if (path.endsWith("/machines")) return Response.json({ machines: [machine] });
       if (path.endsWith("/start")) {
@@ -308,7 +312,7 @@ test("phone operations enqueue actual lifecycle events once, preserving stop rea
       return path === "/user/codespaces" ? Response.json({ codespaces: deleted ? [] : [space,
         { id: 999, name: "foreign-space", state: "Shutdown" }] }) : Response.json(space);
     } });
-    const service = createPhoneService({ database: f.database, github, encrypt: f.encrypt, clock: f.clock });
+    const service = createPhoneService({ database: f.asyncDatabase, github, encrypt: f.encrypt, clock: f.clock });
     const id = await service.create(1, { repository: "fixture/template", repositoryId: 1, idleTimeoutMin: 30, devcontainerPath: ".devcontainer/devcontainer.json" });
     const events = () => f.database.prepare("SELECT type, body FROM webhook_deliveries WHERE webhook_id = ? ORDER BY rowid").all(hook.id)
       .map(row => ({ type: row.type, ...JSON.parse(String(row.body)) }));
@@ -338,7 +342,7 @@ test("phone operations enqueue actual lifecycle events once, preserving stop rea
     deleted = true; await service.sync(1);
     assert.equal(events().at(-1)?.type, "phone.deleted");
     assert.ok(events().every(event => event.data.phone?.name !== "foreign-space"));
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("synchronous tests sign and persist the real result, isolate the delivery, and rate limit across requests", async () => {
@@ -356,17 +360,17 @@ test("synchronous tests sign and persist the real result, isolate the delivery, 
     });
     const hook = await service.create(1, { url: "https://receiver.example" }); secret = hook.secret;
     const other = await service.create(1, { url: "https://other.example" });
-    service.test(1, other.id);
+    await service.test(1, other.id);
     const api = createWebhookApi({ user: async () => ({ id: 1 }), service });
     const request = () => new Request(`https://app.example/v1/webhooks/${hook.id}/test?wait=1`, { method: "POST" });
     const response = await api(request(), hook.id, "test");
     assert.equal(response.status, 200);
     const result = await response.json();
     assert.equal(result.state, "ok"); assert.equal(result.status, 200); assert.equal(result.duration_ms, 142);
-    assert.equal(service.deliveries(1, hook.id)[0]?.attempt, 1);
-    assert.equal(service.deliveries(1, other.id)[0]?.attempt, 0);
+    assert.equal((await service.deliveries(1, hook.id))[0]?.attempt, 1);
+    assert.equal((await service.deliveries(1, other.id))[0]?.attempt, 0);
     assert.equal((await api(request(), hook.id, "test")).status, 429);
-    assert.throws(() => f.service().test(1, hook.id), /Wait 5 seconds/);
+    await assert.rejects(f.service().test(1, hook.id), /Wait 5 seconds/);
     assert.equal(sends, 1);
     f.advance(5000);
     assert.equal((await api(request(), hook.id, "test")).status, 200);
@@ -378,7 +382,7 @@ test("synchronous tests sign and persist the real result, isolate the delivery, 
     await assert.rejects(service.testNow(2, hook.id), /not found/);
     await service.update(1, hook.id, { enabled: false });
     await assert.rejects(service.testNow(1, hook.id), /Re-enable/);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("synchronous test reports HTTP and network failures and refuses DNS rebinding before sending", async () => {
@@ -390,29 +394,32 @@ test("synchronous test reports HTTP and network failures and refuses DNS rebindi
       const result = await f.service(publicDns, "https://phonelink.example", send).testNow(1, hook.id);
       assert.equal(result?.state, "pending");
       assert.equal(result?.status, sends === 1 ? 503 : null);
-      assert.equal(f.service().deliveries(1, hook.id)[0]?.attempt, 1);
+      assert.equal((await f.service().deliveries(1, hook.id))[0]?.attempt, 1);
       f.advance(5000);
     }
     const result = await f.service(async () => [{ address: "127.0.0.1", family: 4 }], "https://phonelink.example",
       async () => { sends++; return 200; }).testNow(1, hook.id);
     assert.equal(sends, 2); assert.equal(result?.status, null);
     assert.doesNotMatch(JSON.stringify(result), /private|provider|127\.0\.0\.1/);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("a synchronous test and a concurrent outbox tick attempt a delivery only once", async () => {
   const f = fixture();
+  let sending: () => void = () => {};
+  const started = new Promise<void>(resolve => { sending = resolve; });
   let release: () => void = () => {};
   const gate = new Promise<void>(resolve => { release = resolve; });
   try {
     let sends = 0;
-    const service = f.service(publicDns, "https://phonelink.example", async () => { sends++; await gate; return 204; });
+    const service = f.service(publicDns, "https://phonelink.example", async () => { sends++; sending(); await gate; return 204; });
     const hook = await service.create(1, { url: "https://receiver.example" });
     const testing = service.testNow(1, hook.id);
+    await started;
     await f.outbox(async () => { sends++; return 200; })();
     release();
     const result = await testing;
     assert.equal(sends, 1); assert.equal(result?.status, 204);
-    assert.equal(service.deliveries(1, hook.id)[0]?.attempt, 1);
-  } finally { release(); f.close(); }
+    assert.equal((await service.deliveries(1, hook.id))[0]?.attempt, 1);
+  } finally { release(); await f.close(); }
 });

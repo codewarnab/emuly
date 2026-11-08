@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { usePhoneVideo } from "@/components/phone/use-phone-video";
+import { pngConnection } from "@/components/phone/png-connection";
 import { screenPoint, phoneKeys } from "@/lib/phone/phone-video";
 import s from "@/components/phone/phone-screen.module.css";
 import type { StreamQuality } from "@/lib/shared/display-settings";
@@ -42,6 +43,9 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
     let lastResume = -Infinity;
     let expiry: ReturnType<typeof setTimeout> | undefined;
     let controller: AbortController | undefined;
+    let streamController = new AbortController();
+    let nextFrame = pngConnection(id, streamController.signal);
+    let lastHttp = -Infinity;
     async function poll() {
       if (!live || activeVideo.current || disposed || controller || document.visibilityState !== "visible") return;
       const attempt = new AbortController();
@@ -50,10 +54,17 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
       const started = performance.now();
       let next = "";
       try {
-        const response = await fetch(endpoint, { cache: "no-store",
-          signal: AbortSignal.any([attempt.signal, AbortSignal.timeout(15_000)]) });
-        if (!response.ok) throw new Error("Screen unavailable. Retrying…");
-        const blob = await response.blob();
+        let blob: Blob;
+        try { blob = await nextFrame(); }
+        catch {
+          attempt.signal.throwIfAborted();
+          if (performance.now() - lastHttp < 5000) return;
+          lastHttp = performance.now();
+          const response = await fetch(endpoint, { cache: "no-store",
+            signal: AbortSignal.any([attempt.signal, AbortSignal.timeout(15_000)]) });
+          if (!response.ok) throw new Error("Screen unavailable");
+          blob = await response.blob();
+        }
         next = URL.createObjectURL(blob);
         const decoded = new Image();
         decoded.src = next;
@@ -79,6 +90,9 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
       generation++;
       controller?.abort();
       controller = undefined;
+      streamController.abort();
+      streamController = new AbortController();
+      nextFrame = pngConnection(id, streamController.signal);
       clearTimeout(expiry);
       setScreenshotFresh(false);
     };
@@ -96,12 +110,13 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
     return () => {
       disposed = true;
       invalidate();
+      streamController.abort();
       clearInterval(timer);
       document.removeEventListener("visibilitychange", visibility);
       window.removeEventListener("focus", resume);
       // Keep the displayed frame when live changes. Release it after the replacement loads or unmounts.
     };
-  }, [endpoint, live, video.lastFrameAt]);
+  }, [endpoint, id, live, video.active, video.lastFrameAt]);
   const lastFrame = useRef("");
   useEffect(() => {
     if (lastFrame.current && lastFrame.current !== frame) URL.revokeObjectURL(lastFrame.current);

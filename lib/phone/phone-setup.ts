@@ -66,12 +66,12 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
   token: (userId: number) => Promise<string>;
   exec?: typeof codespaceExec;
 }) {
-  function ingest(output: string): Omit<SetupResult, "state"> {
+  async function ingest(output: string): Promise<Omit<SetupResult, "state">> {
     const progress = output.split("\n").find(line => line.startsWith("PHONELINK_PROGRESS="));
     if (progress) {
       try {
         const batch = JSON.parse(progress.slice("PHONELINK_PROGRESS=".length));
-        collectProgress(batch);
+        await collectProgress(batch);
         if (batch && Number.isSafeInteger(batch.cursor) && batch.cursor >= 0 && batch.cursor <= 1048576
           && Array.isArray(batch.records) && batch.records.length <= 32) return {
           cursor: batch.cursor, progress: batch.records.flatMap((r: unknown) => {
@@ -82,7 +82,7 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
       }
       catch { diagnosticHealth.collectorFailures++; }
     } else if (diagnosticOperation()) diagnosticHealth.collectorFailures++;
-    return { cursor: progressCursor(), progress: [], freshness: "unavailable" };
+    return { cursor: await progressCursor(), progress: [], freshness: "unavailable" };
   }
   async function collect(userId: number, codespaceName: string) {
     const operationId = diagnosticOperation();
@@ -90,20 +90,20 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
     try {
       const secret = await token(userId);
       const result = await exec({ token: secret, codespaceName, command: "bash --noprofile --norc -s",
-        stdin: `python3 "$HOME/phonelink/scripts/read-progress.py" ${operationId} ${progressCursor()}\n`, timeoutMs: 90000, outputLimit: 32768 });
-      ingest(result.output);
+        stdin: `python3 "$HOME/phonelink/scripts/read-progress.py" ${operationId} ${(await progressCursor())}\n`, timeoutMs: 90000, outputLimit: 32768 });
+      await ingest(result.output);
     } catch { diagnosticHealth.collectorFailures++; }
   }
   return Object.assign(async function setupPhone(userId: number, codespaceName: string): Promise<SetupResult> {
     const secret = await measure("credential_lookup", () => token(userId));
     let result;
     try {
-      result = await exec({ token: secret, codespaceName, command: "bash --noprofile --norc -s", stdin: setupScript(undefined, progressCursor()), timeoutMs: 90_000, outputLimit: 32768 });
+      result = await exec({ token: secret, codespaceName, command: "bash --noprofile --norc -s", stdin: setupScript(undefined, await progressCursor()), timeoutMs: 90_000, outputLimit: 32768 });
     } catch (error) {
       throw new PhoneSetupError("Could not reach the codespace. PhoneLink will retry setup.");
     }
     const output = result.output.replaceAll(secret, "[redacted]");
-    const progress = ingest(output);
+    const progress = await ingest(output);
     if (result.code === 0 && output.includes("PHONELINK_READY")) return { state: "ready", ...progress };
     if (result.code === 0 && output.includes("PHONELINK_WORKING")) return { state: "working", ...progress };
     return { state: "failed", ...progress };

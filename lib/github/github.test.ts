@@ -1,12 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DatabaseSync } from "node:sqlite";
-import { migrate } from "../data/database.ts";
+import { createClient } from "../data/async-database.ts";
+import { migrateHosted } from "../data/hosted-migrations.ts";
 import { createGitHubClient, GitHubError } from "./github.ts";
 
 test("GitHub errors parse retry headers with precedence, preserve rate-limit signals and redact tokens", async t => {
   t.mock.method(Date, "now", () => 1_800_000_000_500);
-  const database = new DatabaseSync(":memory:");
+  const database = createClient({ url: "file::memory:" });
   const cases: { headers: Record<string, string>; retryAfter?: number; rateLimited: boolean }[] = [
     { headers: { "retry-after": "17", "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1800000120" }, retryAfter: 17, rateLimited: true },
     { headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1800000120" }, retryAfter: 120, rateLimited: true },
@@ -20,7 +20,7 @@ test("GitHub errors parse retry headers with precedence, preserve rate-limit sig
     { headers: {}, rateLimited: false },
   ];
   try {
-    migrate(database);
+    await migrateHosted(database);
     for (const { headers, retryAfter, rateLimited } of cases) {
       const github = createGitHubClient({ database, accessToken: async () => "synthetic-token",
         fetch: async () => Response.json({ message: "Rejected synthetic-token" }, { status: 403, headers }) });

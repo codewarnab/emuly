@@ -5,7 +5,7 @@ import { SettingsTabs } from "@/components/settings/settings-tabs";
 import { SettingsProvider } from "@/components/settings/settings-provider";
 import { KeyboardTools } from "@/components/shell/keyboard-tools";
 import { listPhones } from "../../../../lib/phone/phones";
-import { db } from "../../../../lib/data/db";
+import { asyncDb } from "../../../../lib/data/async-db";
 import { chosenPlan, userSettings } from "../../../../lib/data/settings";
 import s from "../../../../components/console.module.css";
 
@@ -15,9 +15,9 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
 }
 async function SettingsShell({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const settings = userSettings(db(), user.id);
-  const override = db().prepare("SELECT allowance_override FROM billing_settings WHERE user_id = ?").get(user.id);
-  const plan = override?.allowance_override != null ? "custom" : chosenPlan(db(), user.id) ?? "free";
+  const settings = await userSettings(asyncDb(), user.id);
+  const override = (await asyncDb().execute({ sql: "SELECT allowance_override FROM billing_settings WHERE user_id = ?", args: [user.id] })).rows[0];
+  const plan = override?.allowance_override != null ? "custom" : (await chosenPlan(asyncDb(), user.id)) ?? "free";
   return <>
     <Topbar nav={[{ label: "Phones" }, { label: "Settings", on: true }]}>
       <Avatar initials={user.initials} login={user.login} />
@@ -27,7 +27,7 @@ async function SettingsShell({ children }: { children: React.ReactNode }) {
       <SettingsTabs />
       <SettingsProvider initial={{ idle: settings.default_idle_min, autoStop: settings.auto_stop_before_empty,
         autoKeep: settings.auto_keep, plan, allowance: settings.allowance_core_hours }}>
-        <KeyboardTools phones={listPhones(user.id).map(phone => ({ id: phone.id, name: phone.name }))} />
+        <KeyboardTools phones={(await listPhones(user.id)).map(phone => ({ id: phone.id, name: phone.name }))} />
         <Suspense fallback={<div className={s.skeletonLine} />}>{children}</Suspense>
       </SettingsProvider>
     </main>

@@ -1,15 +1,16 @@
 import "server-only";
-import type { DatabaseSync } from "node:sqlite";
+import { transaction } from "../data/async-database.ts";
 import { GitHubError } from "../github/github.ts";
 import { readUsage, type Usage } from "../data/usage.ts";
 import { userSettings } from "../data/settings.ts";
 import { emitEvent, type EventEmitter } from "../data/events.ts";
+import type { Client } from "@libsql/client";
 import { retentionStatus } from "../data/retention.ts";
 import { createDiagnostics } from "../diagnostics/diagnostics.ts";
 
 /** One loop owns sync, budget, retention policy and webhook delivery. */
-export function createStatePoller({ database, sync, autoStop, autoKeep, deliver, emit = event => emitEvent(event, database), clock = Date.now }: {
-  database: DatabaseSync; sync: (userId: number) => Promise<void>; clock?: () => number;
+export function createStatePoller({ database, sync, autoStop, autoKeep, deliver, emit = (event, queries = database) => emitEvent(event, queries), clock = Date.now }: {
+  database: Client; sync: (userId: number) => Promise<void>; clock?: () => number;
   autoStop?: (userId: number, phoneId: string) => Promise<unknown>; emit?: EventEmitter;
   autoKeep?: (userId: number, phoneId: string) => Promise<unknown>;
   deliver?: () => Promise<void>;
@@ -18,7 +19,7 @@ export function createStatePoller({ database, sync, autoStop, autoKeep, deliver,
   const retryAt = new Map<number, number>();
   const diagnostics = createDiagnostics(database);
 
-  function notifyLow(userId: number, usage: Usage) {
+  async function notifyLow(userId: number, usage: Usage) {
     const left = Math.max(0, usage.allowance_core_hours - usage.used_core_hours);
     const thresholds = [
       ["20%", left <= usage.allowance_core_hours * 0.2],
@@ -27,21 +28,18 @@ export function createStatePoller({ database, sync, autoStop, autoKeep, deliver,
     ] as const;
     for (const [threshold, reached] of thresholds) {
       if (!reached) continue;
-      database.exec("BEGIN IMMEDIATE");
-      try {
-        const notice = database.prepare("INSERT OR IGNORE INTO notices (user_id, kind, period) VALUES (?, ?, ?)")
-          .run(userId, `hours.low.${threshold}`, usage.month);
-        if (notice.changes) emit({ userId, type: "hours.low", createdAt: new Date(clock()).toISOString(),
-          data: { threshold, month: usage.month, estimated: true, hours_left_at_current_rate: usage.hours_left_at_current_rate } });
-        database.exec("COMMIT");
-      } catch (error) { database.exec("ROLLBACK"); throw error; }
+      await transaction(database, async queries => {
+        const notice = await queries.execute({ sql: "INSERT OR IGNORE INTO notices (user_id, kind, period) VALUES (?, ?, ?)", args: [userId, `hours.low.${threshold}`, usage.month] });
+        if (notice.rowsAffected) await emit({ userId, type: "hours.low", createdAt: new Date(clock()).toISOString(),
+          data: { threshold, month: usage.month, estimated: true, hours_left_at_current_rate: usage.hours_left_at_current_rate } }, queries);
+      });
     }
   }
 
   async function protectBudget(userId: number) {
-    const usage = readUsage(database, userId, clock);
-    notifyLow(userId, usage);
-    if (!autoStop || !userSettings(database, userId).auto_stop_before_empty
+    const usage = await readUsage(database, userId, clock);
+    await notifyLow(userId, usage);
+    if (!autoStop || !(await userSettings(database, userId)).auto_stop_before_empty
       || usage.hours_left_at_current_rate === null || usage.hours_left_at_current_rate > 0.5) return;
     // Continue after an individual failure, but stop immediately on provider rate limits.
     let failure: unknown;
@@ -49,9 +47,9 @@ export function createStatePoller({ database, sync, autoStop, autoKeep, deliver,
     try {
       for (const phone of usage.running) {
         // Keep it already owns the start/stop sequence and will stop at Available.
-        if (database.prepare("SELECT 1 FROM phone_keeps WHERE phone_id = ?").get(phone.id)) continue;
+        if ((await database.execute({ sql: "SELECT 1 FROM phone_keeps WHERE phone_id = ?", args: [phone.id] })).rows[0]) continue;
         // Runs stay open while GitHub stops a phone; do not count those again.
-        if (!database.prepare("SELECT 1 FROM phones WHERE id = ? AND state IN ('running', 'booting')").get(phone.id)) continue;
+        if (!(await database.execute({ sql: "SELECT 1 FROM phones WHERE id = ? AND state IN ('running', 'booting')", args: [phone.id] })).rows[0]) continue;
         try { await autoStop(userId, phone.id); stopped++; }
         catch (error) {
           if (error instanceof GitHubError && [403, 429].includes(error.status)) throw error;
@@ -63,17 +61,19 @@ export function createStatePoller({ database, sync, autoStop, autoKeep, deliver,
       if (stopped) {
         const createdAt = new Date(clock()).toISOString();
         const message = `Auto-stop stopped ${stopped} ${stopped === 1 ? "phone" : "phones"} with about 30 minutes of estimated hours left. Your codespaces keep them.`;
-        database.prepare("INSERT INTO events (user_id, ts, kind, message) VALUES (?, ?, 'hours.auto_stopped', ?)").run(userId, createdAt, message);
-        emit({ userId, type: "hours.auto_stopped", createdAt, data: { reason: "hours_budget", message } });
+        await transaction(database, async queries => {
+          await queries.execute({ sql: "INSERT INTO events (user_id, ts, kind, message) VALUES (?, ?, 'hours.auto_stopped', ?)", args: [userId, createdAt, message] });
+          await emit({ userId, type: "hours.auto_stopped", createdAt, data: { reason: "hours_budget", message } }, queries);
+        });
       }
     }
     if (failure) throw failure;
   }
 
   async function protectRetention(userId: number) {
-    const phones = database.prepare(`SELECT id, codespace_name, machine, state, retention_at, last_stopped_at, retention_min
+    const phones = (await database.execute({ sql: `SELECT id, codespace_name, machine, state, retention_at, last_stopped_at, retention_min
       FROM phones WHERE user_id = ? AND state = 'stopped'
-      AND codespace_name NOT LIKE 'pending:%' AND id NOT IN (SELECT phone_id FROM phone_keeps)`).all(userId) as {
+      AND codespace_name NOT LIKE 'pending:%' AND id NOT IN (SELECT phone_id FROM phone_keeps)`, args: [userId] })).rows as unknown as {
         id: string; codespace_name: string; machine: string; state: string;
         retention_at: string | null; last_stopped_at: string | null; retention_min: number;
       }[];
@@ -85,23 +85,19 @@ export function createStatePoller({ database, sync, autoStop, autoKeep, deliver,
       // Only the nearest threshold, so a phone first seen under 1 day gets one warning.
       const due = remaining <= 86_400_000 ? [1] : remaining <= 2 * 86_400_000 ? [2] : [];
       for (const days of due) {
-        database.exec("BEGIN IMMEDIATE");
-        try {
-          const notice = database.prepare("INSERT OR IGNORE INTO notices (user_id, kind, period) VALUES (?, ?, ?)")
-            .run(userId, `retention.warning.${phone.id}.${days}`, retention.expiresAt);
-          if (notice.changes) {
+        await transaction(database, async queries => {
+          const notice = await queries.execute({ sql: "INSERT OR IGNORE INTO notices (user_id, kind, period) VALUES (?, ?, ?)", args: [userId, `retention.warning.${phone.id}.${days}`, retention.expiresAt] });
+          if (notice.rowsAffected) {
             const createdAt = new Date(clock()).toISOString();
-            database.prepare("INSERT INTO events (user_id, phone_id, ts, kind, message) VALUES (?, ?, ?, 'retention.warning', ?)")
-              .run(userId, phone.id, createdAt, retention.message);
-            emit({ userId, type: "retention.warning", createdAt, data: {
+            await queries.execute({ sql: "INSERT INTO events (user_id, phone_id, ts, kind, message) VALUES (?, ?, ?, 'retention.warning', ?)", args: [userId, phone.id, createdAt, retention.message] });
+            await emit({ userId, type: "retention.warning", createdAt, data: {
               phone: { id: phone.id, name: phone.codespace_name, state: phone.state, machine: phone.machine },
               days, retention_at: retention.expiresAt,
-            } });
+            } }, queries);
           }
-          database.exec("COMMIT");
-        } catch (error) { database.exec("ROLLBACK"); throw error; }
+        });
       }
-      if (remaining > 86_400_000 || !autoKeep || !userSettings(database, userId).auto_keep) continue;
+      if (remaining > 86_400_000 || !autoKeep || !(await userSettings(database, userId)).auto_keep) continue;
       try { await autoKeep(userId, phone.id); }
       catch (error) {
         if (error instanceof GitHubError && [403, 429].includes(error.status)) throw error;
@@ -115,26 +111,25 @@ export function createStatePoller({ database, sync, autoStop, autoKeep, deliver,
     if (running) return;
     running = true;
     try {
-      const users = database.prepare(`SELECT DISTINCT p.user_id FROM phones p JOIN users u ON u.id = p.user_id
-        WHERE u.blocked = 0 AND p.state != 'deleted' AND p.codespace_name NOT LIKE 'pending:%'`).all();
+      const users = (await database.execute({ sql: `SELECT DISTINCT p.user_id FROM phones p JOIN users u ON u.id = p.user_id
+        WHERE u.blocked = 0 AND p.state != 'deleted' AND p.codespace_name NOT LIKE 'pending:%'`, args: [] })).rows;
       for (const user of users) {
         const id = Number(user.user_id);
-        const saved = Number(database.prepare("SELECT retry_at FROM poller_retries WHERE user_id = ?").get(id)?.retry_at ?? 0);
+        const saved = Number((await database.execute({ sql: "SELECT retry_at FROM poller_retries WHERE user_id = ?", args: [id] })).rows[0]?.retry_at ?? 0);
         if (Math.max(saved, retryAt.get(id) ?? 0) > clock()) continue;
         try {
           await sync(id);
           await protectBudget(id);
           await protectRetention(id);
           retryAt.delete(id);
-          database.prepare("DELETE FROM poller_retries WHERE user_id = ?").run(id);
+          await database.execute({ sql: "DELETE FROM poller_retries WHERE user_id = ?", args: [id] });
         }
         catch (error) {
           const delay = error instanceof GitHubError && [403, 429].includes(error.status) ? 5 * 60_000 : 60_000;
           retryAt.set(id, clock() + delay);
-          database.prepare("INSERT INTO poller_retries VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET retry_at = excluded.retry_at, error_code = excluded.error_code")
-            .run(id, clock() + delay, delay === 60000 ? "unknown_failure" : "rate_limited");
-          for (const row of database.prepare("SELECT id FROM phones WHERE user_id = ? AND state = 'booting' LIMIT 50").all(id)) {
-            diagnostics.mark(diagnostics.current(id, String(row.id)), "poll_backoff", {
+          await database.execute({ sql: "INSERT INTO poller_retries VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET retry_at = excluded.retry_at, error_code = excluded.error_code", args: [id, clock() + delay, delay === 60000 ? "unknown_failure" : "rate_limited"] });
+          for (const row of (await database.execute({ sql: "SELECT id FROM phones WHERE user_id = ? AND state = 'booting' LIMIT 50", args: [id] })).rows) {
+            await diagnostics.mark(await diagnostics.current(id, String(row.id)), "poll_backoff", {
               outcome: "failed", errorCode: delay === 60000 ? "unknown_failure" : "rate_limited", retryDelayMs: delay });
           }
           // Do not log provider errors: they can contain credentials. Pages report sync failures.

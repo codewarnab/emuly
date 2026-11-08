@@ -18,14 +18,14 @@ export function createWebhookApi({ user, service }: {
       }
     }
     try {
-      if (method === "GET" && !id) return json(service.list(identity.id));
-      if (method === "GET" && id && resource === "deliveries") return json(service.deliveries(identity.id, id));
-      if (method === "DELETE" && id && !resource) return json(service.remove(identity.id, id));
+      if (method === "GET" && !id) return json(await service.list(identity.id));
+      if (method === "GET" && id && resource === "deliveries") return json(await service.deliveries(identity.id, id));
+      if (method === "DELETE" && id && !resource) return json(await service.remove(identity.id, id));
       if (method === "POST" && id && resource === "test") {
         return new URL(request.url).searchParams.get("wait") === "1"
-          ? json(await service.testNow(identity.id, id)) : json(service.test(identity.id, id), 202);
+          ? json(await service.testNow(identity.id, id)) : json(await service.test(identity.id, id), 202);
       }
-      if (method === "POST" && id && resource === "deliveries" && deliveryId) return json(service.resend(identity.id, id, deliveryId), 202);
+      if (method === "POST" && id && resource === "deliveries" && deliveryId) return json(await service.resend(identity.id, id, deliveryId), 202);
       if ((method === "POST" && !id) || (method === "PATCH" && id && !resource)) {
         if (!request.headers.get("content-type")?.startsWith("application/json")) return json({ error: "invalid_input" }, 415);
         const body: unknown = await request.json();

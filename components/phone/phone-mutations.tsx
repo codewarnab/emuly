@@ -110,11 +110,30 @@ export function PhoneRefresh() {
       lastRefresh = performance.now();
       router.refresh();
     };
-    const timer = setInterval(refresh, 30_000);
+    let stream: EventSource | undefined;
+    let received = false;
+    let healthy = false;
+    const connect = () => {
+      stream?.close();
+      healthy = false;
+      if (document.hidden) return;
+      stream = new EventSource("/app/events");
+      stream.onmessage = () => {
+        healthy = true;
+        if (received) { refresh(); window.dispatchEvent(new Event("phonelink:changed")); }
+        received = true;
+      };
+      stream.onerror = () => { healthy = false; };
+    };
+    connect();
+    const timer = setInterval(() => { if (!healthy) refresh(); }, 30_000);
+    document.addEventListener("visibilitychange", connect);
     document.addEventListener("visibilitychange", refresh);
     window.addEventListener("focus", refresh);
     return () => {
       clearInterval(timer);
+      stream?.close();
+      document.removeEventListener("visibilitychange", connect);
       document.removeEventListener("visibilitychange", refresh);
       window.removeEventListener("focus", refresh);
     };

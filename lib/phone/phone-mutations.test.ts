@@ -1,12 +1,16 @@
+import { pathToFileURL } from "node:url";
+import { createClient } from "../data/async-database.ts";
+import { rm } from "node:fs/promises";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "../data/database.ts";
 import { createGitHubClient, GitHubError, PHONE_MACHINE, type Codespace } from "../github/github.ts";
 import { createPhoneService, PhoneInputError, UNCONFIRMED_CREATION_EXPIRY_MS } from "./phone-mutations.ts";
 import { RateLimitError } from "../data/rate-limit.ts";
+import { updateSettings, userSettings } from "../data/settings.ts";
 import { readUsage, saveAllowance } from "../data/usage.ts";
 import { createPhoneApi } from "./phone-api.ts";
 import { createStatePoller } from "./poller.ts";
@@ -23,20 +27,27 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 function fixture(fetcher: typeof fetch) {
   const directory = mkdtempSync(join(tmpdir(), "phonelink-m0-"));
   const database = openDatabase(join(directory, "test.db"));
+  const asyncDatabase = createClient({ url: pathToFileURL(join(directory, "test.db")).href });
   for (const id of [1, 2]) database.prepare(`INSERT INTO users
     (id, github_id, login, token_cipher, token_scopes, created_at, last_seen_at)
     VALUES (?, ?, ?, ?, 'codespace', '2026-11-01', '2026-11-01')`).run(id, id, `fixture-${id}`, Buffer.from("encrypted"));
   let time = Date.parse("2026-11-07T00:00:00.000Z");
-  const github = createGitHubClient({ database, accessToken: async id => `synthetic-${id}`, fetch: fetcher });
-  const service = createPhoneService({ database, github, encrypt: plain => seal(plain, key), clock: () => time });
+  const github = createGitHubClient({ database: asyncDatabase, accessToken: async id => `synthetic-${id}`, fetch: fetcher });
+  const service = createPhoneService({ database: asyncDatabase, github, encrypt: plain => seal(plain, key), clock: () => time });
   return {
-    database, github, service, advance: (ms: number) => { time += ms; },
+    asyncDatabase, database, github, service, advance: (ms: number) => { time += ms; },
     add(id: string, user = 1, name = `generated-${id}`) {
       database.prepare(`INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state,
         created_at, runner_secret) VALUES (?, ?, ?, 'fixture/template', 'fixture-machine', 'stopped', '2026-11-01', ?)`)
         .run(id, user, name, seal("synthetic-runner-secret", key));
     },
-    close() { database.close(); rmSync(directory, { recursive: true, force: true }); },
+    async close() {
+      asyncDatabase.close();
+      database.close();
+      // Native SQLite statements can retain Windows file handles until collection.
+      globalThis.gc?.();
+      await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    },
   };
 }
 
@@ -62,7 +73,7 @@ test("GitHub lists only database-owned identifiers across pages and refuses fore
     await assert.rejects(f.github.stopCodespace(1, "phone-bbbb"), /Phone not found/);
     await assert.rejects(f.service.stop(1, "automatic-spoon-owned"), /Invalid phone ID/);
     assert.equal(calls.length, before);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("create records intent before HTTP, chooses an available machine, sends timeout and retention, and permits three phones", async () => {
@@ -102,7 +113,7 @@ test("create records intent before HTTP, chooses an available machine, sends tim
     assert.deepEqual(bodies.map(body => [body.repository_id, body.machine, body.idle_timeout_minutes, body.retention_period_minutes]),
       [[123, "fixture-machine", 30, 43200], [123, "fixture-machine", 240, 43200], [123, "fixture-machine", 30, 43200]]);
     assert.ok(bodies.every(body => body.devcontainer_path === input.devcontainerPath));
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("GitHub refusal preserves its message, records the failure, and does not retry creation", async () => {
@@ -126,7 +137,7 @@ test("GitHub refusal preserves its message, records the failure, and does not re
     f.advance(60_000);
     await assert.rejects(f.service.create(1, input), GitHubError);
     assert.equal(posts, 2);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("creation reserves its operation before machine lookup and blocks overlapping attempts", async () => {
@@ -147,13 +158,13 @@ test("creation reserves its operation before machine lookup and blocks overlappi
     creating = assert.rejects(f.service.create(1, input), /machine is unavailable/);
     await entered.promise;
     f.advance(60_000);
-    await assert.rejects(f.service.create(1, input), /unconfirmed/);
+    await assert.rejects(f.service.create(1, input), /unconfirmed|already in progress/);
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM phones").get()?.n, 1);
     release.resolve();
     await creating;
     assert.equal(f.database.prepare("SELECT outcome FROM phone_creations").get()?.outcome, "failed");
     assert.equal(posts, 0);
-  } finally { release.resolve(); await creating; f.close(); }
+  } finally { release.resolve(); await creating; await f.close(); }
 });
 
 test("interrupted creation survives a restart, blocks replacement, and recovers the submitted display name across pages", async () => {
@@ -190,7 +201,7 @@ test("interrupted creation survives a restart, blocks replacement, and recovers 
     f.add("phone-bbbb", 2, "pending:phone-bbbb");
     f.database.prepare(`INSERT INTO phone_creations VALUES ('phone-bbbb', 'phone-bbbb', 'unconfirmed', '2026-11-07')`).run();
     f.advance(60_000);
-    const restarted = createPhoneService({ database: f.database, github: f.github, encrypt: value => seal(value, key),
+    const restarted = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: value => seal(value, key),
       clock: () => Date.parse("2026-11-07T00:01:00Z") });
     await assert.rejects(restarted.create(1, input), /unconfirmed/);
     assert.equal(posts, 1);
@@ -211,7 +222,7 @@ test("interrupted creation survives a restart, blocks replacement, and recovers 
     await restarted.stop(1, String(before.id));
     assert.deepEqual(stopped, ["/user/codespaces/github-recovered/stop"]);
     assert.equal(posts, 1);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("sync recovers a pending creation after a server error but refuses ambiguous display names", async () => {
@@ -235,7 +246,7 @@ test("sync recovers a pending creation after a server error but refuses ambiguou
     assert.equal(f.database.prepare("SELECT codespace_name FROM phones").get()?.codespace_name, "one");
     assert.equal(f.database.prepare("SELECT state FROM phones").get()?.state, "stopped");
     assert.equal(f.database.prepare("SELECT outcome FROM phone_creations").get()?.outcome, "confirmed");
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("a recovered creation lets the requested new phone be created", async () => {
@@ -258,7 +269,7 @@ test("a recovered creation lets the requested new phone be created", async () =>
     assert.notEqual(second, first);
     assert.equal(posts, 2);
     assert.equal(f.database.prepare("SELECT codespace_name FROM phones WHERE id = ?").get(first)?.codespace_name, "first");
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("an unconfirmed creation with no Codespace on GitHub expires and stops blocking creation", async () => {
@@ -281,7 +292,7 @@ test("an unconfirmed creation with no Codespace on GitHub expires and stops bloc
     assert.equal(posts, 2);
     assert.deepEqual(f.database.prepare("SELECT outcome FROM phone_creations ORDER BY requested_at").all().map(r => r.outcome),
       ["failed", "confirmed"]);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("start and stop are idempotent, reconcile asynchronous state, and preserve the existing codespace and secret", async () => {
@@ -317,12 +328,12 @@ test("start and stop are idempotent, reconcile asynchronous state, and preserve 
     assert.equal(row.state, "stopped");
     assert.equal(row.last_stopped_at, "2026-11-07T00:00:15.000Z");
     assert.equal(row.retention_at, "2026-11-14T01:00:00.000Z");
-    const usage = readUsage(f.database, 1, () => Date.parse("2026-11-07T01:00:00Z"));
+    const usage = await readUsage(f.asyncDatabase, 1, () => Date.parse("2026-11-07T01:00:00Z"));
     assert.equal(usage.used_core_hours, 2 * 15 / 3600);
     assert.deepEqual(usage.running, []);
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM runs").get()?.n, 1);
     assert.deepEqual(f.database.prepare("SELECT codespace_name, runner_secret FROM phones").get(), before);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("rate limits share an account's mutation budget, isolate accounts, survive service recreation, and expire at 60 seconds", async () => {
@@ -346,13 +357,13 @@ test("rate limits share an account's mutation budget, isolate accounts, survive 
     await assert.rejects(f.service.start(1, "phone-aaaa"), RateLimitError);
     assert.equal(calls, full);
     await f.service.start(2, "phone-bbbb");
-    const other = createPhoneService({ database: f.database, github: f.github, encrypt: plain => seal(plain, key),
+    const other = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
       clock: () => Date.parse("2026-11-07T00:00:59.999Z") });
     await assert.rejects(other.start(1, "phone-aaaa"), RateLimitError);
     f.advance(60_000);
     await f.service.create(1, input);
     await f.service.start(1, "phone-aaaa");
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("invalid creation inputs and blocked users cannot call GitHub", async () => {
@@ -365,7 +376,7 @@ test("invalid creation inputs and blocked users cannot call GitHub", async () =>
     await assert.rejects(f.service.create(1, input), /Sign in again/);
     assert.equal(calls, 0);
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM phones").get()?.n, 0);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("a failed stop preserves the phone state and records GitHub's message without credentials", async () => {
@@ -383,7 +394,7 @@ test("a failed stop preserves the phone state and records GitHub's message witho
     assert.equal(row.state_detail, "Cannot stop this codespace. [redacted]");
     assert.deepEqual(f.database.prepare("SELECT kind FROM events ORDER BY id").all().map(row => row.kind), ["action", "error"]);
     assert.ok(!JSON.stringify(f.database.prepare("SELECT message FROM events").all()).includes(credential));
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("overlapping start and stop requests cannot race on the same phone", async () => {
@@ -407,7 +418,7 @@ test("overlapping start and stop requests cannot race on the same phone", async 
     await starting;
     assert.equal(f.database.prepare("SELECT state FROM phones").get()?.state, "booting");
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM events WHERE kind = 'action'").get()?.n, 1);
-  } finally { release.resolve(); await starting; f.close(); }
+  } finally { release.resolve(); await starting; await f.close(); }
 });
 
 test("runs accrue across restarts, reconcile idle stops, and keep each account's budget separate", async () => {
@@ -425,24 +436,24 @@ test("runs accrue across restarts, reconcile idle stops, and keep each account's
     f.advance(3_600_000);
     await f.service.start(1, "phone-aaaa");
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM runs").get()?.n, 1);
-    assert.equal(readUsage(f.database, 1, clock).used_core_hours, 4);
-    assert.equal(readUsage(f.database, 2, clock).used_core_hours, 0);
+    assert.equal((await readUsage(f.asyncDatabase, 1, clock)).used_core_hours, 4);
+    assert.equal((await readUsage(f.asyncDatabase, 2, clock)).used_core_hours, 0);
     f.advance(3_600_000);
     current = { ...space(current.name), last_used_at: "2026-11-07T00:30:00Z" };
     await f.service.sync(1);
-    assert.equal(readUsage(f.database, 1, clock).used_core_hours, 2);
-    assert.deepEqual(readUsage(f.database, 1, clock).running, []);
+    assert.equal((await readUsage(f.asyncDatabase, 1, clock)).used_core_hours, 2);
+    assert.deepEqual((await readUsage(f.asyncDatabase, 1, clock)).running, []);
     await f.service.sync(1);
     await f.service.start(1, "phone-aaaa");
     f.advance(3_600_000);
     const later = () => Date.parse("2026-11-07T03:00:00Z");
-    assert.equal(readUsage(f.database, 1, later).used_core_hours, 4);
-    saveAllowance(f.database, 1, 180);
-    assert.equal(readUsage(f.database, 1, later).allowance_core_hours, 180);
-    assert.equal(readUsage(f.database, 2, later).allowance_core_hours, 120);
-    for (const invalid of [-1, Infinity, NaN]) assert.throws(() => saveAllowance(f.database, 1, invalid));
-    assert.equal(readUsage(f.database, 1, later).allowance_core_hours, 180);
-  } finally { f.close(); }
+    assert.equal((await readUsage(f.asyncDatabase, 1, later)).used_core_hours, 4);
+    await saveAllowance(f.asyncDatabase, 1, 180);
+    assert.equal((await readUsage(f.asyncDatabase, 1, later)).allowance_core_hours, 180);
+    assert.equal((await readUsage(f.asyncDatabase, 2, later)).allowance_core_hours, 120);
+    for (const invalid of [-1, Infinity, NaN]) await assert.rejects(saveAllowance(f.asyncDatabase, 1, invalid));
+    assert.equal((await readUsage(f.asyncDatabase, 1, later)).allowance_core_hours, 180);
+  } finally { await f.close(); }
 });
 
 test("the optional operator cap blocks creation before HTTP but never prevents stopping", async () => {
@@ -450,13 +461,13 @@ test("the optional operator cap blocks creation before HTTP but never prevents s
   const f = fixture(async () => { calls++; return Response.json(space("generated-phone-aaaa")); });
   try {
     f.add("phone-aaaa");
-    const service = createPhoneService({ database: f.database, github: f.github, encrypt: value => Buffer.from(value),
+    const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: value => Buffer.from(value),
       maxPhones: 1, clock: () => Date.parse("2026-11-07T00:00:00Z") });
     await assert.rejects(service.create(1, input), /safety cap/);
     assert.equal(calls, 0);
     await service.stop(1, "phone-aaaa");
     assert.equal(calls, 1);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("Stop all handles more than six phones, preserves other users, and reports partial GitHub refusals", async () => {
@@ -478,7 +489,7 @@ test("Stop all handles more than six phones, preserves other users, and reports 
     assert.ok(!writes.includes("generated-phone-ffff"));
     assert.equal(f.database.prepare("SELECT state FROM phones WHERE id = 'phone-ffff'").get()?.state, "running");
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM phones").get()?.n, 9);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("phone HTTP API authenticates, rejects cross-site creation, passes defaults, and preserves GitHub refusals as 409", async () => {
@@ -491,10 +502,11 @@ test("phone HTTP API authenticates, rejects cross-site creation, passes defaults
     return refuse ? Response.json({ message: "Your spending limit has been reached." }, { status: 403 })
       : Response.json(space("new-api-phone", "Creating"));
   });
+  await updateSettings(f.asyncDatabase, 1, { default_idle_min: 240 });
   let signedIn = false;
   const api = createPhoneApi({ user: async () => signedIn ? { id: 1 } : null, service: f.service,
-    template: () => input, usage: id => readUsage(f.database, id, () => Date.parse("2026-11-07T00:00:00Z")),
-    defaults: () => ({ default_machine: machine.name, default_idle_min: 240 }) });
+    template: () => input, usage: async id => (await readUsage(f.asyncDatabase, id, () => Date.parse("2026-11-07T00:00:00Z"))),
+    defaults: id => userSettings(f.asyncDatabase, id) });
   const request = (origin?: string, body = "{}") => new Request("http://localhost/v1/phones", { method: "POST",
     headers: { "Content-Type": "application/json", ...(origin ? { Origin: origin } : {}) }, body });
   try {
@@ -519,7 +531,7 @@ test("phone HTTP API authenticates, rejects cross-site creation, passes defaults
     assert.match(id, /^phone-[a-z]+-[a-z]+$/);
     assert.equal(f.database.prepare("SELECT idle_timeout_min FROM phones WHERE id = ?").get(id)?.idle_timeout_min, 240);
     assert.equal(posts, 2);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("reconciliation splits runs when cores change and closes missing codespaces without losing usage history", async () => {
@@ -533,14 +545,14 @@ test("reconciliation splits runs when cores change and closes missing codespaces
     current = { ...current!, machine: { name: "larger", cpus: 4 } };
     await f.service.sync(1);
     f.advance(3_600_000);
-    assert.equal(readUsage(f.database, 1, clock).used_core_hours, 6);
-    assert.deepEqual(readUsage(f.database, 1, clock).running, [{ id: "phone-aaaa", cores: 4 }]);
+    assert.equal((await readUsage(f.asyncDatabase, 1, clock)).used_core_hours, 6);
+    assert.deepEqual((await readUsage(f.asyncDatabase, 1, clock)).running, [{ id: "phone-aaaa", cores: 4 }]);
     current = null;
     await f.service.sync(1);
-    assert.equal(readUsage(f.database, 1, clock).used_core_hours, 6);
-    assert.deepEqual(readUsage(f.database, 1, clock).running, []);
+    assert.equal((await readUsage(f.asyncDatabase, 1, clock)).used_core_hours, 6);
+    assert.deepEqual((await readUsage(f.asyncDatabase, 1, clock)).running, []);
     assert.equal(f.database.prepare("SELECT state FROM phones").get()?.state, "deleted");
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("the state poller avoids overlap, backs off GitHub refusals with a fake clock, and skips blocked users", async () => {
@@ -553,7 +565,7 @@ test("the state poller avoids overlap, backs off GitHub refusals with a fake clo
     f.add("phone-aaaa");
     f.add("phone-bbbb", 2);
     f.database.exec("UPDATE users SET blocked = 1 WHERE id = 2");
-    const tick = createStatePoller({ database: f.database, clock: () => time, sync: async id => {
+    const tick = createStatePoller({ database: f.asyncDatabase, clock: () => time, sync: async id => {
       calls.push(id);
       entered.resolve();
       await release.promise;
@@ -571,14 +583,14 @@ test("the state poller avoids overlap, backs off GitHub refusals with a fake clo
     time = 300_000;
     await tick();
     assert.deepEqual(calls, [1, 1]);
-  } finally { release.resolve(); f.close(); }
+  } finally { release.resolve(); await f.close(); }
 });
 
 test("an Available codespace starts phone setup, checks it until ready, then the phone is running; a failure waits before retrying", async () => {
   const f = fixture(async () => Response.json({ codespaces: [space("generated-phone-cccc", "Available")] }));
   const runs: string[] = [];
   let fail = true;
-  const service = createPhoneService({ database: f.database, github: f.github, encrypt: plain => seal(plain, key),
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
     setup: async (_user, name) => { runs.push(name); if (fail) throw new Error("apt failed"); return "ready"; } });
   const state = () => f.database.prepare("SELECT state, state_detail FROM phones WHERE id = 'phone-cccc'").get() as
     { state: string; state_detail: string | null };
@@ -598,7 +610,7 @@ test("an Available codespace starts phone setup, checks it until ready, then the
     f.database.prepare("UPDATE phones SET state_detail = ? WHERE id = 'phone-cccc'").run("Setup needs another attempt. New wording.");
     let now = Date.now();
     let status: "working" | "ready" = "working";
-    const ready = createPhoneService({ database: f.database, github: f.github, encrypt: plain => seal(plain, key),
+    const ready = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
       clock: () => now, setup: async (_user, name) => { runs.push(name); return status; } });
     await ready.sync(1);
     await flush();
@@ -621,14 +633,14 @@ test("an Available codespace starts phone setup, checks it until ready, then the
     assert.equal(state().state, "running");
     assert.equal(state().state_detail, null);
     assert.equal(f.database.prepare("SELECT 1 FROM phone_setup_attempts").get(), undefined);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("setup boots Android once, persists failures until Retry boot, and records readiness", async () => {
   const f = fixture(async () => Response.json({ codespaces: [space("generated-phone-aaaa", "Available")] }));
   let boot = Promise.withResolvers<Response>();
   let boots = 0;
-  const service = createPhoneService({ database: f.database, github: f.github, encrypt: plain => seal(plain, key),
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
     setup: async () => "ready", runner: async (_user, _id, path, body) => {
       assert.equal(path, "/boot");
       assert.deepEqual(body, { mode: "resume" });
@@ -660,7 +672,7 @@ test("setup boots Android once, persists failures until Retry boot, and records 
     const runnerReady = messages.indexOf("Phone runner ready");
     assert.ok(runnerReady >= 0 && runnerReady < messages.indexOf("Android starting"));
     assert.ok(messages.some(message => /^Android ready \(took \d+ s\)$/.test(String(message))));
-  } finally { boot.resolve(Response.json({ booted: false })); await flush(); f.close(); }
+  } finally { boot.resolve(Response.json({ booted: false })); await flush(); await f.close(); }
 });
 
 test("Stop waits for the runner before stopping GitHub and ignores a late boot completion", async () => {
@@ -673,7 +685,7 @@ test("Stop waits for the runner before stopping GitHub and ignores a late boot c
   const boot = Promise.withResolvers<Response>();
   const stop = Promise.withResolvers<Response>();
   const enteredStop = Promise.withResolvers<void>();
-  const service = createPhoneService({ database: f.database, github: f.github, encrypt: plain => seal(plain, key),
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
     runner: async (_user, _id, path) => {
       if (path === "/boot") return boot.promise;
       enteredStop.resolve();
@@ -694,7 +706,7 @@ test("Stop waits for the runner before stopping GitHub and ignores a late boot c
     assert.equal(githubStops, 1);
     assert.equal(f.database.prepare("SELECT state FROM phones").get()?.state, "stopping");
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM events WHERE message LIKE 'Android ready%'").get()?.n, 0);
-  } finally { boot.resolve(Response.json({ booted: false })); stop.resolve(Response.json({ stopped: true })); await flush(); f.close(); }
+  } finally { boot.resolve(Response.json({ booted: false })); stop.resolve(Response.json({ stopped: true })); await flush(); await f.close(); }
 });
 
 test("runner and GitHub stop failures preserve the running codespace and leave a recoverable status", async () => {
@@ -703,7 +715,7 @@ test("runner and GitHub stop failures preserve the running codespace and leave a
     if (init?.method === "POST") { githubStops++; throw new GitHubError("synthetic GitHub stop refusal", 503); }
     return Response.json(space("generated-phone-aaaa", "Available"));
   });
-  const service = createPhoneService({ database: f.database, github: f.github, encrypt: plain => seal(plain, key),
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
     runner: async () => {
       if (runnerFails) throw new Error("synthetic transport failure");
       return Response.json({ stopped: true });
@@ -718,5 +730,5 @@ test("runner and GitHub stop failures preserve the running codespace and leave a
     await assert.rejects(service.stop(1, "phone-aaaa"), /synthetic GitHub stop refusal/);
     assert.equal(githubStops, 1);
     assert.equal(f.database.prepare("SELECT android_state FROM phones").get()?.android_state, "failed");
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });

@@ -1,11 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getAccessToken } from "./github-token.ts";
-import { db } from "../data/db.ts";
+import { asyncDb } from "../data/async-db.ts";
+import { openDatabase } from "../data/database.ts";
 import { seal, open } from "../auth/crypto.ts";
 import { insertSession } from "../auth/session-store.ts";
 
@@ -15,7 +17,8 @@ test("tokens refresh once for concurrent callers, persist encrypted, and invalid
   process.env.PHONELINK_TOKEN_KEY = randomBytes(32).toString("base64");
   process.env.PHONELINK_GITHUB_CLIENT_ID = "synthetic-client";
   process.env.PHONELINK_GITHUB_CLIENT_SECRET = "synthetic-secret";
-  const database = db();
+  const database = openDatabase(process.env.PHONELINK_DB!);
+  const client = asyncDb();
   let calls = 0;
   let refuse = false;
   const timestamp = Date.parse("2026-11-07T00:00:00.000Z");
@@ -49,17 +52,19 @@ test("tokens refresh once for concurrent callers, persist encrypted, and invalid
     assert.equal(row.token_expires_at, "2026-11-07T08:00:00.000Z");
     assert.equal(await getAccessToken(userId, options), "synthetic-new-access");
     assert.equal(calls, 1);
-    insertSession(database, userId);
+    await insertSession(client, userId);
     database.prepare("UPDATE users SET token_expires_at = ?").run("2000-01-01");
     refuse = true;
     await assert.rejects(getAccessToken(userId, options), /^Error: Sign in again$/);
     assert.equal(database.prepare("SELECT count(*) AS n FROM sessions").get()?.n, 0);
     // A rejected refresh must leave no stale promise in the map.
-    insertSession(database, userId);
+    await insertSession(client, userId);
     await assert.rejects(getAccessToken(userId, options), /^Error: Sign in again$/);
     assert.equal(database.prepare("SELECT count(*) AS n FROM sessions").get()?.n, 0);
   } finally {
+    client.close();
     database.close();
-    rmSync(directory, { recursive: true, force: true });
+    globalThis.gc?.();
+    await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
