@@ -4,6 +4,18 @@ Implementation: additive schema version 9. Collection defaults to disabled.
 Isolated runtime validation and disposable-Codespace acceptance are pending.
 The product UI and the external `phone.ready` contract stay compatible.
 
+## Setup failure state
+
+`phone_setup_attempts.failed` stores setup failure independently of diagnostic collection.
+Phone lists and detail reads expose it as `setup_failed`; cards and the phone screen use that field.
+`state_detail` supplies display text only. Editing that text cannot set or clear a failure.
+Starting a retry clears `failed`; successful setup and stopping remove the attempt.
+Failed attempts and their retry deadlines survive a server restart.
+
+This uses existing storage and needs no migration or message-based backfill.
+Records without an attempt report `setup_failed = 0`, including old records with failure-like display text.
+Their next setup check records the current result explicitly.
+
 ## Enable after acceptance
 
 Set these server settings for one owned disposable test phone:

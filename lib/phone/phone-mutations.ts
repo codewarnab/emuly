@@ -46,10 +46,10 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
   const iso = () => new Date(clock()).toISOString();
   const settingUp = new Set<string>();
   const setupRetryAt = new Map<string, number>();
-  const setupFailure = new Map<string, string>();
   const setupStarted = new Set<string>();
   const SETUP_RETRY_MS = 10 * 60_000;
   const SETUP_CHECK_MS = 20_000;
+  const SETUP_FAILURE_DETAIL = "Phone setup failed. phonelink tries again in about 10 minutes.";
   const booting = new Set<string>();
 
   function startBoot(userId: number, id: string) {
@@ -103,7 +103,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
       ON CONFLICT(phone_id) DO UPDATE SET attempt = excluded.attempt, retry_at = excluded.retry_at,
         operation_id = excluded.operation_id, attempt_id = excluded.attempt_id, failed = 0`)
       .run(id, attempt, clock() + SETUP_CHECK_MS, operationId ?? null, attemptId);
-    if (!setupStarted.has(id)) {
+    if (!setupStarted.has(id) || saved?.failed) {
       setupStarted.add(id);
       database.prepare("UPDATE phones SET state_detail = ? WHERE user_id = ? AND id = ?")
         .run("Installing Android and starting the runner. The first setup takes several minutes.", userId, id);
@@ -124,7 +124,6 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
       }
       setupStarted.delete(id);
       setupRetryAt.delete(id);
-      setupFailure.delete(id);
       const current = database.prepare("SELECT state, codespace_name, machine FROM phones WHERE user_id = ? AND id = ?")
         .get(userId, id) as { state: string; codespace_name: string; machine: string } | undefined;
       // The phone may have stopped or been deleted while setup ran.
@@ -142,10 +141,8 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
         .run(clock() + SETUP_RETRY_MS, id, attempt);
       diagnostics.mark(operationId, "retry_wait", { retryDelayMs: SETUP_RETRY_MS, errorCode: "unknown_failure", outcome: "failed" });
       const message = "Phone setup failed.";
-      const detail = `${message} phonelink tries again in about 10 minutes.`;
-      setupFailure.set(id, detail);
       database.prepare("UPDATE phones SET state_detail = ? WHERE user_id = ? AND id = ? AND state = 'booting'")
-        .run(detail, userId, id);
+        .run(SETUP_FAILURE_DETAIL, userId, id);
       event(userId, id, "error", message);
     }).finally(() => settingUp.delete(id));
   }
@@ -205,9 +202,10 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
   function apply(userId: number, id: string, codespace: Codespace, source = "phonelink") {
     const previous = phone(userId, id);
     const android = database.prepare("SELECT android_state FROM phones WHERE id = ?").get(id);
+    const failedSetup = database.prepare("SELECT failed FROM phone_setup_attempts WHERE phone_id = ?").get(id)?.failed === 1;
     const { state, detail, lastStarted, lastStopped, retention } = decidePhoneTransition({
       previous, codespace, androidState: String(android?.android_state ?? ""),
-      setupAvailable: Boolean(setup), setupFailure: setupFailure.get(id), now: clock(),
+      setupAvailable: Boolean(setup), setupFailure: failedSetup ? previous.state_detail ?? SETUP_FAILURE_DETAIL : undefined, now: clock(),
     });
     if (["stopped", "error"].includes(previous.state) && state === "booting") {
       database.prepare("UPDATE phones SET stop_reason = NULL WHERE id = ?").run(id);
@@ -240,7 +238,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
     }
     // Keep it only starts a phone to stop it again; it does not need the emulator.
     if (codespace.state === "Available" && state === "booting" && !keeping(id)) startSetup(userId, id, codespace.name);
-    else if (state !== "booting") { setupRetryAt.delete(id); setupFailure.delete(id); }
+    else if (state !== "booting") { setupRetryAt.delete(id); }
   }
 
   async function change(userId: number, id: string, operation: "start" | "stop", bulk = false, automatic = false) {

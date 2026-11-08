@@ -3,6 +3,7 @@ import type { PillKind } from "@/components/ui/pill";
 type StatusPhone = {
   state: string;
   state_detail?: string | null;
+  setup_failed?: number;
   android_state?: string;
   keeping?: number;
 };
@@ -19,8 +20,9 @@ export function phoneStatus(phone: StatusPhone): { kind: PillKind; label: string
     case "pending": return { kind: "booting", label: "creating", title: "Creating the codespace",
       description: "Waiting for GitHub to create this phone." };
     case "booting": {
-      if (/^(Phone setup failed|Could not reach the codespace)/.test(phone.state_detail ?? "")) {
-        return { kind: "needsyou", label: "setup failed", title: "Setup failed", description: phone.state_detail! };
+      if (phone.setup_failed) {
+        return { kind: "needsyou", label: "setup failed", title: "Setup failed",
+          description: phone.state_detail ?? "Phone setup failed. Setup will retry automatically." };
       }
       return phone.state_detail
         ? { kind: "booting", label: "setting up", title: "Setting up Android", description: phone.state_detail }
