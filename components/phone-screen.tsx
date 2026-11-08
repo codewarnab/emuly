@@ -61,6 +61,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
         if (disposed || attempt.signal.aborted || epoch !== generation || document.hidden ||
           activeVideo.current || started <= video.lastFrameAt.current) return;
         setFrame(next);
+        video.reportFallback.current?.();
         next = "";
         setScreenshotAt(started);
         setScreenshotFresh(true);

@@ -589,7 +589,7 @@ test("an Available codespace starts phone setup, checks it until ready, then the
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(runs, ["generated-phone-cccc"]);
     assert.equal(state().state, "booting");
-    assert.match(state().state_detail ?? "", /apt failed.*10 minutes/);
+    assert.match(state().state_detail ?? "", /Phone setup failed.*10 minutes/);
     await service.sync(1);
     assert.equal(runs.length, 1, "a failed setup waits before it runs again");
 
@@ -598,6 +598,10 @@ test("an Available codespace starts phone setup, checks it until ready, then the
     let status: "working" | "ready" = "working";
     const ready = createPhoneService({ database: f.database, github: f.github, encrypt: plain => seal(plain, key),
       clock: () => now, setup: async (_user, name) => { runs.push(name); return status; } });
+    await ready.sync(1);
+    await flush();
+    assert.equal(runs.length, 1, "a server restart preserves the ten-minute failure backoff");
+    now += 10 * 60_000 + 1;
     await ready.sync(1);
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(state().state, "booting", "setup still works in the codespace");
@@ -635,7 +639,7 @@ test("setup boots Android once, persists failures until Retry boot, and records 
     boot.resolve(Response.json({ booted: false }));
     await flush();
     assert.equal(android().android_state, "failed");
-    assert.match(String(android().android_error), /did not finish booting/);
+    assert.equal(android().android_error, "Android boot failed. Retry boot.");
     await service.sync(1);
     assert.equal(boots, 1, "failed boots need an explicit retry");
     boot = Promise.withResolvers<Response>();

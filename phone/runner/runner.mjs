@@ -27,9 +27,9 @@ class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
-function run(cmd, args, { timeout = 60_000, binary = false } = {}) {
+function run(cmd, args, { timeout = 60_000, binary = false, env = process.env } = {}) {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout, maxBuffer: 64 * 1024 * 1024, encoding: binary ? "buffer" : "utf8" },
+    execFile(cmd, args, { timeout, env, maxBuffer: 64 * 1024 * 1024, encoding: binary ? "buffer" : "utf8" },
       (error, stdout, stderr) => error ? reject(Object.assign(error, { stdout, stderr })) : resolve(stdout));
   });
 }
@@ -64,10 +64,12 @@ const apps = await createApps({ root: join(ROOT, "data", "app-installs"), sdk: S
 const routes = {
   "GET /health": async () => ({ ok: true, version: 4, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch"], avd: "t", api_level: 36, booted: await booted() }),
 
-  "POST /boot": ({ mode }) => {
+  "POST /boot": ({ mode, diagnosticOperation }) => {
     return boot ??= exclusive(async () => {
       const start = Date.now();
-      await script("boot.sh", [mode === "cold" ? "cold" : "resume"]);
+      const operation = typeof diagnosticOperation === "string" && /^[a-f0-9]{32}$/.test(diagnosticOperation) ? diagnosticOperation : undefined;
+      await run("bash", [join(ROOT, "scripts", "boot.sh"), mode === "cold" ? "cold" : "resume"], { timeout: 600000,
+        env: { ...process.env, PHONELINK_DIAGNOSTICS: operation ? "1" : "0", PH_OPERATION_ID: operation ?? "disabled" } });
       apps.resume();
       return { booted: await booted(), seconds: Math.round((Date.now() - start) / 1000) };
     }).finally(() => { boot = undefined; });

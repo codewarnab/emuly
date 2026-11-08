@@ -67,13 +67,19 @@ export async function startScrcpy(ws, { adb, ADB, SERIAL, ROOT, quality }) {
       } catch { close(); }
     });
     let count = 0, window = Date.now();
+    let inputAccepted = false;
     ws.on("message", (data, binary) => {
       try {
         if (Date.now() - window >= 1000) { count = 0; window = Date.now(); }
         if (binary || data.length > 16_384 || ++count > 240 || control.writableLength > 65_536) return close();
         const input = JSON.parse(data.toString());
-        if (input.type === "ping" && Number.isFinite(input.time)) return ws.send(JSON.stringify({ type: "pong", time: input.time, server: Date.now() }));
+        if (input.type === "ping" && Number.isFinite(input.time)) {
+          ws.send(JSON.stringify({ type: "pong", time: input.time, server: Date.now(), inputAccepted }));
+          inputAccepted = false;
+          return;
+        }
         const bytes = controlMessage(input);
+        inputAccepted = true;
         if (input.type === "touch") {
           if (["up", "cancel"].includes(input.action)) touches.delete(input.pointer);
           else touches.set(input.pointer, input);

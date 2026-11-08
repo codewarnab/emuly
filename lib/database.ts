@@ -172,6 +172,50 @@ const MIGRATIONS = [
     stream_quality TEXT NOT NULL DEFAULT 'auto' CHECK (stream_quality IN ('auto', 'sharp', 'saver'))
   );
   `,
+  `
+  CREATE TABLE diagnostic_operations (
+    id TEXT PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    phone_id TEXT NOT NULL REFERENCES phones(id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL, kind TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT,
+    outcome TEXT NOT NULL DEFAULT 'running', schema_version INTEGER NOT NULL DEFAULT 1,
+    instrumentation_version INTEGER NOT NULL DEFAULT 1, release TEXT NOT NULL, observer_id TEXT NOT NULL,
+    dropped_records INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE diagnostic_phone_runs (
+    phone_id TEXT PRIMARY KEY REFERENCES phones(id) ON DELETE CASCADE, run_id TEXT NOT NULL
+  );
+  CREATE TABLE diagnostic_health (code TEXT PRIMARY KEY, count INTEGER NOT NULL);
+  CREATE INDEX diagnostic_owner ON diagnostic_operations(owner_id, phone_id, started_at);
+  CREATE INDEX diagnostic_retention ON diagnostic_operations(started_at, outcome);
+  CREATE TABLE diagnostic_steps (
+    operation_id TEXT NOT NULL REFERENCES diagnostic_operations(id) ON DELETE CASCADE,
+    step_id TEXT NOT NULL, producer TEXT NOT NULL, producer_run_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL, code TEXT NOT NULL, attempt INTEGER NOT NULL,
+    outcome TEXT NOT NULL, observed_at TEXT NOT NULL, record TEXT NOT NULL CHECK(length(record) <= 2048),
+    PRIMARY KEY(operation_id, step_id), UNIQUE(operation_id, producer, producer_run_id, sequence)
+  );
+  CREATE INDEX diagnostic_steps_status ON diagnostic_steps(operation_id, outcome);
+  CREATE TABLE diagnostic_cursors (
+    operation_id TEXT NOT NULL REFERENCES diagnostic_operations(id) ON DELETE CASCADE,
+    producer_run_id TEXT NOT NULL, sequence INTEGER NOT NULL,
+    PRIMARY KEY(operation_id, producer_run_id)
+  );
+  CREATE TABLE diagnostic_daily (
+    day TEXT NOT NULL, release TEXT NOT NULL, code TEXT NOT NULL, outcome TEXT NOT NULL,
+    quality TEXT NOT NULL, disposition TEXT NOT NULL, boot_method TEXT NOT NULL,
+    cause TEXT NOT NULL, confidence TEXT NOT NULL, bucket_ms INTEGER NOT NULL, samples INTEGER NOT NULL,
+    PRIMARY KEY(day, release, code, outcome, quality, disposition, boot_method, cause, confidence, bucket_ms)
+  );
+  CREATE TABLE phone_setup_attempts (
+    phone_id TEXT PRIMARY KEY REFERENCES phones(id) ON DELETE CASCADE,
+    attempt INTEGER NOT NULL DEFAULT 0, retry_at INTEGER NOT NULL DEFAULT 0,
+    failed INTEGER NOT NULL DEFAULT 0, operation_id TEXT, attempt_id TEXT NOT NULL
+  );
+  CREATE TABLE poller_retries (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    retry_at INTEGER NOT NULL, error_code TEXT NOT NULL
+  );
+  `,
 ];
 
 export function openDatabase(filename: string): DatabaseSync {

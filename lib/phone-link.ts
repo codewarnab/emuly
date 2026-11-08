@@ -1,4 +1,6 @@
 import "server-only";
+import { measure } from "./diagnostics.ts";
+import type { phoneObservations } from "./phone-observation.ts";
 
 type Bridge = { url: string; close: () => void };
 type Owner = { userId: number; id: string; codespaceName: string };
@@ -10,12 +12,13 @@ export type AppsPath = "/apps" | "/apps/open" | "/app-installs" | `/app-installs
 export type AppsRequest = { method: "GET" | "POST" | "PUT"; json?: Record<string, unknown>; bytes?: Uint8Array; offset?: number; digest?: string; signal?: AbortSignal };
 
 /** One connection per owned phone. Only a read-only probe may fall back; never replay a mutation. */
-export function createPhoneLinks({ token, tunnel, keepAwake, fetch: request = fetch, idleMs = 120_000 }: {
+export function createPhoneLinks({ token, tunnel, keepAwake, observations, fetch: request = fetch, idleMs = 120_000 }: {
   token: (userId: number) => Promise<string>;
   tunnel: (token: string, name: string, signal: AbortSignal) => Promise<Bridge>;
   keepAwake?: (token: string, name: string) => Promise<unknown>;
   fetch?: typeof fetch;
   idleMs?: number;
+  observations?: ReturnType<typeof phoneObservations>;
 }) {
   const entries = new Map<string, Entry>();
   const streamFallback = new Set<string>();
@@ -26,17 +29,18 @@ export function createPhoneLinks({ token, tunnel, keepAwake, fetch: request = fe
     entries.delete(key(phone));
     clearTimeout(entry.timer);
     clearInterval(entry.awake);
+    if (entry.awake) observations?.mark(phone, "awake_timer_stop", { count: entry.viewers, errorCode: "observer_shutdown" });
     entry.abort.abort();
     void entry.connection.then(connection => connection.close(), () => {});
   };
   async function connect(phone: Owner, signal: AbortSignal): Promise<Connection> {
-    const secret = await token(phone.userId);
+    const secret = await measure("credential_lookup", () => token(phone.userId));
     const url = `https://${phone.codespaceName}-8790.app.github.dev`;
     const forceTunnel = streamFallback.delete(key(phone));
     try {
       if (forceTunnel) throw new Error("WebSocket forwarding unavailable");
-      const probe = await request(`${url}/health`, { headers: { "X-Github-Token": secret },
-        redirect: "manual", cache: "no-store", signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]) });
+      const probe = await measure("forwarded_probe", () => request(`${url}/health`, { headers: { "X-Github-Token": secret },
+        redirect: "manual", cache: "no-store", signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]) }), { route: "forwarded" });
       if (probe.ok && probe.headers.get("content-type")?.includes("application/json") && (await probe.json()).ok === true) {
         return { url, forwarded: true, close() {} };
       }
@@ -50,7 +54,7 @@ export function createPhoneLinks({ token, tunnel, keepAwake, fetch: request = fe
     if (!entry) {
       const abort = new AbortController();
       const timeout = setTimeout(() => abort.abort(), 90_000);
-      const opening = connect(phone, abort.signal).then(connection => {
+      const opening = (observations ? observations.scope(phone, () => connect(phone, abort.signal)) : connect(phone, abort.signal)).then(connection => {
         if (abort.signal.aborted) { connection.close(); abort.signal.throwIfAborted(); }
         return connection;
       });
@@ -119,15 +123,40 @@ export function createPhoneLinks({ token, tunnel, keepAwake, fetch: request = fe
         if (connection.forwarded) headers["X-Github-Token"] = await token(phone.userId);
         entry.abort.signal.throwIfAborted();
         entry.viewers++;
+        observations?.mark(phone, "stream_attach", { count: entry.viewers });
         if (keepAwake && !entry.awake) {
           let pending = false;
+          const coverageStarted = Date.now();
+          let lastSuccess = 0, gap = false, expected = coverageStarted, consecutiveFailures = 0;
+          observations?.mark(phone, "awake_timer_start", { count: entry.viewers, retryDelayMs: 60000 });
           const pulse = async () => {
-            if (pending || entry.abort.signal.aborted || !entry.viewers) return;
+            const scheduledAt = new Date(expected).toISOString(); expected += 60000;
+            if (Date.now() - (lastSuccess || coverageStarted) >= 120000 && !gap) {
+              gap = true;
+              observations?.mark(phone, "coverage_gap", { outcome: "unknown", errorCode: "coverage_missing" });
+            }
+            if (pending || entry.abort.signal.aborted || !entry.viewers) {
+              observations?.mark(phone, "keep_awake", { outcome: "skipped", scheduledAt, count: entry.viewers,
+                errorCode: pending ? "already_pending" : entry.abort.signal.aborted ? "connection_aborted" : "no_viewers" });
+              return;
+            }
             pending = true;
             try {
-              const secret = await token(phone.userId);
-              if (!entry.abort.signal.aborted && entry.viewers) await keepAwake(secret, phone.codespaceName);
-            } catch { /* A failed keep-awake must not interrupt the video. */ }
+              const work = () => measure("keep_awake", async () => {
+                const secret = await measure("credential_lookup", () => token(phone.userId));
+                if (entry.abort.signal.aborted || !entry.viewers) {
+                  observations?.mark(phone, "keep_awake", { outcome: "skipped", errorCode: "connection_aborted" });
+                  return;
+                }
+                const result = await keepAwake(secret, phone.codespaceName);
+                if (result && typeof result === "object" && "code" in result && result.code !== 0) throw new Error("Keep-awake command failed");
+                lastSuccess = Date.now();
+                consecutiveFailures = 0;
+                if (gap) { gap = false; observations?.mark(phone, "coverage_recovered"); }
+              }, { scheduledAt, count: entry.viewers, retryDelayMs: 60000, consecutiveFailures,
+                ...(lastSuccess ? { sinceSuccessMs: Math.min(86400000, Date.now() - lastSuccess) } : {}) });
+              await (observations ? observations.scope(phone, work) : work());
+            } catch { consecutiveFailures++; /* A failed keep-awake must not interrupt the video. */ }
             finally { pending = false; }
           };
           entry.awake = setInterval(() => { void pulse(); }, 60_000);
@@ -138,10 +167,15 @@ export function createPhoneLinks({ token, tunnel, keepAwake, fetch: request = fe
         const releaseStream = () => {
           if (released) return;
           released = true;
-          if (--entry.viewers === 0) { clearInterval(entry.awake); entry.awake = undefined; }
+          observations?.mark(phone, "stream_detach", { count: Math.max(0, entry.viewers - 1) });
+          if (--entry.viewers === 0) {
+            clearInterval(entry.awake); entry.awake = undefined;
+            observations?.mark(phone, "awake_timer_stop", { count: 0, errorCode: "no_viewers" });
+          }
           release();
         };
         return { url: connection.url.replace(/^http/, "ws") + "/stream", headers, signal: entry.abort.signal, release: releaseStream,
+          acceptedInput() { observations?.input(phone); },
           failed() { if (connection.forwarded && entries.get(key(phone)) === entry) { close(phone); streamFallback.add(key(phone)); } } };
       } catch { release(); if (entries.get(key(phone)) === entry) close(phone); throw new Error("Stream unavailable"); }
     },
@@ -159,6 +193,7 @@ export function createPhoneLinks({ token, tunnel, keepAwake, fetch: request = fe
         // Consume before releasing the lease: a slow image must not lose its bridge to the idle timer.
         const bytes = await response.arrayBuffer();
         if (!response.ok) throw new RunnerResponseError(`Runner ${path} returned ${response.status}.`);
+        if (path === "/tap" || path === "/key") observations?.input(phone);
         return new Response(bytes, { headers: { "content-type": response.headers.get("content-type") ?? "application/json" } });
       } catch (error) {
         if (!(error instanceof RunnerResponseError) && entries.get(key(phone)) === entry) close(phone);

@@ -3,6 +3,8 @@
 # Pipe-run from OCI: gh codespace ssh -c <NAME> -- bash -s < oci-vm/android/emu-codespace/setup.sh
 # Assumes Ubuntu 24.04 blank-template codespace (user "codespace" with passwordless sudo).
 set -euo pipefail
+source "$(dirname "$0")/progress.sh"
+ph_begin kvm
 
 SDK_DIR="${SDK_DIR:-/opt/android-sdk}"
 AVD_NAME="${AVD_NAME:-t}"
@@ -19,6 +21,7 @@ if [ -e /dev/kvm ]; then
 else
   echo "FATAL: /dev/kvm missing on this codespace; KVM tier required"; exit 1
 fi
+ph_end
 
 # --- 2. X11/runtime libs the emulator needs (blank template lacks them) ---
 PKGS="libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext6 \
@@ -26,31 +29,42 @@ libxfixes3 libxi6 libxrandr2 libxrender1 libxtst6 libxkbcommon0 libnss3 libgl1 \
 libegl1 libgbm1 libpulse0 unzip curl bubblewrap util-linux openjdk-21-jre-headless"
 # Ubuntu 24.04 renamed libasound2; the codespace image may be older.
 if apt-cache show libasound2t64 >/dev/null 2>&1; then PKGS="$PKGS libasound2t64"; else PKGS="$PKGS libasound2"; fi
+ph_begin runtime_libraries
+disposition=already_present
 if ! dpkg -s $PKGS >/dev/null 2>&1; then
+  disposition=installed
   # The image ships a yarn apt source whose key expired; it breaks apt-get update and we do not need it.
   sudo rm -f /etc/apt/sources.list.d/yarn.list
   sudo apt-get update -qq || echo "apt-get update reported errors; installing anyway"
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $PKGS >/dev/null
 fi
+ph_end succeeded none "$disposition"
 echo "X11 libs: installed"
 
 # --- 3. Android SDK cmdline-tools ---
 sudo mkdir -p "$SDK_DIR"
 sudo chown -R "$(id -u):$(id -g)" "$SDK_DIR"
+ph_begin sdk_tools
+disposition=already_present
 if [ ! -x "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" ]; then
+  disposition=installed
   curl -fsSL "$CMD_TOOLS_URL" -o /tmp/tools.zip
   rm -rf /tmp/tools && unzip -qq /tmp/tools.zip -d /tmp/tools
   rm -rf "$SDK_DIR/cmdline-tools" /tmp/tools.zip
   mkdir -p "$SDK_DIR/cmdline-tools/latest"
   mv /tmp/tools/cmdline-tools/* "$SDK_DIR/cmdline-tools/latest/"
 fi
+ph_end succeeded none "$disposition"
 export ANDROID_HOME="$SDK_DIR"
 export PATH="$SDK_DIR/cmdline-tools/latest/bin:$SDK_DIR/platform-tools:$SDK_DIR/emulator:$PATH"
 
 # --- 4. Licenses + minimal packages for a headless emulator ---
 yes | sdkmanager --licenses >/dev/null 2>&1 || true
+# Keep dependency resolution together until isolated comparison verifies splitting is equivalent.
+ph_begin sdk_packages
 sdkmanager --install "platform-tools" "emulator" "build-tools;36.0.0" "$IMAGE" > /dev/null 2>&1 \
   || sdkmanager "platform-tools" "emulator" "build-tools;36.0.0" "$IMAGE" > /dev/null
+ph_end
 echo "SDK: $IMAGE at $SDK_DIR"
 
 # --- 4b. Android CLI (primary device/emulator manager for agents) ---
@@ -58,19 +72,27 @@ echo "SDK: $IMAGE at $SDK_DIR"
 # cold boot ~100s; snapshot resume ~15s after a graceful `adb emu kill`
 # (stop.sh). `android emulator stop` kills qemu before the snapshot save
 # completes -> destroys it -> 63s+ cold boots. NEVER use it.
+ph_begin android_cli
+disposition=already_present
 if [ ! -x "$HOME/.local/bin/android" ]; then
+  disposition=installed
   curl -fsSL https://dl.google.com/android/cli/latest/linux_x86_64/install.sh | bash -s -- 2>&1 | tail -1
 fi
+ph_end succeeded none "$disposition"
 # Pin SDK + opt out of usage metrics
 printf -- '--sdk=%s\n--no-metrics\n' "$SDK_DIR" > "$HOME/.androidrc"
 
 # --- 5. AVD (skip if it already exists) ---
+ph_begin avd
+disposition=already_present
 if ! avdmanager list avd 2>/dev/null | grep -q "Path:.*${AVD_NAME}.avd"; then
+  disposition=installed
   echo no | avdmanager create avd -n "$AVD_NAME" -k "$IMAGE"
   echo "AVD: created $AVD_NAME ($IMAGE)"
 else
   echo "AVD: $AVD_NAME exists, left untouched (state preserved)"
 fi
+ph_end succeeded none "$disposition"
 
 echo
 echo "SETUP OK. Serial hint: emulator-5554 (boot.sh uses -port 5554)."
@@ -80,8 +102,12 @@ echo "State mgmt ->  bash state.sh export|import"
 # scrcpy wire protocol is versioned with this exact server binary.
 SCRCPY_SHA=8588238c9a5a00aa542906b6ec7e6d5541d9ffb9b5d0f6e1bc0e365e2303079e
 SCRCPY_FILE="$(dirname "$0")/../runner/scrcpy-server.jar"
+ph_begin scrcpy
+disposition=already_present
 if ! echo "$SCRCPY_SHA  $SCRCPY_FILE" | sha256sum -c - >/dev/null 2>&1; then
+  disposition=installed
   curl -fsSL https://github.com/Genymobile/scrcpy/releases/download/v3.3.4/scrcpy-server-v3.3.4 -o "$SCRCPY_FILE.tmp"
   echo "$SCRCPY_SHA  $SCRCPY_FILE.tmp" | sha256sum -c - || { rm -f "$SCRCPY_FILE.tmp"; exit 1; }
   mv "$SCRCPY_FILE.tmp" "$SCRCPY_FILE"
 fi
+ph_end succeeded none "$disposition"

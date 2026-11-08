@@ -19,7 +19,9 @@ const handle = createPhoneAppsApi({ user: getUser, phone: findPhone, runner: asy
   const work = (async () => {
     const phone = findPhone(userId, id);
     if (!phone) throw new Error("Phone not found");
-    const status = await setup(userId, phone.codespace_name);
+    const result = await setup(userId, phone.codespace_name);
+    const status = result.state;
+    if (status === "failed") throw new Error("Phone setup failed. Try again.");
     if (status === "ready") closeRunner(userId, id, phone.codespace_name);
     return { status };
   })().finally(() => upgrades.delete(key));

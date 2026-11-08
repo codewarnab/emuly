@@ -9,7 +9,8 @@ Collect structured timing data without collecting private phone content or crede
 Observability is internal tooling for service improvement. Do not expose diagnostic details in the product UI.
 
 Initial scope covers creation, provisioning, setup, Android boot, and the first visible frame.
-Later scope covers stop, resume, deletion, retention actions, and ongoing stream reliability.
+It also covers keep-awake reliability and unexpected shutdowns during phone use.
+Later scope covers broader resume, deletion, retention actions, and ongoing stream reliability.
 Do not change retry policy or optimize startup until measurements establish the bottleneck.
 Do not introduce an external telemetry service in the first implementation.
 
@@ -25,7 +26,9 @@ Do not introduce an external telemetry service in the first implementation.
 | `lib/codespace-tunnel.ts` | Connects through provider metadata, relay, port forwarding, gRPC, SSH, and command execution. | A slow connection appears as one wait. Output is truncated to the last 4,000 characters. |
 | `instrumentation.ts`, `lib/poller.ts` | Background reconciliation runs every 60 seconds. Errors trigger one-minute or five-minute backoff. | Errors lack persisted safe categories. Background polling also adds detection latency. |
 | `lib/phone-mutations.ts` | Setup checks use a 20-second eligibility delay; failures wait ten minutes. Guards and timers live in memory. | Twenty seconds is not a guaranteed polling interval. Restarts lose retry context and in-memory start guards. |
-| `lib/phone-link.ts` | Tries forwarded HTTP, then a tunnel. Caches connections and sends keep-awake pulses. | Fallback reasons and keep-awake failures are mostly invisible. |
+| `lib/phone-link.ts` | Tries forwarded HTTP, then a tunnel. Sends keep-awake pulses every minute while stream viewers exist. | Pulses depend on stream lifetime. Failures are caught without diagnostics. An open phone page does not prove pulse coverage. |
+| `lib/phone-runner.ts` | Keep-awake runs a command through SSH with a terminal. | Command success does not prove that GitHub reset its idle timer. |
+| Phone controls and provider reconciliation | Phone input uses the forwarded connection. Reconciliation observes GitHub state changes. | Phone use does not prove provider activity. A shutdown state does not identify its cause. |
 | `components/use-phone-video.ts` | Measures FPS and an offset-based delay locally. Reconnects after decoder/socket failures. | First painted frame and reconnect reasons are not persisted. The delay is not a proven end-to-end latency measurement. |
 | `lib/phone-screen-api.ts` | Checks session and ownership. Returns generic errors. | Safe counters could explain failures without collecting screenshots or input. |
 | `lib/phone-mutations.ts`, `lib/events.ts` | Apply different free-text redaction rules. Webhook output uses explicit fields. | Pattern filtering cannot guarantee that arbitrary errors exclude secrets, paths, or account details. |
@@ -34,7 +37,19 @@ Do not introduce an external telemetry service in the first implementation.
 The screenshot alone does not identify the installation bottleneck.
 Gaps between activity timestamps include provider work, scheduling, connection setup, and observation delay.
 Historical milestones remain useful, but cannot reconstruct missing installation timings.
-This audit examined source code. It did not connect to GitHub or read private remote logs.
+The startup audit examined source code without reading private remote logs.
+The shutdown investigation also inspected local lifecycle records. Provider-side shutdown reasons remain unavailable.
+
+### Active-use shutdown evidence
+
+The reported phone stopped around 30 minutes after Android became ready.
+Local records showed GitHub reporting `ShuttingDown`, without an application stop request for that run.
+Those records suggest an idle timeout. They do not prove the cause or identify a failed keep-awake attempt.
+
+GitHub distinguishes Codespace activity from traffic through a forwarded port.
+Terminal input or output resets its idle timer. Forwarded traffic alone does not guarantee a reset.
+See [GitHub's idle-timeout documentation](https://docs.github.com/en/codespaces/setting-your-user-preferences/setting-your-timeout-period-for-github-codespaces).
+Verify this behavior during implementation. Do not assume that our SSH command resets the provider timer.
 
 ## 3. Questions the measurements must answer
 
@@ -43,6 +58,14 @@ This audit examined source code. It did not connect to GitHub or read private re
 3. How much delay comes from connection setup, polling, backoff, and retries?
 4. Which failure category repeats, and did the next attempt succeed?
 5. How do fresh installation, existing installation, and confirmed snapshot restore differ?
+
+For unexpected shutdowns, also answer:
+
+1. Was the phone page open, was its screen connected, and did the server receive phone input recently?
+2. Was keep-awake expected, and when did its last attempt start and finish?
+3. Did attempts fail, time out, overlap, or stop during reconnection or an application restart?
+4. Did PhoneLink request the stop, or did it first observe the stop from GitHub?
+5. Does evidence confirm an idle timeout, merely suggest one, or leave the cause unknown?
 
 ## 4. Data contract and privacy boundary
 
@@ -56,6 +79,8 @@ start and finish timestamps, terminal outcome, schema version, instrumentation v
 and coarse application release identifier.
 
 Operation kinds are fixed enums: create, resume, boot retry, stop, delete, and keep.
+Add `viewing_session` for bounded keep-awake observation windows during phone use.
+Rotate long sessions at a fixed limit. Link windows to the same current phone run.
 One operation groups its steps and retry attempts. IDs contain no username or Codespace name.
 Internal owner and phone IDs remain private linkage data. They are not anonymous identifiers.
 Do not include them in aggregate reports or ordinary server logs.
@@ -178,6 +203,64 @@ Treat browser reports as untrusted observations, not authority for phone readine
 Record only first-frame milestones and periodic bounded summary counters, not per-frame events.
 First frame is unavailable when no owner opens the screen. Exclude that case from first-frame latency samples.
 
+### Keep-awake and unexpected shutdown diagnostics
+
+Keep these records private under the same access and retention rules.
+Observability does not change when PhoneLink keeps a phone awake.
+Any keep-awake behavior change requires separate implementation review and provider verification.
+
+**Presence and phone use**
+
+- Record bounded page-presence summaries, visibility, stream attach/detach, and fixed reconnect reasons.
+- Treat page presence as a short lease that expires without refresh. An open cached route proves nothing.
+- Record only whether the server accepted phone input within a summary interval. Never record individual input events or contents.
+- Cover WebSocket controls and HTTP fallback. Do not add a second command just to measure interaction.
+- Separate browser-reported presence, server-observed input, stream health, and keep-awake coverage. None proves provider activity.
+
+**Keep-awake attempts**
+
+Record expected cadence, scheduled time, actual start, finish, duration, and fixed outcome for each bounded attempt.
+Include viewer count, last success, consecutive failures, and elapsed time since the last success.
+Record fixed skip reasons: no viewers, already pending, connection aborted, or observer shutdown.
+Separate credential lookup, connection, command completion, timeout, and cancellation failures using safe codes.
+Never store the command, credentials, output, or raw errors.
+
+Record when the timer starts and stops, including the last viewer disconnecting.
+After an application restart, mark the observation gap explicitly.
+Compare expected attempts with recorded attempts so absent pulses remain detectable.
+Emit a bounded internal coverage-gap record after two missed one-minute intervals.
+Deduplicate repeated gap records and record recovery. Do not create a product toast or wake request.
+Retain bounded attempt details and interval summaries so long sessions cannot exceed record caps silently.
+Expose dropped-record counts and missing coverage in operator reports.
+
+**Stop attribution**
+
+Persist application stop intent before the provider request, with operation ID and fixed initiator code.
+Initiators distinguish owner action, stop-all, hours-budget policy, and other supported application policies.
+Record request outcome separately. A failed or uncertain request does not prove that PhoneLink caused a later stop.
+Link stop evidence to the current phone run. Never reuse a previous run's `stop_reason`.
+
+At the first observed provider stop, preserve the preceding observation window before connections disappear.
+Include effective idle timeout, source and freshness, last observed provider activity if available, and safe provider state.
+Do not fetch raw remote logs or add unbounded provider polling.
+Missing permissions or unsupported provider fields produce explicit unavailable evidence.
+
+Store observation source separately from cause and confidence.
+Use fixed causes: `application_stop`, `provider_idle_timeout`, `provider_other`, or `unknown`.
+Use fixed confidence: `confirmed`, `suspected`, or `unknown`.
+Confirm provider causes only when authoritative provider evidence explicitly identifies them.
+Matching timeout timing supports a suspected idle timeout. It never proves one.
+A `ShuttingDown` state alone means only that GitHub reported a stop.
+Successful keep-awake commands alone do not prove that GitHub recognized activity.
+
+**Operator report**
+
+Provide one bounded timeline for the phone run and its unexpected stop.
+Show presence, recent accepted input, screen reconnects, keep-awake attempts, coverage gaps, and application stop intent.
+Show provider observations and their freshness beside the configured idle timeout.
+End with the attributed cause, confidence, supporting evidence, and missing evidence.
+Default exports still omit owner/phone IDs and exact wall-clock times.
+
 The duplicate “Starting Android” wording is a separate product-copy fix.
 Its proposed presentation is one heading, “Starting Android,” with “2:22 elapsed” beneath it.
 The ambiguous `running` badge also needs a separate readiness-copy decision.
@@ -190,6 +273,8 @@ Report count, failure rate, median, and 95th-percentile duration per stage and r
 Show sample count and measurement quality. Label small samples as insufficient for conclusions.
 Separate fresh setup, existing installation, confirmed snapshot, cold boot, and unknown boot method.
 Also report retry wait, observation delay, stale operations, telemetry write failures, and collector failures.
+Report unexpected stops, keep-awake failures, coverage gaps, and stops during recent server-observed phone use.
+Separate confirmed causes from suspected causes and unknown causes in every aggregate.
 Report incomplete attempts separately so successful samples do not hide timeouts.
 Keep metric dimensions bounded; exclude identifiers and arbitrary error text.
 
@@ -209,6 +294,7 @@ Set hard per-operation record caps before enabling collection.
 
 2. **Lifecycle and connection measurements — approximately one working day.**
    Instrument operations, attempts, scheduling, API calls, and connection substeps.
+   Persist stop intent and distinguish provider observations from confirmed shutdown causes.
    Preserve product UI and activity output. Keep telemetry in its separate internal store.
    Gate: restart, retry, cancellation, and deletion preserve truthful operation outcomes.
 
@@ -216,9 +302,11 @@ Set hard per-operation record caps before enabling collection.
    Add structured script progress, bounded collection, cursors, and actual boot-method evidence.
    Gate: a long setup identifies its active step even before the runner is ready.
 
-4. **Internal reports and screen measurements — approximately one working day.**
+4. **Internal reports, screen measurements, and keep-awake diagnostics — approximately two working days.**
    Add safe local operator reports and background first-painted-frame reporting, without product UI additions.
+   Add presence summaries, keep-awake attempts, coverage gaps, and unexpected-stop timelines.
    Gate: private content never enters telemetry; missing browser samples remain explicitly missing.
+   Gate: explain active-use shutdown evidence without treating command success as a confirmed idle-timer reset.
 
 5. **Isolated validation and controlled rollout — approximately one to two working days.**
    Validate synthetic failures first, then one authorized disposable Codespace lifecycle.
@@ -248,6 +336,21 @@ Acceptance evidence must show fresh setup, existing setup, failed step plus retr
 app restart during remote setup, stop/delete during setup, and first painted frame where supported.
 Compare safe measured totals against an independent stopwatch within documented observation uncertainty.
 Inspect captured telemetry artifacts using synthetic privacy canaries before enabling collection for real users.
+
+### Keep-awake and shutdown acceptance
+
+1. Simulate active phone use with failed or hanging keep-awake attempts. The report must expose failures and missing coverage.
+2. Simulate reconnects, hidden pages, expired presence leases, multiple viewers, and application restarts. Preserve uncertainty across each gap.
+3. Simulate owner stops, stop-all, budget stops, and provider-only stops. Attribute each using current-run evidence.
+4. Verify bounded collection, privacy, retention, and safe operation when telemetry writes fail. Never retain actual input content.
+5. With authorization, use one disposable Codespace beyond its configured idle timeout while actively controlling the phone.
+
+For the real check, record the effective timeout and verify whether our keep-awake transport resets provider activity.
+Also observe an authorized idle control period without keep-awake. Record actual behavior and provider evidence availability.
+Use a shorter supported timeout where practical. Bound runtime and clean up the disposable Codespace afterward.
+Do not disable keep-awake or force a shutdown on an existing user phone for this check.
+An unknown provider cause must remain unknown when authoritative evidence is unavailable.
+Historical shutdowns cannot gain missing heartbeat evidence retroactively.
 
 ## 12. Rollout and limits
 

@@ -19,6 +19,7 @@ export function phoneControl() {
   return global.__phoneControl ??= createPhoneService({
     database: db(), github: createGitHubClient({ database: db(), accessToken: getAccessToken }), encrypt: seal,
     setup: createPhoneSetup({ token: userId => getAccessToken(userId) }),
+    collectProgress: createPhoneSetup({ token: userId => getAccessToken(userId) }).collect,
     runner: runnerRequest, disconnect: closeRunner,
     maxPhones: process.env.PHONELINK_MAX_PHONES ? Number(process.env.PHONELINK_MAX_PHONES) : undefined,
   });

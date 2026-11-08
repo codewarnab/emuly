@@ -5,6 +5,7 @@ import { TunnelRelayTunnelClient } from "@microsoft/dev-tunnels-connections";
 import type { Tunnel } from "@microsoft/dev-tunnels-contracts";
 import { ManagementApiVersions, TunnelManagementHttpClient } from "@microsoft/dev-tunnels-management";
 import ssh2 from "ssh2";
+import { measure } from "./diagnostics.ts";
 
 /**
  * Runs a shell command in a codespace without the gh binary. Same path as `gh codespace ssh`:
@@ -13,7 +14,9 @@ import ssh2 from "ssh2";
  *   forward the sshd port                       -> ssh exec
  * Every step uses the owner's token, so it only reaches the owner's codespaces.
  */
-export class CodespaceTunnelError extends Error {}
+export class CodespaceTunnelError extends Error {
+  constructor(message: string, readonly diagnosticCode: "connection_failed" | "timeout" = "connection_failed") { super(message); }
+}
 
 const AGENT_PORT = 16634;
 const API_VERSION = ManagementApiVersions.Version20230927preview;
@@ -27,16 +30,16 @@ type TunnelProperties = {
 /** A reusable TCP bridge to the runner; no SSH process or command per request. */
 export async function openCodespacePort(token: string, codespaceName: string, signal: AbortSignal) {
   if (!/^[\w-]{1,100}$/.test(codespaceName)) throw new CodespaceTunnelError("Invalid codespace name");
-  const res = await fetch(`https://api.github.com/user/codespaces/${codespaceName}?internal=true&refresh=true`, {
+  const res = await measure("metadata_fetch", () => fetch(`https://api.github.com/user/codespaces/${codespaceName}?internal=true&refresh=true`, {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "phonelink" }, signal,
-  });
+  }));
   if (!res.ok) throw new CodespaceTunnelError(`GitHub returned ${res.status} for the codespace connection.`);
   const body = await res.json() as { connection?: { tunnelProperties?: TunnelProperties } };
   const tp = body.connection?.tunnelProperties;
   if (!tp) throw new CodespaceTunnelError("The codespace has no connection yet.");
   const manager = new TunnelManagementHttpClient("phonelink", API_VERSION, undefined, tp.serviceUri);
   const accessTokens = { connect: tp.connectAccessToken, "manage:ports": tp.managePortsAccessToken };
-  const tunnel = await manager.getTunnel({ ...tp, accessTokens } as Tunnel, { includePorts: true });
+  const tunnel = await measure("tunnel_lookup", () => manager.getTunnel({ ...tp, accessTokens } as Tunnel, { includePorts: true }));
   if (!tunnel) throw new CodespaceTunnelError("The codespace tunnel was not found.");
   tunnel.accessTokens = accessTokens;
   const client = new TunnelRelayTunnelClient();
@@ -55,14 +58,14 @@ export async function openCodespacePort(token: string, codespaceName: string, si
   signal.addEventListener("abort", close, { once: true });
   try {
     signal.throwIfAborted();
-    await client.connect(tunnel);
+    await measure("relay_connect", () => client.connect(tunnel));
     try {
       await manager.createTunnelPort(tunnel, { portNumber: 8790, protocol: "http", labels: ["InternalPort"] }, {});
     } catch (error) {
       if (!/409|conflict|already exists/i.test(String((error as { response?: { status?: number } }).response?.status ?? error))) throw error;
     }
     await client.refreshPorts();
-    await client.waitForForwardedPort(8790);
+    await measure("port_wait", () => client.waitForForwardedPort(8790));
     signal.throwIfAborted();
     bridge = net.createServer(socket => {
       sockets.add(socket);
@@ -88,13 +91,13 @@ export async function openCodespacePort(token: string, codespaceName: string, si
   }
 }
 
-export async function codespaceExec({ token, codespaceName, command, stdin, pty = false, timeoutMs = 60_000, api = "https://api.github.com" }: {
-  token: string; codespaceName: string; command: string; stdin?: string; pty?: boolean; timeoutMs?: number; api?: string;
+export async function codespaceExec({ token, codespaceName, command, stdin, pty = false, timeoutMs = 60_000, api = "https://api.github.com", outputLimit = 4000 }: {
+  token: string; codespaceName: string; command: string; stdin?: string; pty?: boolean; timeoutMs?: number; api?: string; outputLimit?: number;
 }): Promise<{ code: number; output: string }> {
   if (!/^[\w-]{1,100}$/.test(codespaceName)) throw new CodespaceTunnelError("Invalid codespace name");
-  const res = await fetch(`${api}/user/codespaces/${codespaceName}?internal=true&refresh=true`, {
+  const res = await measure("metadata_fetch", () => fetch(`${api}/user/codespaces/${codespaceName}?internal=true&refresh=true`, {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "phonelink" },
-  });
+  }));
   if (!res.ok) throw new CodespaceTunnelError(`GitHub returned ${res.status} for the codespace connection.`);
   const body = await res.json() as { state?: string; connection?: { tunnelProperties?: TunnelProperties } };
   const tp = body.connection?.tunnelProperties;
@@ -103,7 +106,7 @@ export async function codespaceExec({ token, codespaceName, command, stdin, pty 
   const accessTokens = { connect: tp.connectAccessToken, "manage:ports": tp.managePortsAccessToken };
   const manager = new TunnelManagementHttpClient("phonelink", API_VERSION, undefined, tp.serviceUri);
   const options = { includePorts: true };
-  const tunnel = await manager.getTunnel({ tunnelId: tp.tunnelId, clusterId: tp.clusterId, domain: tp.domain, accessTokens } as Tunnel, options);
+  const tunnel = await measure("tunnel_lookup", () => manager.getTunnel({ tunnelId: tp.tunnelId, clusterId: tp.clusterId, domain: tp.domain, accessTokens } as Tunnel, options));
   if (!tunnel) throw new CodespaceTunnelError("The codespace tunnel was not found.");
   tunnel.accessTokens = accessTokens;
 
@@ -119,11 +122,11 @@ export async function codespaceExec({ token, codespaceName, command, stdin, pty 
       if (!/409|conflict|already exists/i.test(String((error as { response?: { status?: number } }).response?.status ?? error))) throw error;
     }
     await client.refreshPorts();
-    await client.waitForForwardedPort(port);
+    await measure("port_wait", () => client.waitForForwardedPort(port));
   };
 
   const work = (async () => {
-    await client.connect(tunnel);
+    await measure("relay_connect", () => client.connect(tunnel));
     await forward(AGENT_PORT);
 
     // grpc-js dials a TCP address, so bridge a loopback socket to the forwarded agent port.
@@ -146,32 +149,33 @@ export async function codespaceExec({ token, codespaceName, command, stdin, pty 
     const metadata = new Metadata();
     // The tunnel already checked the token; the agent expects this fixed value.
     metadata.add("Authorization", "Bearer token");
-    const started = await new Promise<{ ok: boolean; port: number; user: string; message: string }>((resolve, reject) =>
+    const started = await measure("ssh_server", () => new Promise<{ ok: boolean; port: number; user: string; message: string }>((resolve, reject) =>
       rpc!.makeUnaryRequest(SSH_METHOD, encodeRequest, decodeResponse, keys.public, metadata, (error, value) =>
-        error || !value ? reject(error ?? new Error("empty reply")) : resolve(value)));
+        error || !value ? reject(error ?? new Error("empty reply")) : resolve(value))));
     if (!started.ok || !started.port) throw new CodespaceTunnelError(`The codespace could not start SSH: ${started.message}`);
 
     await forward(started.port);
     const sock = await client.connectToForwardedPort(started.port);
     sock.on("error", () => {});
     ssh = new ssh2.Client();
-    await new Promise<void>((resolve, reject) => ssh!.on("ready", resolve).on("error", reject)
-      .connect({ sock, username: started.user, privateKey: keys.private, readyTimeout: 30_000 }));
-    return await new Promise<{ code: number; output: string }>((resolve, reject) => ssh!.exec(command, { pty }, (error, channel) => {
+    await measure("ssh_auth", () => new Promise<void>((resolve, reject) => ssh!.on("ready", resolve).on("error", reject)
+      .connect({ sock, username: started.user, privateKey: keys.private, readyTimeout: 30_000 })));
+    return await measure("command", () => new Promise<{ code: number; output: string }>((resolve, reject) => ssh!.exec(command, { pty }, (error, channel) => {
       if (error) return reject(error);
       let output = "";
-      const keep = (chunk: Buffer) => { output = (output + chunk.toString("utf8")).slice(-4000); };
+      const limit = Number.isSafeInteger(outputLimit) ? Math.max(4000, Math.min(65536, outputLimit)) : 4000;
+      const keep = (chunk: Buffer) => { output = (output + chunk.toString("utf8")).slice(-limit); };
       channel.on("data", keep);
       channel.stderr.on("data", keep);
       channel.on("close", (code: number | null) => resolve({ code: code ?? 1, output }));
       channel.end(stdin ?? "");
-    }));
+    })));
   })();
 
   let timer: NodeJS.Timeout | undefined;
   try {
     return await Promise.race([work, new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new CodespaceTunnelError("The codespace connection timed out.")), timeoutMs);
+      timer = setTimeout(() => reject(new CodespaceTunnelError("The codespace connection timed out.", "timeout")), timeoutMs);
     })]);
   } finally {
     clearTimeout(timer);

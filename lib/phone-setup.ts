@@ -2,19 +2,24 @@ import "server-only";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { codespaceExec } from "./codespace-tunnel.ts";
+import { collectProgress, measure, progressCursor, diagnosticHealth, diagnosticOperation } from "./diagnostics.ts";
+import { validateStep, type Step } from "./diagnostic-contract.ts";
 
 /** Files copied into each codespace, relative to `phone/` in this repository. */
-const FILES = ["scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "runner/runner.mjs", "runner/apps.mjs", "runner/apk-download.mjs", "runner/scrcpy.mjs", "runner/scrcpy-protocol.mjs"];
+const FILES = ["scripts/progress.sh", "scripts/read-progress.py", "scripts/bounded-log.py", "scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "runner/runner.mjs", "runner/apps.mjs", "runner/apk-download.mjs", "runner/scrcpy.mjs", "runner/scrcpy-protocol.mjs"];
 
 export class PhoneSetupError extends Error {}
 export type SetupStatus = "ready" | "working";
+export type SetupResult = { state: SetupStatus | "failed"; cursor: number; progress: Step[]; freshness: "observed" | "unavailable" };
 
 /** Runs in the codespace in the background, so no connection stays open while Android installs. */
 const RUN = `#!/usr/bin/env bash
 builtin cd "$HOME/phonelink"
+source scripts/progress.sh
 if bash scripts/setup.sh && bash scripts/start-runner.sh; then
-  for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8790/health >/dev/null 2>&1 && exit 0; sleep 1; done
-  echo "phonelink: runner did not answer /health"; tail -20 /tmp/runner.log
+  ph_begin runner_health
+  for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8790/health >/dev/null 2>&1 && { ph_end; exit 0; }; sleep 1; done
+  ph_end failed timeout
 fi
 touch .failed
 `;
@@ -22,26 +27,36 @@ touch .failed
 /**
  * One short check-or-start step. It prints PHONELINK_READY when the runner answers,
  * PHONELINK_WORKING while setup runs (and starts setup when nothing runs), and
- * exits 1 with the log tail after a failed run, which clears the way for a retry.
+ * exits 1 with a fixed failure marker after a failed run, allowing a later retry.
  */
-export function setupScript(root = join(process.cwd(), "phone")) {
+export function setupScript(root = join(process.cwd(), "phone"), cursor = 0) {
   // Windows checkouts and editors can add CRLF; bash on the codespace rejects it.
   const files: [string, string][] = [...FILES.map(file => [file, Buffer.from(readFileSync(join(root, file), "utf8").replace(/\r\n/g, "\n")).toString("base64")] as [string, string]),
     ["runner/ws.cjs", readFileSync(join(process.cwd(), "node_modules/next/dist/compiled/ws/index.js")).toString("base64")],
     ["runner/ws.LICENSE", readFileSync(join(process.cwd(), "node_modules/next/dist/compiled/ws/LICENSE")).toString("base64")],
-    ["run.sh", Buffer.from(RUN).toString("base64")]];
-  const writes = files.map(([file, body]) => `mkdir -p "$(dirname "${file}")"\necho '${body}' | base64 -d > "${file}"`).join("\n");
+    ["run.sh", Buffer.from(RUN.replace('builtin cd', `export PHONELINK_DIAGNOSTICS=${diagnosticOperation() ? "1" : "0"}\nexport PH_OPERATION_ID=${diagnosticOperation() ?? "disabled"}\nbuiltin cd`)).toString("base64")]];
+  const writes = files.map(([file, body]) => `mkdir -p "$(dirname "${file}")"\necho '${body}' | base64 -d > "${file}"`);
   // A plain shell, not a login shell: the image's rvm profile fails under bash and kills the run.
   // Node comes from the image's nvm, which the profile would add to PATH.
   return `export PATH="/usr/local/share/nvm/current/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 mkdir -p "$HOME/phonelink" && builtin cd "$HOME/phonelink"
+${diagnosticOperation() ? `if [ -f scripts/read-progress.py ]; then python3 scripts/read-progress.py ${diagnosticOperation()} ${Number.isSafeInteger(cursor) && cursor >= 0 ? cursor : 0}; fi` : ""}
 if curl -fsS http://127.0.0.1:8790/health 2>/dev/null | grep -q '"version":4'; then echo PHONELINK_READY; exit 0; fi
-if [ -f .failed ]; then rm -f .failed .pid; echo "phonelink setup failed:"; tail -5 setup.log; exit 1; fi
+if [ -f .failed ]; then rm -f .failed .pid; echo PHONELINK_FAILED; exit 1; fi
 if [ -f .pid ] && kill -0 "$(cat .pid)" 2>/dev/null; then echo PHONELINK_WORKING; exit 0; fi
-${writes}
+${writes[0]}
+export PHONELINK_DIAGNOSTICS=${diagnosticOperation() ? "1" : "0"}
+export PH_OPERATION_ID=${diagnosticOperation() ?? "disabled"}
+source scripts/progress.sh
+ph_begin setup_upload
+${writes.slice(1).join("\n")}
+ph_end
 chmod +x scripts/*.sh run.sh
-nohup setsid bash run.sh > setup.log 2>&1 < /dev/null &
+[ ! -f setup.log ] || mv -f setup.log setup.log.previous
+ph_begin setup_launch
+nohup setsid bash run.sh > >(nohup setsid python3 scripts/bounded-log.py "$HOME/phonelink/setup.log" >/dev/null 2>&1) 2>&1 < /dev/null &
 echo $! > .pid
+ph_end
 echo PHONELINK_WORKING
 `;
 }
@@ -51,18 +66,46 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
   token: (userId: number) => Promise<string>;
   exec?: typeof codespaceExec;
 }) {
-  return async function setupPhone(userId: number, codespaceName: string): Promise<SetupStatus> {
-    const secret = await token(userId);
+  function ingest(output: string): Omit<SetupResult, "state"> {
+    const progress = output.split("\n").find(line => line.startsWith("PHONELINK_PROGRESS="));
+    if (progress) {
+      try {
+        const batch = JSON.parse(progress.slice("PHONELINK_PROGRESS=".length));
+        collectProgress(batch);
+        if (batch && Number.isSafeInteger(batch.cursor) && batch.cursor >= 0 && batch.cursor <= 1048576
+          && Array.isArray(batch.records) && batch.records.length <= 32) return {
+          cursor: batch.cursor, progress: batch.records.flatMap((r: unknown) => {
+            const record = validateStep(r);
+            return record && ["setup", "boot", "runner"].includes(record.producer) ? [record] : [];
+          }), freshness: "observed",
+        };
+      }
+      catch { diagnosticHealth.collectorFailures++; }
+    } else if (diagnosticOperation()) diagnosticHealth.collectorFailures++;
+    return { cursor: progressCursor(), progress: [], freshness: "unavailable" };
+  }
+  async function collect(userId: number, codespaceName: string) {
+    const operationId = diagnosticOperation();
+    if (!operationId || process.env.PHONELINK_DIAGNOSTICS !== "1") return;
+    try {
+      const secret = await token(userId);
+      const result = await exec({ token: secret, codespaceName, command: "bash --noprofile --norc -s",
+        stdin: `python3 "$HOME/phonelink/scripts/read-progress.py" ${operationId} ${progressCursor()}\n`, timeoutMs: 90000, outputLimit: 32768 });
+      ingest(result.output);
+    } catch { diagnosticHealth.collectorFailures++; }
+  }
+  return Object.assign(async function setupPhone(userId: number, codespaceName: string): Promise<SetupResult> {
+    const secret = await measure("credential_lookup", () => token(userId));
     let result;
     try {
-      result = await exec({ token: secret, codespaceName, command: "bash --noprofile --norc -s", stdin: setupScript(), timeoutMs: 90_000 });
+      result = await exec({ token: secret, codespaceName, command: "bash --noprofile --norc -s", stdin: setupScript(undefined, progressCursor()), timeoutMs: 90_000, outputLimit: 32768 });
     } catch (error) {
-      throw new PhoneSetupError(`Could not reach the codespace: ${error instanceof Error ? error.message : "unknown error"}`.slice(0, 500));
+      throw new PhoneSetupError("Could not reach the codespace. PhoneLink will retry setup.");
     }
     const output = result.output.replaceAll(secret, "[redacted]");
-    if (result.code === 0 && output.includes("PHONELINK_READY")) return "ready";
-    if (result.code === 0 && output.includes("PHONELINK_WORKING")) return "working";
-    const last = output.trim().split("\n").filter(Boolean).slice(-3).join(" ");
-    throw new PhoneSetupError(`Phone setup failed${last ? `: ${last}` : "."}`.slice(0, 500));
-  };
+    const progress = ingest(output);
+    if (result.code === 0 && output.includes("PHONELINK_READY")) return { state: "ready", ...progress };
+    if (result.code === 0 && output.includes("PHONELINK_WORKING")) return { state: "working", ...progress };
+    return { state: "failed", ...progress };
+  }, { collect });
 }

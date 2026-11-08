@@ -5,6 +5,7 @@ import { readUsage, type Usage } from "./usage.ts";
 import { userSettings } from "./settings.ts";
 import { emitEvent, type EventEmitter } from "./events.ts";
 import { retentionStatus } from "./retention.ts";
+import { createDiagnostics } from "./diagnostics.ts";
 
 /** One loop owns sync, budget, retention policy and webhook delivery. */
 export function createStatePoller({ database, sync, autoStop, autoKeep, deliver, emit = event => emitEvent(event, database), clock = Date.now }: {
@@ -15,6 +16,7 @@ export function createStatePoller({ database, sync, autoStop, autoKeep, deliver,
 }) {
   let running = false;
   const retryAt = new Map<number, number>();
+  const diagnostics = createDiagnostics(database);
 
   function notifyLow(userId: number, usage: Usage) {
     const left = Math.max(0, usage.allowance_core_hours - usage.used_core_hours);
@@ -117,15 +119,24 @@ export function createStatePoller({ database, sync, autoStop, autoKeep, deliver,
         WHERE u.blocked = 0 AND p.state != 'deleted' AND p.codespace_name NOT LIKE 'pending:%'`).all();
       for (const user of users) {
         const id = Number(user.user_id);
-        if ((retryAt.get(id) ?? 0) > clock()) continue;
+        const saved = Number(database.prepare("SELECT retry_at FROM poller_retries WHERE user_id = ?").get(id)?.retry_at ?? 0);
+        if (Math.max(saved, retryAt.get(id) ?? 0) > clock()) continue;
         try {
           await sync(id);
           await protectBudget(id);
           await protectRetention(id);
           retryAt.delete(id);
+          database.prepare("DELETE FROM poller_retries WHERE user_id = ?").run(id);
         }
         catch (error) {
-          retryAt.set(id, clock() + (error instanceof GitHubError && [403, 429].includes(error.status) ? 5 * 60_000 : 60_000));
+          const delay = error instanceof GitHubError && [403, 429].includes(error.status) ? 5 * 60_000 : 60_000;
+          retryAt.set(id, clock() + delay);
+          database.prepare("INSERT INTO poller_retries VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET retry_at = excluded.retry_at, error_code = excluded.error_code")
+            .run(id, clock() + delay, delay === 60000 ? "unknown_failure" : "rate_limited");
+          for (const row of database.prepare("SELECT id FROM phones WHERE user_id = ? AND state = 'booting' LIMIT 50").all(id)) {
+            diagnostics.mark(diagnostics.current(id, String(row.id)), "poll_backoff", {
+              outcome: "failed", errorCode: delay === 60000 ? "unknown_failure" : "rate_limited", retryDelayMs: delay });
+          }
           // Do not log provider errors: they can contain credentials. Pages report sync failures.
         }
       }
