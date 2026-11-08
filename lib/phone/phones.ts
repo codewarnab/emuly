@@ -2,7 +2,7 @@ import "server-only";
 import { shortMessage } from "../shared/short-message.ts";
 import { phoneName } from "../shared/phone-name.ts";
 import { phoneStatus, phoneEventMessage } from "./phone-status.ts";
-import { db } from "../data/db";
+import { db } from "../data/db.ts";
 import type { PhoneRow } from "@/lib/shared/fixtures";
 import type { LogRow } from "@/components/ui/log-feed";
 
@@ -14,6 +14,8 @@ export type Phone = {
   machine: string;
   state: string;
   state_detail: string | null;
+  /** Persisted setup attempt state; display messages never determine failure. */
+  setup_failed: number;
   created_at: string;
   retention_at: string | null;
   idle_timeout_min: number;
@@ -29,7 +31,8 @@ export type Phone = {
 
 const columns = `id, codespace_name, machine, state, state_detail, created_at, retention_at, idle_timeout_min,
   last_started_at, last_stopped_at, cores, retention_min, android_state, android_started_at, android_error,
-  EXISTS(SELECT 1 FROM phone_keeps WHERE phone_id = phones.id) AS keeping`;
+  EXISTS(SELECT 1 FROM phone_keeps WHERE phone_id = phones.id) AS keeping,
+  EXISTS(SELECT 1 FROM phone_setup_attempts WHERE phone_id = phones.id AND failed = 1) AS setup_failed`;
 
 export function listPhones(userId: number): Phone[] {
   const rows = db().prepare(`SELECT ${columns} FROM phones WHERE user_id = ? AND state != 'deleted'

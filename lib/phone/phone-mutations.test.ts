@@ -590,10 +590,12 @@ test("an Available codespace starts phone setup, checks it until ready, then the
     assert.deepEqual(runs, ["generated-phone-cccc"]);
     assert.equal(state().state, "booting");
     assert.match(state().state_detail ?? "", /Phone setup failed.*10 minutes/);
+    assert.equal(f.database.prepare("SELECT failed FROM phone_setup_attempts").get()?.failed, 1);
     await service.sync(1);
     assert.equal(runs.length, 1, "a failed setup waits before it runs again");
 
     fail = false;
+    f.database.prepare("UPDATE phones SET state_detail = ? WHERE id = 'phone-cccc'").run("Setup needs another attempt. New wording.");
     let now = Date.now();
     let status: "working" | "ready" = "working";
     const ready = createPhoneService({ database: f.database, github: f.github, encrypt: plain => seal(plain, key),
@@ -601,10 +603,14 @@ test("an Available codespace starts phone setup, checks it until ready, then the
     await ready.sync(1);
     await flush();
     assert.equal(runs.length, 1, "a server restart preserves the ten-minute failure backoff");
+    assert.equal(f.database.prepare("SELECT failed FROM phone_setup_attempts").get()?.failed, 1);
+    assert.equal(state().state_detail, "Setup needs another attempt. New wording.");
     now += 10 * 60_000 + 1;
     await ready.sync(1);
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(state().state, "booting", "setup still works in the codespace");
+    assert.equal(f.database.prepare("SELECT failed FROM phone_setup_attempts").get()?.failed, 0);
+    assert.match(state().state_detail ?? "", /Installing Android/);
     await ready.sync(1);
     assert.equal(runs.length, 2, "the next check waits a short time");
     now += 21_000;
@@ -614,6 +620,7 @@ test("an Available codespace starts phone setup, checks it until ready, then the
     assert.equal(runs.length, 3);
     assert.equal(state().state, "running");
     assert.equal(state().state_detail, null);
+    assert.equal(f.database.prepare("SELECT 1 FROM phone_setup_attempts").get(), undefined);
   } finally { f.close(); }
 });
 
