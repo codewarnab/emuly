@@ -1,4 +1,5 @@
-import type { DatabaseSync } from "node:sqlite";
+import type { Client } from "@libsql/client";
+import type { DatabaseQueries } from "./async-database.ts";
 import { userSettings, updateSettings } from "./settings.ts";
 export { userSettings } from "./settings.ts";
 
@@ -43,8 +44,8 @@ export function estimateUsage(runs: Run[], allowance: number, clock: () => numbe
   };
 }
 
-export function saveAllowance(database: DatabaseSync, userId: number, allowance: number) {
-  updateSettings(database, userId, { allowance_core_hours: allowance });
+export async function saveAllowance(database: Client, userId: number, allowance: number) {
+  await updateSettings(database, userId, { allowance_core_hours: allowance });
 }
 
 function monthStart(now: number) {
@@ -52,9 +53,8 @@ function monthStart(now: number) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)).toISOString();
 }
 
-export function readUsage(database: DatabaseSync, userId: number, clock: () => number = Date.now) {
-  const runs = database.prepare(`SELECT r.phone_id, r.cores, r.started_at, r.stopped_at FROM runs r
-    JOIN phones p ON p.id = r.phone_id WHERE p.user_id = ? AND (r.stopped_at IS NULL OR r.stopped_at >= ?)`)
-    .all(userId, monthStart(clock())) as Run[];
-  return estimateUsage(runs, userSettings(database, userId).allowance_core_hours, clock);
+export async function readUsage(database: DatabaseQueries, userId: number, clock: () => number = Date.now) {
+  const runs = (await database.execute({ sql: `SELECT r.phone_id, r.cores, r.started_at, r.stopped_at FROM runs r
+    JOIN phones p ON p.id = r.phone_id WHERE p.user_id = ? AND (r.stopped_at IS NULL OR r.stopped_at >= ?)`, args: [userId, monthStart(clock())] })).rows as unknown as Run[];
+  return estimateUsage(runs, (await userSettings(database, userId)).allowance_core_hours, clock);
 }

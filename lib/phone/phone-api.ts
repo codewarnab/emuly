@@ -10,8 +10,8 @@ export function createPhoneApi({ user, service, template, usage, defaults }: {
   user: () => Promise<{ id: number } | null>;
   service: Pick<ReturnType<typeof createPhoneService>, "create" | "keep">;
   template: () => { repository: string; repositoryId: number; devcontainerPath?: string };
-  usage: (userId: number) => Usage;
-  defaults: (userId: number) => { default_machine: string | null; default_idle_min: number };
+  usage: (userId: number) => Usage | Promise<Usage>;
+  defaults: (userId: number) => { default_machine: string | null; default_idle_min: number } | Promise<{ default_machine: string | null; default_idle_min: number }>;
 }) {
   const json = (body: unknown, status = 200, headers?: Record<string, string>) =>
     Response.json(body, { status, headers: { "Cache-Control": "private, no-store", ...headers } });
@@ -35,7 +35,7 @@ export function createPhoneApi({ user, service, template, usage, defaults }: {
     },
     async usage() {
       const identity = await user();
-      return identity ? json(usage(identity.id)) : json({ error: "unauthorized" }, 401);
+      return identity ? json(await usage(identity.id)) : json({ error: "unauthorized" }, 401);
     },
     async create(request: Request) {
       const identity = await user();
@@ -49,7 +49,7 @@ export function createPhoneApi({ user, service, template, usage, defaults }: {
         const input: unknown = await request.json();
         if (!input || typeof input !== "object" || Array.isArray(input)) throw new PhoneInputError("Expected a JSON object");
         const body = input as Record<string, unknown>;
-        const settings = defaults(identity.id);
+        const settings = await defaults(identity.id);
         // Every phone uses the 4-core machine; see PHONE_MACHINE.
         const machine = PHONE_MACHINE.name;
         const idle = body.idle_timeout_min ?? settings.default_idle_min;

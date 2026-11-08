@@ -1,3 +1,4 @@
+import { createClient } from "../data/async-database.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes, createHmac } from "node:crypto";
@@ -277,15 +278,16 @@ test("local receiver verifies wire signatures, refuses redirects, and aborts a s
 
 test("poller flushes endpoints without phones and prevents overlapping ticks", async () => {
   const f = fixture();
+  const settingsDatabase = createClient({ url: "file::memory:" });
   try {
     const hook = await f.service().create(1, { url: "https://receiver.example" });
     f.service().test(1, hook.id);
     let calls = 0;
     const flush = f.outbox(async () => { calls++; return 200; });
-    const tick = createStatePoller({ database: f.database, clock: f.clock, sync: async () => assert.fail("No phone sync expected"), deliver: flush });
+    const tick = createStatePoller({ database: f.database, settingsDatabase, clock: f.clock, sync: async () => assert.fail("No phone sync expected"), deliver: flush });
     await Promise.all([tick(), tick(), tick()]);
     assert.equal(calls, 1); assert.equal(f.service().deliveries(1, hook.id)[0]?.state, "ok");
-  } finally { f.close(); }
+  } finally { settingsDatabase.close(); f.close(); }
 });
 
 test("phone operations enqueue actual lifecycle events once, preserving stop reasons and GitHub failure messages", async () => {

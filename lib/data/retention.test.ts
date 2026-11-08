@@ -1,6 +1,9 @@
+import { pathToFileURL } from "node:url";
+import { createClient } from "./async-database.ts";
+import { rm } from "node:fs/promises";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "./database.ts";
@@ -18,6 +21,7 @@ function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "phonelink-retention-"));
   const filename = join(directory, "test.db");
   let database = openDatabase(filename);
+  const asyncDatabase = createClient({ url: pathToFileURL(filename).href });
   let time = Date.parse("2026-11-07T00:00:00Z");
   const clock = () => time;
   const spaces = new Map<string, Codespace>();
@@ -53,10 +57,10 @@ function fixture() {
   const makeService = () => createPhoneService({ database, clock, emit, encrypt: value => Buffer.from(value),
     github: createGitHubClient({ database, accessToken: async () => "synthetic-token", fetch: fetcher }) });
   let service = makeService();
-  const makeTick = () => createStatePoller({ database, clock, emit, sync: service.sync,
+  const makeTick = () => createStatePoller({ database, settingsDatabase: asyncDatabase, clock, emit, sync: service.sync,
     autoKeep: service.autoKeep, autoStop: service.autoStop });
   return {
-    get database() { return database; }, get service() { return service; },
+    asyncDatabase, get database() { return database; }, get service() { return service; },
     clock, spaces, writes, outgoing, failures, makeTick,
     advance(ms: number) { time += ms; },
     restart() { database.close(); database = openDatabase(filename); service = makeService(); },
@@ -71,7 +75,13 @@ function fixture() {
       spaces.set(name, { id: spaces.size + 1, name, state: "Shutdown", retention_expires_at: expiry,
         machine: { name: "fixture", cpus: 2 } });
     },
-    close() { database.close(); rmSync(directory, { recursive: true, force: true }); },
+    async close() {
+      asyncDatabase.close();
+      database.close();
+      // Native SQLite statements can retain Windows file handles until collection.
+      globalThis.gc?.();
+      await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    },
   };
 }
 
@@ -118,7 +128,7 @@ test("sync honors provider dates, preserves them when omitted, and calculates a 
     assert.deepEqual({ ...f.database.prepare("SELECT last_stopped_at, retention_at FROM phones").get() }, {
       last_stopped_at: "2026-11-07T00:01:00.000Z", retention_at: "2026-12-07T00:01:00.000Z",
     });
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("Keep it waits for Available, resumes after restart, confirms shutdown, resets retention and charges the run", async () => {
@@ -152,11 +162,11 @@ test("Keep it waits for Available, resumes after restart, confirms shutdown, res
     assert.equal(kept.length, 1);
     assert.equal(kept[0]!.data.retention_at, "2026-12-07T00:03:00.000Z");
     assert.equal(f.database.prepare("SELECT state FROM phones WHERE id = 'phone-aaaa'").get()?.state, "stopped");
-    assert.equal(readUsage(f.database, 1, f.clock).used_core_hours, 0.1);
-    assert.equal(readUsage(f.database, 1, f.clock).running.length, 0);
+    assert.equal((await readUsage(f.asyncDatabase, 1, f.clock)).used_core_hours, 0.1);
+    assert.equal((await readUsage(f.asyncDatabase, 1, f.clock)).running.length, 0);
     assert.deepEqual(f.database.prepare("SELECT codespace_name, runner_secret FROM phones WHERE id = 'phone-aaaa'").get(), before);
     assert.ok(!JSON.stringify(f.outgoing).includes("sealed-runner"));
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("retention warnings fire once each per stopped period, survive restart and renew after a keep", async () => {
@@ -187,7 +197,7 @@ test("retention warnings fire once each per stopped period, survive restart and 
     f.advance(DAY);
     await f.makeTick()();
     assert.deepEqual(f.outgoing.filter(e => e.type === "retention.warning").map(e => e.data.days), [2, 1, 2, 1]);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("auto-keep starts only opted-in stopped phones at one day, once, and backs off provider rate limits", async () => {
@@ -195,7 +205,7 @@ test("auto-keep starts only opted-in stopped phones at one day, once, and backs 
   try {
     f.add("phone-aaaa", 1, 1); f.add("phone-bbbb", 1, 1); f.add("phone-cccc", 2, 1);
     f.add("phone-dddd", 1, 2);
-    updateSettings(f.database, 1, { auto_keep: true });
+    await updateSettings(f.asyncDatabase, 1, { auto_keep: true });
     const start = "/user/codespaces/generated-phone-aaaa/start";
     f.failures.set(start, 429);
     const tick = f.makeTick();
@@ -213,7 +223,7 @@ test("auto-keep starts only opted-in stopped phones at one day, once, and backs 
     assert.equal(f.outgoing.filter(e => e.type === "phone.kept").length, 0);
     assert.equal(f.database.prepare("SELECT state FROM phones WHERE id = 'phone-cccc'").get()?.state, "stopped");
     assert.equal(f.database.prepare("SELECT state FROM phones WHERE id = 'phone-dddd'").get()?.state, "stopped");
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("keep API authenticates, rejects foreign phones and cross-site calls, and returns accepted instead of false success", async () => {
@@ -223,7 +233,7 @@ test("keep API authenticates, rejects foreign phones and cross-site calls, and r
     let signedIn = false;
     const api = createPhoneApi({ user: async () => signedIn ? { id: 1 } : null, service: f.service,
       template: () => { throw new Error("No creation expected"); },
-      usage: id => readUsage(f.database, id, f.clock), defaults: () => ({ default_machine: null, default_idle_min: 30 }) });
+      usage: async id => (await readUsage(f.asyncDatabase, id, f.clock)), defaults: () => ({ default_machine: null, default_idle_min: 30 }) });
     const request = (headers = {}) => new Request("http://localhost/v1/phones/phone-aaaa/keep", { method: "POST", headers });
     assert.equal((await api.keep(request(), "phone-aaaa")).status, 401);
     signedIn = true;
@@ -242,7 +252,7 @@ test("keep API authenticates, rejects foreign phones and cross-site calls, and r
     await assert.rejects(f.service.keep(1, "phone-bbbb"), /not found/);
     f.database.exec("UPDATE users SET blocked = 1 WHERE id = 2");
     await assert.rejects(f.service.keep(2, "phone-bbbb"), /Sign in again/);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("a failed stop during Keep it retries and finishes only after GitHub confirms Shutdown", async () => {
@@ -266,7 +276,7 @@ test("a failed stop during Keep it retries and finishes only after GitHub confir
     await f.service.sync(1);
     assert.equal(f.outgoing.filter(e => e.type === "phone.kept").length, 1);
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM phone_keeps").get()?.n, 0);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("keep refuses active phones and stale stopped state without stopping a user's running codespace", async () => {
@@ -278,7 +288,7 @@ test("keep refuses active phones and stale stopped state without stopping a user
     assert.equal(f.writes.length, 0);
     await assert.rejects(f.service.keep(1, "phone-aaaa"), /Only a stopped phone/);
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM phone_keeps").get()?.n, 0);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("manual keep shares the interactive rate limit; automatic keep can protect more than six phones", async () => {
@@ -288,10 +298,10 @@ test("manual keep shares the interactive rate limit; automatic keep can protect 
     for (let n = 0; n < 6; n++) await f.service.keep(1, `phone-000${n}`);
     await assert.rejects(f.service.keep(1, "phone-0006"), /Too many phone requests/);
     assert.equal(f.writes.length, 6);
-    updateSettings(f.database, 1, { auto_keep: true });
+    await updateSettings(f.asyncDatabase, 1, { auto_keep: true });
     await f.makeTick()();
     assert.equal(f.writes.length, 8);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("an externally renewed provider expiry gets new warnings even if both polls see Shutdown", async () => {
@@ -305,7 +315,7 @@ test("an externally renewed provider expiry gets new warnings even if both polls
     f.advance(29 * DAY);
     await f.makeTick()();
     assert.deepEqual(f.outgoing.map(e => e.data.days), [1, 1]);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("GitHub failure or deletion during a keep clears the request without emitting phone.kept", async () => {
@@ -320,7 +330,7 @@ test("GitHub failure or deletion during a keep clears the request without emitti
       assert.equal(f.database.prepare("SELECT count(*) AS n FROM phone_keeps").get()?.n, 0);
       assert.equal(f.outgoing.filter(e => e.type === "phone.kept").length, 0);
       assert.equal(f.writes.length, 1);
-    } finally { f.close(); }
+    } finally { await f.close(); }
   }
 });
 
@@ -328,7 +338,7 @@ test("auto-stop and auto-keep coexist without interrupting keeps or blocking oth
   const f = fixture();
   try {
     f.add("phone-aaaa", 1, 1); f.add("phone-bbbb", 1, 1);
-    updateSettings(f.database, 1, { auto_keep: true, auto_stop_before_empty: true, allowance_core_hours: 0 });
+    await updateSettings(f.asyncDatabase, 1, { auto_keep: true, auto_stop_before_empty: true, allowance_core_hours: 0 });
     const tick = f.makeTick();
     await tick();
     f.advance(60_000);
@@ -345,6 +355,6 @@ test("auto-stop and auto-keep coexist without interrupting keeps or blocking oth
     for (const space of f.spaces.values()) space.state = "Shutdown";
     await tick();
     assert.equal(f.outgoing.filter(e => e.type === "phone.kept").length, 3);
-    assert.equal(readUsage(f.database, 1, f.clock).running.length, 0);
-  } finally { f.close(); }
+    assert.equal((await readUsage(f.asyncDatabase, 1, f.clock)).running.length, 0);
+  } finally { await f.close(); }
 });
