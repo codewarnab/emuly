@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { constants, createReadStream } from "node:fs";
 import { AppError, fail, apkUrl, downloadApk } from "./apk-download.mjs";
 
-export const MAX_APK = 250 * 1024 * 1024;
-export const CHUNK_SIZE = 4 * 1024 * 1024;
+import { APK_MAX_BYTES as MAX_APK, APK_CHUNK_BYTES as CHUNK_SIZE, installFinished as terminal } from "./apps-protocol.mjs";
+// Keep runner consumers compatible with the existing export names.
+export { MAX_APK, CHUNK_SIZE };
 const RESERVE = 1024 * 1024 * 1024;
 const STAGING_QUOTA = 512 * 1024 * 1024;
-const terminal = stage => ["succeeded", "failed", "cancelled", "expired", "interrupted"].includes(stage);
 const validPackage = value => typeof value === "string" && /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/.test(value) && value.length <= 255;
 const validId = value => typeof value === "string" && /^[0-9a-f-]{36}$/.test(value);
 
