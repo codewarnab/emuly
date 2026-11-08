@@ -6,7 +6,7 @@ import { collectProgress, measure, progressCursor, diagnosticHealth, diagnosticO
 import { validateStep, type Step } from "../diagnostics/diagnostic-contract.ts";
 
 /** Files copied into each codespace, relative to `phone/` in this repository. */
-const FILES = ["scripts/progress.sh", "scripts/read-progress.py", "scripts/bounded-log.py", "scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "runner/runner.mjs", "runner/apps.mjs", "runner/apk-download.mjs", "runner/scrcpy.mjs", "runner/scrcpy-protocol.mjs"];
+const FILES = ["scripts/progress.sh", "scripts/read-progress.py", "scripts/bounded-log.py", "scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "runner/runner.mjs", "runner/apps.mjs", "runner/apps-protocol.mjs", "runner/apk-download.mjs", "runner/scrcpy.mjs", "runner/scrcpy-protocol.mjs"];
 
 export class PhoneSetupError extends Error {}
 export type SetupStatus = "ready" | "working";

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { APK_MAX_BYTES } from "./phone-apps-contract.ts";
+import { APK_MAX_BYTES, installFinished } from "./phone-apps-contract.ts";
 import { PhoneResponseError, parseAppInventory, parseAppInstall, parseAppInstalls, parseAppOpened,
   parsePhoneError, parseRunnerUpdate, parseStreamTicket, readPhoneResponse } from "./phone-response.ts";
 
@@ -20,7 +20,11 @@ test("inventory validates every app and retains compatible response metadata", (
 });
 
 test("installation contracts accept all current stages, unknown download sizes, and extension fields", () => {
-  for (const stage of ["uploading", "downloading", "validating", "installing", "succeeded", "failed", "cancelled", "expired", "interrupted"]) {
+  for (const [stage, finished] of [
+    ["uploading", false], ["downloading", false], ["validating", false], ["installing", false],
+    ["succeeded", true], ["failed", true], ["cancelled", true], ["expired", true], ["interrupted", true],
+  ] as const) {
+    assert.equal(installFinished(stage), finished);
     const value = { ...operation, stage, source: "url", totalBytes: null, bytesReceived: APK_MAX_BYTES,
       packageId: "com.example.app", versionCode: "42", errorCode: "install_failed", message: "Try another APK.", createdAt: "2026-11-08" };
     assert.deepEqual(parseAppInstall(value), value);
@@ -30,7 +34,7 @@ test("installation contracts accept all current stages, unknown download sizes, 
 });
 
 test("installation contracts reject unsafe progress, unknown stages, and malformed optional fields", () => {
-  const changes = [ { id: "not-an-id" }, { source: "other" }, { filename: null }, { stage: "new-stage" },
+  const changes = [ { id: "not-an-id" }, { source: "other" }, { filename: null }, { stage: "new-stage" }, { stage: "toString" }, { stage: "__proto__" },
     { bytesReceived: -1 }, { bytesReceived: 1.5 }, { bytesReceived: NaN }, { bytesReceived: Infinity },
     { bytesReceived: APK_MAX_BYTES + 1 }, { bytesReceived: 11 }, { totalBytes: 0 }, { totalBytes: "10" },
     { totalBytes: APK_MAX_BYTES + 1 }, { canCancel: 1 }, { packageId: {} }, { versionCode: false },
