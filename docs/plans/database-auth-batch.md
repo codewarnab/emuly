@@ -16,7 +16,7 @@ For local development, leave `PHONELINK_DATABASE_URL` unset and run `pnpm db:mig
 
 Hosted connection settings are `PHONELINK_DATABASE_URL` and `PHONELINK_DATABASE_AUTH_TOKEN`. Supply credentials through the existing secret mechanism. The migration command also accepts URL-file and token-file paths as its two positional arguments. Neither command arguments nor logs contain credential values.
 
-Do not enable hosted mode for the full application yet. Settings, phones, diagnostics, webhooks, poller, and GitHub token refresh still use synchronous SQLite. Their `db()` entry point rejects hosted mode rather than silently using a different local database. Shared OAuth refresh coordination remains part of the later migration work.
+Do not enable hosted mode for the full application yet. Phone operations, diagnostics, webhooks, display preferences, auto-stop acknowledgements, most poller writes, and GitHub token refresh still use synchronous SQLite. Their `db()` entry point rejects hosted mode rather than silently using a different local database. Shared OAuth refresh coordination remains part of the later migration work.
 
 No existing SQLite data has been imported to Turso. No active deployment configuration has changed. The test database is left empty after hosted integration checks.
 
@@ -29,3 +29,17 @@ No existing SQLite data has been imported to Turso. No active deployment configu
 - Local migration command succeeded twice against a fresh temporary database.
 
 Windows retains file handles when native SQLite and the libSQL client share some test files in one process. Auth session behavior is covered using an in-memory client, while existing SQLite migration/reopen tests remain separate. Earlier failed probe processes left temporary files pending cleanup; they contain synthetic fixtures only.
+
+## Settings and usage batch (2026-11-08)
+
+PR #14 stays open until the remaining issue #3 work is complete. This batch adds:
+
+- Async Hours settings, onboarding plans, allowance overrides, usage reads, and database access in billing aggregation.
+- Awaited reads/writes in pages, layouts, Server Actions, settings API, phone API, and poller budget/retention checks.
+- Atomic settings updates through the supplied transaction handle. Reading the old settings and updating both settings tables share one write transaction.
+- A temporary explicit `settingsDatabase` connection for the still-synchronous poller. Both clients use the same local SQLite file. Hosted mode remains blocked by the legacy consumers.
+- Existing settings, phone, retention, and poller tests now exercise real libSQL connections. The test command exposes garbage collection so cleanup can release native SQLite statements before deleting files on Windows.
+
+Validation: full suite passed (135 passed, one hosted test skipped); the hosted integration passed separately. Hosted checks now verify partial settings updates, rollback when the second settings write fails, account isolation, and usage totals. Typecheck and production build passed. Existing phone setup tracing warnings remain. Interactive browser login and settings UI were not exercised. Tests/build include unrelated working-tree phone/UI edits, which remain excluded from this PR.
+
+Next: migrate diagnostics, events/webhooks, phone operations, and remaining shared helpers. Complete shared coordination, import rehearsal, scheduling, streaming/storage, and Vercel acceptance before merging and cutover.

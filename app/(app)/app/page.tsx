@@ -10,7 +10,7 @@ import { NewPhone, PhoneRefresh, StopAll } from "@/components/phone/phone-mutati
 import { syncPhoneState } from "../../../lib/phone/phone-control";
 import { SyncNotice } from "@/components/shell/sync-notice";
 import { Topbar, Avatar } from "@/components/shell/topbar";
-import { db } from "../../../lib/data/db";
+import { asyncDb } from "../../../lib/data/async-db";
 import { readUsage, userSettings } from "../../../lib/data/usage";
 import { readAccountUsage } from "../../../lib/github/billing";
 import { chosenPlan } from "../../../lib/data/settings";
@@ -26,12 +26,12 @@ export default function DashboardPage() {
 
 async function Dashboard({ clock = Date.now }: { clock?: () => number }) {
   const user = await requireUser();
-  if (!chosenPlan(db(), user.id)) redirect("/app/welcome");
+  if (!(await chosenPlan(asyncDb(), user.id))) redirect("/app/welcome");
   const syncError = await syncPhoneState(user.id);
   const phones = listPhones(user.id);
   const usage = await readAccountUsage(user, clock);
-  const settings = userSettings(db(), user.id);
-  const warning = hoursWarning(readUsage(db(), user.id, clock), settings.auto_stop_before_empty);
+  const settings = await userSettings(asyncDb(), user.id);
+  const warning = hoursWarning(await readUsage(asyncDb(), user.id, clock), settings.auto_stop_before_empty);
   const defaultCores = 4;
   const now = clock();
   const cards = phones.map(phone => ({ card: phoneCard(phone), state: phone.keeping ? "keeping" : phone.state,

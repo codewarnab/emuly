@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { requireUser } from "../../../../lib/auth/auth";
-import { db } from "../../../../lib/data/db";
+import { asyncDb } from "../../../../lib/data/async-db";
 import { chosenPlan } from "../../../../lib/data/settings";
 import { savePlan } from "../../../actions/settings";
 import { Topbar, Avatar } from "@/components/shell/topbar";
@@ -18,7 +18,7 @@ export default function WelcomePage() {
 
 async function Welcome() {
   const user = await requireUser();
-  const current = chosenPlan(db(), user.id);
+  const current = await chosenPlan(asyncDb(), user.id);
   return <>
     <Topbar nav={[{ label: "Phones" }, { label: "Settings" }]}>
       <Avatar initials={user.initials} login={user.login} />

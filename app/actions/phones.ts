@@ -9,7 +9,7 @@ import { GitHubError } from "../../lib/github/github";
 import { PhoneInputError, redact } from "../../lib/phone/phone-mutations";
 import { PHONE_ID } from "../../lib/shared/phone-name";
 import { RateLimitError } from "../../lib/data/rate-limit";
-import { db } from "../../lib/data/db";
+import { asyncDb } from "../../lib/data/async-db";
 import { saveAllowance, userSettings } from "../../lib/data/usage";
 import { clearAllowanceOverride } from "../../lib/data/settings";
 
@@ -65,9 +65,9 @@ export async function phoneCreationOptions() {
   const user = await requireUser();
   try {
     const machines = await phoneControl().machines(user.id, templateRepository().repository);
-    return { machines, settings: userSettings(db(), user.id), message: "" };
+    return { machines, settings: await userSettings(asyncDb(), user.id), message: "" };
   } catch (error) {
-    return { machines: [], settings: userSettings(db(), user.id), message: error instanceof GitHubError || error instanceof PhoneInputError
+    return { machines: [], settings: await userSettings(asyncDb(), user.id), message: error instanceof GitHubError || error instanceof PhoneInputError
       ? redact(error.message) : "Machine choices could not be loaded. Try opening New phone again." };
   }
 }
@@ -76,7 +76,7 @@ export async function updateAllowance(_previous: MutationResult, form: FormData)
   const user = await requireUser();
   const choice = form.get("allowance");
   if (choice === "auto") {
-    clearAllowanceOverride(db(), user.id);
+    await clearAllowanceOverride(asyncDb(), user.id);
     revalidatePath("/app");
     revalidatePath("/app/settings/hours");
     return { message: "Automatic plan allowance restored." };
@@ -85,7 +85,7 @@ export async function updateAllowance(_previous: MutationResult, form: FormData)
   if (typeof value !== "string" || !value.trim() || !["120", "180", "custom"].includes(String(choice))) {
     return { message: "Choose Free, Pro, or a custom allowance." };
   }
-  try { saveAllowance(db(), user.id, Number(value)); }
+  try { await saveAllowance(asyncDb(), user.id, Number(value)); }
   catch { return { message: "Enter a non-negative allowance in core-hours." }; }
   revalidatePath("/app");
   return { message: "Estimated allowance updated." };

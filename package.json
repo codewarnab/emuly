@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "node server.mjs --production",
     "lint": "tsc --noEmit",
-    "test": "node --conditions=react-server --test --experimental-strip-types \"lib/**/*.test.ts\"",
+    "test": "node --expose-gc --conditions=react-server --test --experimental-strip-types \"lib/**/*.test.ts\"",
     "db:migrate": "node --experimental-strip-types scripts/migrate-database.ts"
   },
   "dependencies": {

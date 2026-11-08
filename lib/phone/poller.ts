@@ -1,4 +1,5 @@
 import "server-only";
+import type { DatabaseQueries } from "../data/async-database.ts";
 import type { DatabaseSync } from "node:sqlite";
 import { GitHubError } from "../github/github.ts";
 import { readUsage, type Usage } from "../data/usage.ts";
@@ -8,8 +9,8 @@ import { retentionStatus } from "../data/retention.ts";
 import { createDiagnostics } from "../diagnostics/diagnostics.ts";
 
 /** One loop owns sync, budget, retention policy and webhook delivery. */
-export function createStatePoller({ database, sync, autoStop, autoKeep, deliver, emit = event => emitEvent(event, database), clock = Date.now }: {
-  database: DatabaseSync; sync: (userId: number) => Promise<void>; clock?: () => number;
+export function createStatePoller({ database, settingsDatabase, sync, autoStop, autoKeep, deliver, emit = event => emitEvent(event, database), clock = Date.now }: {
+  database: DatabaseSync; settingsDatabase: DatabaseQueries; sync: (userId: number) => Promise<void>; clock?: () => number;
   autoStop?: (userId: number, phoneId: string) => Promise<unknown>; emit?: EventEmitter;
   autoKeep?: (userId: number, phoneId: string) => Promise<unknown>;
   deliver?: () => Promise<void>;
@@ -39,9 +40,9 @@ export function createStatePoller({ database, sync, autoStop, autoKeep, deliver,
   }
 
   async function protectBudget(userId: number) {
-    const usage = readUsage(database, userId, clock);
+    const usage = await readUsage(settingsDatabase, userId, clock);
     notifyLow(userId, usage);
-    if (!autoStop || !userSettings(database, userId).auto_stop_before_empty
+    if (!autoStop || !(await userSettings(settingsDatabase, userId)).auto_stop_before_empty
       || usage.hours_left_at_current_rate === null || usage.hours_left_at_current_rate > 0.5) return;
     // Continue after an individual failure, but stop immediately on provider rate limits.
     let failure: unknown;
@@ -101,7 +102,7 @@ export function createStatePoller({ database, sync, autoStop, autoKeep, deliver,
           database.exec("COMMIT");
         } catch (error) { database.exec("ROLLBACK"); throw error; }
       }
-      if (remaining > 86_400_000 || !autoKeep || !userSettings(database, userId).auto_keep) continue;
+      if (remaining > 86_400_000 || !autoKeep || !(await userSettings(settingsDatabase, userId)).auto_keep) continue;
       try { await autoKeep(userId, phone.id); }
       catch (error) {
         if (error instanceof GitHubError && [403, 429].includes(error.status)) throw error;
