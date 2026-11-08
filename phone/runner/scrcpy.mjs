@@ -2,7 +2,7 @@
 import { connect } from "node:net";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
-import { controlMessage, qualities, ScrcpyPackets } from "./scrcpy-protocol.mjs";
+import { controlMessage, DeviceMessages, qualities, ScrcpyPackets } from "./scrcpy-protocol.mjs";
 
 export async function startScrcpy(ws, { adb, ADB, SERIAL, ROOT, quality }) {
   const scid = randomBytes(4).readUInt32BE() & 0x7fffffff;
@@ -10,6 +10,7 @@ export async function startScrcpy(ws, { adb, ADB, SERIAL, ROOT, quality }) {
   const [size, fps, bitrate] = qualities[quality] ?? qualities.auto;
   let child, video, control, port, closed = false;
   const touches = new Map(), keys = new Set();
+  const capabilities = ["clipboard"];
   const close = () => {
     if (closed) return;
     closed = true;
@@ -56,7 +57,18 @@ export async function startScrcpy(ws, { adb, ADB, SERIAL, ROOT, quality }) {
     if (closed) { video?.destroy(); return; }
     video.on("error", close); video.on("close", close);
     control = connect({ host: "127.0.0.1", port });
-    control.on("error", close); control.on("close", close); control.resume();
+    control.on("error", close); control.on("close", close);
+    // The control socket carries clipboard replies. A single request is answered with 0 or 1 messages.
+    const devices = new DeviceMessages();
+    control.on("data", chunk => {
+      try {
+        for (const message of devices.push(chunk)) {
+          if (message.type === "clipboard" && ws.readyState === 1) {
+            ws.send(JSON.stringify({ type: "clipboard", text: message.text.slice(0, 8000) }));
+          }
+        }
+      } catch { close(); }
+    });
     const parser = new ScrcpyPackets();
     video.on("data", chunk => {
       try {
@@ -74,7 +86,7 @@ export async function startScrcpy(ws, { adb, ADB, SERIAL, ROOT, quality }) {
         if (binary || data.length > 16_384 || ++count > 240 || control.writableLength > 65_536) return close();
         const input = JSON.parse(data.toString());
         if (input.type === "ping" && Number.isFinite(input.time)) {
-          ws.send(JSON.stringify({ type: "pong", time: input.time, server: Date.now(), inputAccepted }));
+          ws.send(JSON.stringify({ type: "pong", time: input.time, server: Date.now(), inputAccepted, capabilities }));
           inputAccepted = false;
           return;
         }

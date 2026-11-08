@@ -184,11 +184,15 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
     finally { setUpdating(false); }
   }
   const blocked = !ready || busy || active || needsUpdate;
+  /** Why the controls are inert; shown as a tooltip on the blocked areas. */
+  const blockedReason = !ready ? "Start the phone first to install apps."
+    : needsUpdate ? "Update the phone before installing apps."
+    : "Wait for the current installation to finish.";
   return <section className={s.panel} aria-label="Apps">
     <div className={s.card}>
       <div className={s.cardHead}>
         <h2>Install an app</h2>
-        {!ready && <span className={s.tag}>Phone off</span>}
+        {!ready && <span className={s.tag} title={blockedReason}>Phone off</span>}
       </div>
       {!ready && <p className={s.hint} role="status">Start the phone to install apps.</p>}
       {needsUpdate && <div className={s.update}>
@@ -196,6 +200,7 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
         <Button type="button" tiny disabled={updating || !ready} onClick={() => { void updateRunner(); }}>{updating ? "Checking update…" : "Check update"}</Button>
       </div>}
       <div className={`${s.drop} ${dragging ? s.dragging : ""} ${blocked ? s.off : ""}`}
+        title={blocked ? blockedReason : undefined}
         onDragOver={event => { event.preventDefault(); if (!blocked) setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={event => {
@@ -222,7 +227,7 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
       </div>
       <form className={s.url} onSubmit={(event: FormEvent) => { event.preventDefault(); void install(); }}>
         <label htmlFor={`apk-url-${id}`}>Install from URL</label>
-        <div className={s.field}>
+        <div className={`${s.field} ${blocked ? s.blocked : ""}`} title={blocked ? blockedReason : undefined}>
           <input id={`apk-url-${id}`} type="url" value={url} required maxLength={4096} disabled={blocked}
             placeholder="https://example.com/app.apk" autoComplete="off" spellCheck={false} onChange={event => setUrl(event.target.value)} />
           <Button disabled={blocked || !url.trim()}>Install</Button>

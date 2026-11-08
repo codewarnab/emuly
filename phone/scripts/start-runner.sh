@@ -13,6 +13,6 @@ fi
 command -v node >/dev/null || { echo "phonelink: node is not on PATH"; exit 1; }
 pkill -f "node runner/runner.mjs" 2>/dev/null || true
 [ ! -f /tmp/runner.log ] || mv -f /tmp/runner.log /tmp/runner.log.previous
-nohup node runner/runner.mjs > >(nohup setsid python3 scripts/bounded-log.py /tmp/runner.log >/dev/null 2>&1) 2>&1 < /dev/null &
+nohup node runner/runner.mjs >/tmp/runner.log 2>&1 < /dev/null &
 ph_end
 echo "runner started (log: /tmp/runner.log)"
