@@ -4,7 +4,6 @@ import { findPhone } from "../../../../../../lib/phones";
 import { runnerStream } from "../../../../../../lib/phone-runner";
 import { createPhoneStreamApi } from "../../../../../../lib/phone-stream-api";
 
-export const runtime = "nodejs";
 const stream = createPhoneStreamApi({ user: async () => {
   const user = await getUser(), session = await getSession();
   return user && session ? { id: user.id, sessionId: session.id } : null;
