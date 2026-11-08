@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
-import { APK_CHUNK_BYTES, APK_MAX_BYTES, installFinished, type AppInstall, type InstalledApp } from "@/lib/phone/phone-apps-contract";
+import { APK_CHUNK_BYTES, APK_MAX_BYTES, installFinished, type AppInstall, type AppInstallStage, type InstalledApp } from "@/lib/phone/phone-apps-contract";
 import { parseAppInventory, parseAppInstall, parseAppInstalls, parseAppOpened, parsePhoneError, parseRunnerUpdate, readPhoneResponse } from "@/lib/phone/phone-response";
 import s from "@/components/phone/phone-apps.module.css";
 
-const stages: Record<string, string> = { uploading: "Uploading APK", downloading: "Downloading APK", validating: "Checking APK",
+const stages: Record<AppInstallStage, string> = { uploading: "Uploading APK", downloading: "Downloading APK", validating: "Checking APK",
   installing: "Installing app", succeeded: "App installed", failed: "Installation failed", cancelled: "Installation cancelled",
   expired: "Installation expired", interrupted: "Installation needs verification" };
 const size = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MiB`;

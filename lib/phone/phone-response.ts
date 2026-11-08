@@ -1,4 +1,4 @@
-import { APK_MAX_BYTES, type AppInstall, type InstalledApp } from "./phone-apps-contract.ts";
+import { APK_MAX_BYTES, isAppInstallStage, type AppInstall, type InstalledApp } from "./phone-apps-contract.ts";
 
 /** A response failed its runtime contract. Never include the received payload in errors. */
 export class PhoneResponseError extends Error {
@@ -17,7 +17,6 @@ const bytes = (value: unknown): value is number => Number.isSafeInteger(value) &
 const packageId = (value: unknown): value is string => text(value, 255) && /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/.test(value);
 const version = (value: unknown): value is string => text(value, 32) && /^\d+$/.test(value);
 const code = (value: unknown): value is string => text(value, 128) && /^[a-z0-9_]+$/.test(value);
-const stages = ["uploading", "downloading", "validating", "installing", "succeeded", "failed", "cancelled", "expired", "interrupted"];
 
 /** Validate fields that consumers use; retain extension fields for API compatibility. */
 export function parseAppInventory(value: unknown): { apps: InstalledApp[]; fetchedAt?: string } {
@@ -35,7 +34,7 @@ export function parseAppInstall(value: unknown): AppInstall {
   const result = object(value);
   requireField(text(result.id, 36) && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(result.id));
   requireField(result.source === "upload" || result.source === "url");
-  requireField(text(result.filename, 255) && typeof result.stage === "string" && stages.includes(result.stage));
+  requireField(text(result.filename, 255) && isAppInstallStage(result.stage));
   requireField(bytes(result.bytesReceived) && (result.totalBytes === null || (bytes(result.totalBytes) && result.totalBytes > 0)));
   requireField(result.totalBytes === null || result.bytesReceived <= result.totalBytes);
   requireField(typeof result.canCancel === "boolean");
