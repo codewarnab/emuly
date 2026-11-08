@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { issueStreamTicket, takeStreamTicket } from "./phone-stream-ticket.ts";
 import { avcCodec, screenPoint, videoPacket } from "./phone-video.ts";
-import { controlMessage, ScrcpyPackets } from "../../phone/runner/scrcpy-protocol.mjs";
+import { controlMessage, DeviceMessages, ScrcpyPackets } from "../../phone/runner/scrcpy-protocol.mjs";
 
 const binding = { userId: 7, phoneId: "phone-a", origin: "http://localhost:4321", cookie: "session=synthetic",
   open: async () => { throw new Error("not used"); } };
@@ -46,6 +46,24 @@ test("scrcpy controls match independent big-endian wire fixtures and reject unsa
   for (const input of [ { type: "key", key: "__proto__" }, { type: "text", text: "a".repeat(301) },
     { type: "touch", action: "down", pointer: -1, x: 0, y: 0, width: 720, height: 1280 },
     { type: "wheel", x: 720, y: 0, width: 720, height: 1280, dx: 0, dy: 0 } ]) assert.throws(() => controlMessage(input));
+});
+test("clipboard requests and device clipboard replies use scrcpy framing", () => {
+  assert.equal(controlMessage({ type: "get-clipboard", copyKey: 0 }).toString("hex"), "0800");
+  assert.equal(controlMessage({ type: "get-clipboard", copyKey: 1 }).toString("hex"), "0801");
+  assert.equal(controlMessage({ type: "get-clipboard" }).toString("hex"), "0800");
+  assert.throws(() => controlMessage({ type: "get-clipboard", copyKey: 3 }), /Invalid clipboard/);
+  const text = Buffer.from("https://example.com/你好");
+  const clipboard = Buffer.alloc(5); clipboard[0] = 0; clipboard.writeUInt32BE(text.length, 1);
+  const ack = Buffer.alloc(9); ack[0] = 1; ack.writeBigUInt64BE(BigInt(42), 1);
+  const stream = Buffer.concat([clipboard, text, ack]);
+  const parser = new DeviceMessages();
+  assert.deepEqual(parser.push(stream.subarray(0, 4)), []);
+  assert.deepEqual(parser.push(stream.subarray(4, 12)), []);
+  assert.deepEqual(parser.push(stream.subarray(12)), [
+    { type: "clipboard", text: "https://example.com/你好" },
+    { type: "clipboard-ack", sequence: 42 },
+  ]);
+  assert.throws(() => new DeviceMessages().push(Buffer.from([9, 0, 0, 0, 0])), /Unknown device message/);
 });
 test("screen coordinates use the displayed image bounds and clamp captured drags", () => {
   const rect = { left: 10, top: 20, width: 180, height: 320 };

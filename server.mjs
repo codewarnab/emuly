@@ -1,7 +1,18 @@
 ﻿// A single Node process is required: Next's HTTP routes issue one-use socket tickets.
 import next from "next";
 import { createServer } from "node:http";
-import { attachPhoneStreams } from "./lib/phone/phone-stream-proxy.mjs";
+import { registerHooks } from "node:module";
+
+// This entrypoint is always a Node server. Next's bundler still enforces the
+// server-only boundary for app imports; native stream imports need the marker
+// resolved here without enabling react-server globally (which breaks Next).
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier === "server-only") return { url: "data:text/javascript,export {};", shortCircuit: true };
+    return nextResolve(specifier, context);
+  },
+});
+const { attachPhoneStreams } = await import("./lib/phone/phone-stream-proxy.mjs");
 
 const port = Number(process.env.PORT ?? 4321);
 const hostname = process.env.HOST ?? "127.0.0.1";

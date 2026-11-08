@@ -9,6 +9,8 @@ export function usePhoneVideo(id: string, live: boolean, quality: string, canvas
   const [painted, setPainted] = useState(false);
   const [stats, setStats] = useState({ fps: 0, delay: 0 });
   const [saver, setSaver] = useState(false);
+  const [capabilities, setCapabilities] = useState<string[]>([]);
+  const [clipboard, setClipboard] = useState<{ text: string; at: number } | null>(null);
   const lastFrameAt = useRef(0);
   const reportFallback = useRef<(() => void) | undefined>(undefined);
   useEffect(() => {
@@ -18,6 +20,8 @@ export function usePhoneVideo(id: string, live: boolean, quality: string, canvas
       id, quality: quality === "auto" && saver ? "saver" : quality,
       onState: state => setActive(state === "streaming"),
       onStats: setStats,
+      onCapabilities: setCapabilities,
+      onClipboard: setClipboard,
       onSaver: () => setSaver(true),
       onFrame(frame) {
         const element = canvas.current;
@@ -40,5 +44,6 @@ export function usePhoneVideo(id: string, live: boolean, quality: string, canvas
   function send(input: Record<string, unknown>) {
     return connection.current?.send(input) ?? false;
   }
-  return { supported, active, painted, stats, send, lastFrameAt, reportFallback };
+  return { supported, active, painted, stats, send, lastFrameAt, reportFallback, capabilities, clipboard,
+    clearClipboard: () => setClipboard(null) };
 }

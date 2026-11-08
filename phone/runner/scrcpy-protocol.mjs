@@ -11,6 +11,11 @@ export function controlMessage(input) {
   if (!input || typeof input !== "object") throw new Error("Invalid input");
   const { type } = input;
   if (type === "rotate" || type === "keyframe") return Buffer.from([type === "rotate" ? 11 : 17]);
+  if (type === "get-clipboard") {
+    const copyKey = input.copyKey ?? 0;
+    if (![0, 1, 2].includes(copyKey)) throw new Error("Invalid clipboard request");
+    return Buffer.from([8, copyKey]);
+  }
   if (type === "text" || type === "paste") {
     if (typeof input.text !== "string" || !input.text || Buffer.byteLength(input.text) > (type === "text" ? 300 : 8192)) throw new Error("Invalid text");
     const text = Buffer.from(input.text);
@@ -67,5 +72,39 @@ export class ScrcpyPackets {
       this.buffer = this.buffer.subarray(12 + size);
     }
     return packets;
+  }
+}
+
+// Device messages arrive on the control socket without a common header:
+// clipboard is type + u32 length + UTF-8 text; ack is type + u64; UHID output is type + u16 id + u16 length + bytes.
+const DEVICE_CLIPBOARD_MAX = 262_144;
+export class DeviceMessages {
+  buffer = Buffer.alloc(0);
+  push(chunk) {
+    this.buffer = Buffer.concat([this.buffer, chunk]);
+    const messages = [];
+    while (this.buffer.length) {
+      const type = this.buffer[0];
+      if (type === 0) {
+        if (this.buffer.length < 5) break;
+        const size = this.buffer.readUInt32BE(1);
+        if (size > DEVICE_CLIPBOARD_MAX) throw new Error("Invalid device message");
+        if (this.buffer.length < size + 5) break;
+        messages.push({ type: "clipboard", text: this.buffer.toString("utf8", 5, 5 + size) });
+        this.buffer = this.buffer.subarray(5 + size);
+      } else if (type === 1) {
+        if (this.buffer.length < 9) break;
+        messages.push({ type: "clipboard-ack", sequence: Number(this.buffer.readBigUInt64BE(1)) });
+        this.buffer = this.buffer.subarray(9);
+      } else if (type === 2) {
+        if (this.buffer.length < 5) break;
+        const size = this.buffer.readUInt16BE(3);
+        if (this.buffer.length < size + 5) break;
+        this.buffer = this.buffer.subarray(5 + size);
+      } else {
+        throw new Error("Unknown device message");
+      }
+    }
+    return messages;
   }
 }

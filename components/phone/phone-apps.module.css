@@ -30,7 +30,8 @@
 }
 .drop:hover:not(.off) { border-color: var(--control-line); background: var(--panel2); }
 .dragging { border-color: var(--accent); background: var(--accent-soft); }
-.off { border-color: var(--line2); background: transparent; }
+.off { border-color: var(--line2); background: transparent; cursor: not-allowed; }
+.off * { cursor: not-allowed; }
 .dropIcon {
   flex: none; display: grid; place-items: center;
   width: 34px; height: 34px; border-radius: 9px;
@@ -45,6 +46,9 @@
 .url { margin-top: 14px; }
 .url label { display: block; margin-bottom: 6px; color: var(--dim); font-size: 12px; font-weight: 500; }
 .field { display: flex; gap: 6px; }
+.blocked, .blocked * { cursor: not-allowed; }
+/* A disabled control swallows hover, so let its wrapper own the cursor and tooltip. */
+.off button, .blocked button { pointer-events: none; }
 .url input {
   flex: 1; min-width: 0; height: 32px; padding: 0 10px;
   border: 1px solid var(--line); border-radius: 8px;
@@ -53,7 +57,7 @@
 }
 .url input:hover:not(:disabled) { border-color: var(--control-line); }
 .url input:focus { border-color: var(--accent); }
-.url input:disabled { background: var(--panel2); }
+.url input:disabled { background: var(--panel2); cursor: not-allowed; }
 .url input::placeholder { color: var(--dim2); }
 .url small { margin-top: 6px; }
 

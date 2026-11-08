@@ -41,7 +41,7 @@ export function setupScript(root = join(process.cwd(), "phone"), cursor = 0) {
   return `export PATH="/usr/local/share/nvm/current/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 mkdir -p "$HOME/phonelink" && builtin cd "$HOME/phonelink"
 ${diagnosticOperation() ? `if [ -f scripts/read-progress.py ]; then python3 scripts/read-progress.py ${diagnosticOperation()} ${Number.isSafeInteger(cursor) && cursor >= 0 ? cursor : 0}; fi` : ""}
-if curl -fsS http://127.0.0.1:8790/health 2>/dev/null | grep -q '"version":4'; then echo PHONELINK_READY; exit 0; fi
+if curl -fsS http://127.0.0.1:8790/health 2>/dev/null | grep -q '"version":5'; then echo PHONELINK_READY; exit 0; fi
 if [ -f .failed ]; then rm -f .failed .pid; echo PHONELINK_FAILED; exit 1; fi
 if [ -f .pid ] && kill -0 "$(cat .pid)" 2>/dev/null; then echo PHONELINK_WORKING; exit 0; fi
 ${writes[0]}
@@ -54,7 +54,7 @@ ph_end
 chmod +x scripts/*.sh run.sh
 [ ! -f setup.log ] || mv -f setup.log setup.log.previous
 ph_begin setup_launch
-nohup setsid bash run.sh > >(nohup setsid python3 scripts/bounded-log.py "$HOME/phonelink/setup.log" >/dev/null 2>&1) 2>&1 < /dev/null &
+nohup setsid bash -c 'bash run.sh 2>&1 | python3 scripts/bounded-log.py "$HOME/phonelink/setup.log"' >/dev/null 2>&1 < /dev/null &
 echo $! > .pid
 ph_end
 echo PHONELINK_WORKING

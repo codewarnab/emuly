@@ -11,6 +11,8 @@ type VideoConnectionOptions = {
   onFrame: (frame: VideoFrame) => boolean;
   onStats: (stats: { fps: number; delay: number }) => void;
   onSaver: () => void;
+  onCapabilities?: (capabilities: string[]) => void;
+  onClipboard?: (clipboard: { text: string; at: number }) => void;
 };
 
 /** Starts one live session. dispose() is idempotent and prevents all later delivery.
@@ -19,7 +21,7 @@ type VideoConnectionOptions = {
  */
 export function createPhoneVideoConnection(options: VideoConnectionOptions) {
   if (!("VideoDecoder" in window)) return createFallback(options);
-  const { id, quality, onState, onFrame, onStats, onSaver } = options;
+  const { id, quality, onState, onFrame, onStats, onSaver, onCapabilities, onClipboard } = options;
   let state: VideoConnectionState = "suspended";
   let socket: WebSocket | null = null;
   let retry = 0, timer: ReturnType<typeof setTimeout> | undefined, decoder: VideoDecoder | undefined;
@@ -148,8 +150,13 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
         lastMessage = Date.now();
         try {
           if (typeof event.data === "string") {
-            const pong = JSON.parse(event.data);
-            if (pong.type === "pong") { offset = pong.server - (Date.now() + pong.time) / 2; calibrated = true; }
+            const message = JSON.parse(event.data);
+            if (message.type === "pong") {
+              offset = message.server - (Date.now() + message.time) / 2; calibrated = true;
+              if (Array.isArray(message.capabilities)) onCapabilities?.(message.capabilities.filter((name: unknown): name is string => typeof name === "string"));
+              return;
+            }
+            if (message.type === "clipboard" && typeof message.text === "string") onClipboard?.({ text: message.text, at: Date.now() });
             return;
           }
           const packet = videoPacket(event.data);

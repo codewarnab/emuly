@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { usePhoneVideo } from "@/components/phone/use-phone-video";
 import { pngConnection } from "@/components/phone/png-connection";
 import { screenPoint, phoneKeys } from "@/lib/phone/phone-video";
+import { copyText, useToast } from "@/components/ui/ui-provider";
+import { Button } from "@/components/ui/button";
 import s from "@/components/phone/phone-screen.module.css";
 import type { StreamQuality } from "@/lib/shared/display-settings";
 
@@ -10,6 +12,7 @@ const controlIcons = {
   back: <path d="m14 6-6 6 6 6" />,
   home: <circle cx="12" cy="12" r="6" />,
   recent: <rect x="6" y="6" width="12" height="12" rx="2" />,
+  clipboard: <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></>,
   volumeUp: <><path d="M11 5 6 9H3v6h3l5 4zM15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14" /></>,
   volumeDown: <><path d="M11 5 6 9H3v6h3l5 4zM16 12h5" /></>,
   screenshot: <><path d="m8 5 1-2h6l1 2h4v15H4V5z" /><circle cx="12" cy="12" r="4" /></>,
@@ -26,6 +29,9 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
   const [screenshotAt, setScreenshotAt] = useState(0);
   const [error, setError] = useState("");
   const [inputPending, setInputPending] = useState(false);
+  const notify = useToast();
+  const [clipboardPending, setClipboardPending] = useState(false);
+  const [clipboardEmpty, setClipboardEmpty] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null);
   const video = usePhoneVideo(id, live, quality, canvas);
   const stage = useRef<HTMLDivElement>(null);
@@ -123,6 +129,16 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
     lastFrame.current = frame;
   }, [frame]);
   useEffect(() => () => { URL.revokeObjectURL(lastFrame.current); }, []);
+  useEffect(() => {
+    if (!video.clipboard) return;
+    setClipboardPending(false);
+    setClipboardEmpty(false);
+  }, [video.clipboard]);
+  useEffect(() => {
+    if (!clipboardPending) return;
+    const timer = setTimeout(() => { setClipboardPending(false); setClipboardEmpty(true); }, 4000);
+    return () => clearTimeout(timer);
+  }, [clipboardPending]);
 
   async function input(body: Record<string, unknown>) {
     if (!live || (!video.active && !screenshotFresh) || inputBusy.current) return;
@@ -169,6 +185,20 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
       <ControlIcon name={key} /><span className={s.tooltip}>{label}</span>
     </button>;
   }
+  function readClipboard(copyKey: 0 | 1) {
+    if (!video.active) return;
+    video.clearClipboard();
+    setClipboardEmpty(false);
+    setClipboardPending(true);
+    if (!video.send({ type: "get-clipboard", copyKey })) { setClipboardPending(false); setClipboardEmpty(true); }
+  }
+  function closeClipboard() {
+    video.clearClipboard();
+    setClipboardPending(false);
+    setClipboardEmpty(false);
+  }
+  const clipboardCapable = video.active && video.capabilities.includes("clipboard");
+  const phoneClipboard = video.clipboard;
   return <div className={s.screenPanel}>
     <header className={s.header}>
       <h2>Live screen</h2>
@@ -237,6 +267,11 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
     <div className={s.tools} role="group" aria-label="Device tools">
       {control("volumeUp", "Volume up")}{control("volumeDown", "Volume down")}
       <span className={s.divider} />
+      <button type="button" className={s.control} aria-label="Copy from phone"
+        title={clipboardCapable ? "Copy from phone" : "Update the phone runner to copy from the phone"}
+        disabled={!fresh || !clipboardCapable} onClick={() => readClipboard(0)}>
+        <ControlIcon name="clipboard" /><span className={s.tooltip}>Copy from phone</span>
+      </button>
       <button type="button" className={s.control} aria-label="Screenshot" title="Screenshot" disabled={!frame && !video.painted} onClick={async () => {
         const blob = video.painted && showCanvas ? await new Promise<Blob | null>(resolve => canvas.current!.toBlob(resolve, "image/png")) : null;
         const url = blob ? URL.createObjectURL(blob) : frame;
@@ -249,6 +284,20 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
       <span>{reconnecting ? "Controls resume when a fresh image arrives" : video.active ? "Click to control · Type to send text" : "Click the screen to tap"}</span>
       <span role="status">{video.active ? `${video.stats.fps} fps · ${video.stats.delay} ms` : live && video.supported ? "Reconnecting…" : ""}</span>
     </footer>
+    {(phoneClipboard || clipboardPending || clipboardEmpty) && <div className={s.clipboardPanel} role="status">
+      <div className={s.clipboardHead}>
+        <span>Phone clipboard</span>
+        <button type="button" className={s.clipboardClose} aria-label="Close clipboard" onClick={closeClipboard}>×</button>
+      </div>
+      {phoneClipboard
+        ? <textarea readOnly value={phoneClipboard.text} aria-label="Text copied from the phone" onFocus={event => event.currentTarget.select()} />
+        : <p className={s.clipboardHint}>{clipboardPending ? "Reading the phone clipboard…" : "Nothing on the phone clipboard. Select text in an app, press Copy, then try again."}</p>}
+      <div className={s.clipboardActions}>
+        {phoneClipboard && <Button type="button" tiny variant="ghost"
+          onClick={() => { if (phoneClipboard) void copyText(phoneClipboard.text, notify, "Copied from the phone"); }}>Copy to computer</Button>}
+        <Button type="button" tiny variant="ghost" disabled={!video.active} onClick={() => readClipboard(1)}>Copy selected text</Button>
+      </div>
+    </div>}
     {error && live && !video.active && <p className={s.error} role="status">{error}</p>}
   </div>;
 
