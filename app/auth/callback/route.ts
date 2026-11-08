@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 import { env } from "../../../lib/env";
-import { db, now } from "../../../lib/data/db";
+import { asyncDb } from "../../../lib/data/async-db.ts";
 import { seal } from "../../../lib/auth/crypto";
 import { createSession } from "../../../lib/auth/session";
 import { cookieName, cookieOptions } from "../../../lib/auth/auth-cookies";
@@ -28,25 +28,25 @@ export async function GET(request: NextRequest) {
     const pair = await exchangeTokens({ code, redirect_uri: `${env.baseUrl}/auth/callback` });
     const identity = await githubIdentity(pair.accessToken);
     if (current) {
-      const existing = db().prepare("SELECT github_id FROM users WHERE id = ?").get(current.id);
+      const existing = (await asyncDb().execute({ sql: "SELECT github_id FROM users WHERE id = ?", args: [current.id] })).rows[0];
       if (existing?.github_id !== identity.githubId) return result(failurePath);
     }
     const probe = await githubGet("/user/codespaces?per_page=1", pair.accessToken);
     if (probe.status !== 200) throw new SignInError("probe");
     await probe.body?.cancel();
-    const timestamp = now();
-    const user = db().prepare(`INSERT INTO users (github_id, login, name, avatar_url,
+    const timestamp = new Date().toISOString();
+    const user = (await asyncDb().execute({ sql: `INSERT INTO users (github_id, login, name, avatar_url,
       token_cipher, token_expires_at, refresh_cipher, refresh_expires_at, token_scopes, created_at, last_seen_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(github_id) DO UPDATE SET login=excluded.login, name=excluded.name,
       avatar_url=excluded.avatar_url, token_cipher=excluded.token_cipher,
       token_expires_at=excluded.token_expires_at, refresh_cipher=excluded.refresh_cipher,
       refresh_expires_at=excluded.refresh_expires_at, token_scopes=excluded.token_scopes,
-      last_seen_at=excluded.last_seen_at RETURNING id, blocked`).get(
+      last_seen_at=excluded.last_seen_at RETURNING id, blocked`, args: [
       identity.githubId, identity.login, identity.name, identity.avatarUrl,
       seal(pair.accessToken), pair.accessExpiresAt, seal(pair.refreshToken), pair.refreshExpiresAt,
       pair.scopes, timestamp, timestamp,
-    ) as { id: number; blocked: number };
+    ] })).rows[0] as unknown as { id: number; blocked: number };
     if (user.blocked) return result("/login?error=blocked");
     billingClient.invalidate(user.id);
     await createSession(user.id);
