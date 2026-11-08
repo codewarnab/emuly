@@ -1,4 +1,5 @@
 import { createClient as libsqlClient, type Client, type Config, type InStatement, type ResultSet } from "@libsql/client";
+import { assertCoordination } from "./coordination.ts";
 
 /** Both root clients and transaction handles expose this same query boundary. */
 export type DatabaseQueries = { execute(statement: InStatement): Promise<ResultSet> };
@@ -16,7 +17,9 @@ export async function transaction<T>(client: Client, work: (queries: DatabaseQue
 async function performTransaction<T>(client: Client, work: (queries: DatabaseQueries) => Promise<T>): Promise<T> {
   const tx = await client.transaction("write");
   try {
+    await assertCoordination(tx);
     const result = await work(tx);
+    await assertCoordination(tx);
     await tx.commit();
     return result;
   } catch (error) {

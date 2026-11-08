@@ -18,6 +18,8 @@ import { unreadAutoStops, acknowledgeAutoStops } from "../shared/hours.ts";
 import { createAccessTokenProvider } from "../github/github-token.ts";
 import { streamQuality, saveStreamQuality } from "../shared/display-settings.ts";
 import { randomBytes } from "node:crypto";
+import { issueSharedStreamTicket, takeSharedStreamTicket } from "../phone/shared-stream-ticket.ts";
+import { importDatabase } from "./import-database.ts";
 
 // This contract covers the actual async auth functions and migration runner together.
 // The older auth-storage test owns interoperability with existing native SQLite data.
@@ -72,6 +74,10 @@ for (const hosted of [false, true]) {
       assert.deepEqual(await userSettings(client, 2), otherSettings);
       await client.execute(`INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state, created_at, runner_secret)
         VALUES ('synthetic-phone', 1, 'synthetic-space', 'fixture/template', 'fixture', 'running', '2026-11-01', X'00')`);
+      const streamTicket = await issueSharedStreamTicket(client, { userId: 1, phoneId: "synthetic-phone", sessionId: "synthetic-session", origin: "https://fixture.example", cookie: "fixture-cookie" });
+      assert.equal(await takeSharedStreamTicket(client, streamTicket, "synthetic-phone", "https://fixture.example", "wrong-cookie"), undefined);
+      const redeemed = await Promise.all([0, 1].map(() => takeSharedStreamTicket(client, streamTicket, "synthetic-phone", "https://fixture.example", "fixture-cookie")));
+      assert.equal(redeemed.filter(Boolean).length, 1, "a shared ticket can only be redeemed once");
       const key = randomBytes(32).toString("base64");
       const baseUrl = "https://phonelink.example";
       const resolve = async () => [{ address: "93.184.216.34", family: 4 }];
@@ -196,6 +202,7 @@ for (const hosted of [false, true]) {
         await client.execute({ sql: "UPDATE users SET token_cipher = ?, token_expires_at = ?, refresh_cipher = ?, refresh_expires_at = ? WHERE id = 2",
           args: [seal("synthetic-access", key), new Date(now).toISOString(), seal("synthetic-refresh", key), new Date(now + 86_400_000).toISOString()] });
         const accessToken = createAccessTokenProvider({ database: client, encrypt: value => seal(value, key), decrypt: value => open(value, key) });
+        const secondInstance = createAccessTokenProvider({ database: client, encrypt: value => seal(value, key), decrypt: value => open(value, key) });
         let exchanges = 0;
         const options = { clock: () => now, fetch: async (_url: unknown, init?: RequestInit) => {
           exchanges++;
@@ -203,7 +210,7 @@ for (const hosted of [false, true]) {
           return Response.json({ access_token: "synthetic-rotated", refresh_token: "synthetic-next-refresh", expires_in: 28_800,
             refresh_token_expires_in: 15_552_000, scope: "codespace", token_type: "bearer" });
         } };
-        assert.deepEqual(await Promise.all([accessToken(2, options), accessToken(2, options), accessToken(2, options)]),
+        assert.deepEqual(await Promise.all([accessToken(2, options), secondInstance(2, options), accessToken(2, options)]),
           ["synthetic-rotated", "synthetic-rotated", "synthetic-rotated"]);
         assert.equal(exchanges, 1);
         const storedTokens = (await client.execute("SELECT token_cipher, refresh_cipher FROM users WHERE id = 2")).rows[0];
@@ -228,6 +235,16 @@ for (const hosted of [false, true]) {
       await migrateHosted(client);
       assert.equal(Number((await client.execute("SELECT count(*) AS n FROM schema_migrations")).rows[0].n), MIGRATIONS.length);
       assert.equal((await readSession(client, original.value))?.userId, 1);
+      const imported = createClient({ url: "file::memory:" });
+      try {
+        await migrateHosted(imported);
+        const counts = await importDatabase(client, imported);
+        assert.equal(counts.users, 2);
+        assert.equal((await readSession(imported, original.value))?.userId, 1);
+        const sourceToken = (await client.execute("SELECT hex(token_cipher) AS cipher FROM users WHERE id = 2")).rows[0].cipher;
+        assert.equal((await imported.execute("SELECT hex(token_cipher) AS cipher FROM users WHERE id = 2")).rows[0].cipher, sourceToken);
+        await assert.rejects(importDatabase(client, imported), /empty/);
+      } finally { imported.close(); }
       const stored = (await client.execute("SELECT id FROM sessions")).rows[0].id;
       assert.notEqual(stored, original.value);
       assert.equal(await readSession(client, "malformed"), null);

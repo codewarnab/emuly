@@ -212,4 +212,17 @@ export const MIGRATIONS = [
     retry_at INTEGER NOT NULL, error_code TEXT NOT NULL
   );
   `,
+  `CREATE TABLE coordination_leases (
+    resource TEXT PRIMARY KEY, owner TEXT NOT NULL, expires_at INTEGER NOT NULL
+  );
+  CREATE TABLE stream_tickets (
+    hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    phone_id TEXT NOT NULL REFERENCES phones(id) ON DELETE CASCADE, session_id TEXT NOT NULL,
+    origin TEXT NOT NULL, cookie_hash TEXT NOT NULL, expires_at INTEGER NOT NULL
+  );
+  CREATE TABLE app_admissions (
+    phone_id TEXT PRIMARY KEY REFERENCES phones(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    operation_key TEXT NOT NULL, expires_at INTEGER NOT NULL
+  );`,
 ];

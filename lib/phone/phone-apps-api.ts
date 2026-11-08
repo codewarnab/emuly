@@ -1,6 +1,7 @@
 import "server-only";
 import { APK_CHUNK_BYTES, APK_MAX_BYTES, installFinished } from "./phone-apps-contract.ts";
 import type { AppsPath, AppsRequest } from "./phone-link.ts";
+import type { sharedAppAdmission } from "./app-admission.ts";
 import { PhoneResponseError, parseAppsResponse, parsePhoneError, parseRunnerUpdate, readPhoneResponse } from "./phone-response.ts";
 
 type Phone = { state: string; android_state: string };
@@ -34,11 +35,12 @@ async function readBounded(request: Request, limit: number) {
 }
 
 /** One authorization boundary for inventory, operations, binary upload and launch. */
-export function createPhoneAppsApi({ user, phone, runner, upgrade }: {
+export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmission }: {
   user: () => Promise<{ id: number } | null>;
   phone: (userId: number, id: string) => Phone | undefined | Promise<Phone | undefined>;
   runner: (userId: number, id: string, path: AppsPath, options: AppsRequest) => Promise<Response>;
   upgrade?: (userId: number, id: string) => Promise<{ status: string }>;
+  sharedAdmission?: ReturnType<typeof sharedAppAdmission>;
 }) {
   return async (request: Request, id: string, parts: string[]) => {
     let transfer = false;
@@ -63,6 +65,7 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade }: {
       if (!allowed) bad(404, "Apps route not found.");
       const options: AppsRequest = { method: request.method as AppsRequest["method"], signal: request.signal };
       const admissionId = `${identity.id}:${id}`;
+      let admissionKey = await sharedAdmission?.current(identity.id, id);
       if (request.method === "PUT") {
         if (request.headers.get("content-type") !== "application/octet-stream") bad(415, "Expected binary APK content.");
         if ((global.__appTransfers ?? 0) >= 6) bad(429, "Uploads are busy. Retry this chunk shortly.");
@@ -90,10 +93,15 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade }: {
             try { url = new URL(input.url); } catch { bad(400, "Enter a direct HTTPS download URL."); }
             if (typeof input.url !== "string" || input.url.length > 4096 || url.protocol !== "https:" || url.username || url.password || url.hash || (url.port && url.port !== "443")) bad(400, "Use HTTPS without URL credentials or fragments.");
           }
+          if (sharedAdmission) {
+            if (!await sharedAdmission.claim(identity.id, id, input.key)) bad(429, "Two installations are already active. Refresh their status first.");
+            admissionKey = input.key;
+          } else {
           for (const [key, item] of admission) if (item.expires < Date.now()) admission.delete(key);
           const previous = admission.get(admissionId);
           if ((!previous || previous.key !== input.key) && [...admission.values()].filter(item => item.userId === identity.id).length >= 2) bad(429, "Two installations are already active. Refresh their status first.");
           admission.set(admissionId, { userId: identity.id, key: input.key, expires: Date.now() + 1_800_000 });
+          }
           options.json = input.source === "upload" ? { source: "upload", key: input.key, filename: input.filename, totalBytes: input.totalBytes }
             : { source: "url", key: input.key, url: input.url };
         }
@@ -102,11 +110,15 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade }: {
       const payload = response.ok
         ? await readPhoneResponse(response, value => parseAppsResponse(value, route, request.method))
         : await readPhoneResponse(response, parsePhoneError);
+      const release = async () => {
+        if (sharedAdmission && admissionKey) await sharedAdmission.release(identity.id, id, admissionKey);
+        else admission.delete(admissionId);
+      };
       if (response.ok && (resource || (route === "app-installs" && request.method === "POST"))
-        && "stage" in payload && installFinished(payload.stage)) admission.delete(admissionId);
+        && "stage" in payload && installFinished(payload.stage)) await release();
       if (response.ok && route === "app-installs" && request.method === "GET"
-        && "operations" in payload && payload.operations.every(item => installFinished(item.stage))) admission.delete(admissionId);
-      if (!response.ok && route === "app-installs" && request.method === "POST" && response.status !== 409) admission.delete(admissionId);
+        && "operations" in payload && payload.operations.every(item => installFinished(item.stage))) await release();
+      if (!response.ok && route === "app-installs" && request.method === "POST" && response.status !== 409) await release();
       return Response.json(payload, { status: response.ok && route === "app-installs" && request.method === "POST" ? 202 : response.status, headers });
     } catch (error) {
       if (error instanceof PhoneResponseError) return Response.json({ error: error.message, errorCode: "invalid_response" }, { status: 502, headers });

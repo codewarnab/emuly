@@ -53,19 +53,20 @@ export function PhonePreview({ id, ready, children }: { id?: string; ready?: boo
     if (element.current) observer.observe(element.current);
     const visibility = () => { if (document.hidden) controller?.abort(); else void refresh(); };
     document.addEventListener("visibilitychange", visibility);
-    const timer = setInterval(() => { void refresh(); }, 10_000);
+    const changed = () => { void refresh(); };
+    window.addEventListener("phonelink:changed", changed);
     return () => {
       disposed = true;
       controller?.abort();
       observer.disconnect();
       document.removeEventListener("visibilitychange", visibility);
-      clearInterval(timer);
+      window.removeEventListener("phonelink:changed", changed);
       URL.revokeObjectURL(current);
     };
   }, [id, ready]);
 
   return <div ref={element} className={`${s.thumb} ${frame && ready ? s.thumbReal : ""}`}>
     {frame && ready ? <img src={frame} alt="Phone screen preview" className={s.thumbPreview}
-      title="Phone screen · refreshes every 10 seconds" /> : children}
+      title="Phone screen preview" /> : children}
   </div>;
 }
