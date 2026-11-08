@@ -58,7 +58,7 @@ async function Dashboard({ clock = Date.now }: { clock?: () => number }) {
         GitHub deletes some stopped phones in less than 2 days. Choose Keep it to reset their countdown.
       </p>}
       {(!syncError || syncError.kind === "other") && <PhoneRefresh />}
-      <KeyboardTools phones={phones.map(phone => ({ id: phone.id, name: phone.id }))} />
+      <KeyboardTools phones={phones.map(phone => ({ id: phone.id, name: phone.name }))} />
       <QuotaStrip usage={usage} defaultCores={defaultCores} />
 
       {phones.length === 0 ? (

@@ -31,7 +31,7 @@ export const mockQuota = {
 export const mockPhones: PhoneRow[] = [
   {
     id: "phone-7f2a",
-    name: "phone-7f2a",
+    name: "phone-frosty-robin",
     state: "running",
     meta: [
       ["slot", "damp-cape-wr7q"],
@@ -44,7 +44,7 @@ export const mockPhones: PhoneRow[] = [
   },
   {
     id: "phone-3c19",
-    name: "phone-3c19",
+    name: "phone-bold-viper",
     state: "stopped",
     thumbDim: true,
     meta: [

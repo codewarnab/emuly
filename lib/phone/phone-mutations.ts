@@ -7,6 +7,7 @@ import { GitHubError, type Codespace, type createGitHubClient } from "../github/
 import { assertMutationRate } from "../data/rate-limit.ts";
 import { emitEvent, type EventEmitter } from "../data/events.ts";
 import { retentionExpiry } from "../data/retention.ts";
+import { candidatePhoneName, PHONE_ID } from "../shared/phone-name.ts";
 import { createDiagnostics, measure, newDiagnosticId } from "../diagnostics/diagnostics.ts";
 
 type GitHub = ReturnType<typeof createGitHubClient>;
@@ -155,11 +156,20 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
   }
 
   function phone(userId: number, id: string): StoredPhone {
-    if (!/^phone-[a-f0-9]{4,32}$/.test(id)) throw new PhoneInputError("Invalid phone ID");
+    if (!PHONE_ID.test(id)) throw new PhoneInputError("Invalid phone ID");
     const row = database.prepare("SELECT * FROM phones WHERE user_id = ? AND id = ? AND state != 'deleted'")
       .get(userId, id) as StoredPhone | undefined;
     if (!row) throw new PhoneInputError("Phone not found");
     return row;
+  }
+
+  /** Random, readable ids such as `phone-quiet-falcon`, unique across all accounts. */
+  function newPhoneId(): string {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const id = candidatePhoneName(randomBytes(4).readUInt32BE(0));
+      if (!database.prepare("SELECT 1 FROM phones WHERE id = ?").get(id)) return id;
+    }
+    return `phone-${randomBytes(8).toString("hex")}`;
   }
 
   function outgoing(userId: number, id: string, type: string, extra: Record<string, unknown> = {}) {
@@ -493,7 +503,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
           throw new PhoneInputError("Phone creation is unconfirmed. Refresh to reconcile it before creating another phone.");
         }
       }
-      const id = `phone-${randomBytes(8).toString("hex")}`;
+      const id = newPhoneId();
       claim(userId, id, "create", () => {
         if (unconfirmed(userId).length) throw new PhoneInputError("Phone creation is unconfirmed. Refresh before trying again.");
         if (maxPhones !== undefined) {

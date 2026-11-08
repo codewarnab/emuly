@@ -1,5 +1,6 @@
 import "server-only";
 import { shortMessage } from "../shared/short-message.ts";
+import { phoneName } from "../shared/phone-name.ts";
 import { phoneStatus, phoneEventMessage } from "./phone-status.ts";
 import { db } from "../data/db";
 import type { PhoneRow } from "@/lib/shared/fixtures";
@@ -7,6 +8,8 @@ import type { LogRow } from "@/components/ui/log-feed";
 
 export type Phone = {
   id: string;
+  /** Friendly name for display only. Never use it in URLs or API calls. */
+  name: string;
   codespace_name: string;
   machine: string;
   state: string;
@@ -29,21 +32,23 @@ const columns = `id, codespace_name, machine, state, state_detail, created_at, r
   EXISTS(SELECT 1 FROM phone_keeps WHERE phone_id = phones.id) AS keeping`;
 
 export function listPhones(userId: number): Phone[] {
-  return db().prepare(`SELECT ${columns} FROM phones WHERE user_id = ? AND state != 'deleted'
+  const rows = db().prepare(`SELECT ${columns} FROM phones WHERE user_id = ? AND state != 'deleted'
     ORDER BY CASE WHEN state = 'running' THEN 0 WHEN state IN ('booting', 'pending', 'stopping') THEN 1 ELSE 2 END,
-      COALESCE(last_started_at, last_stopped_at, created_at) DESC, id`).all(userId) as Phone[];
+      COALESCE(last_started_at, last_stopped_at, created_at) DESC, id`).all(userId) as unknown as Omit<Phone, "name">[];
+  return rows.map(row => ({ ...row, name: phoneName(row.id) }));
 }
 
 export function findPhone(userId: number, id: string): Phone | undefined {
-  return db().prepare(`SELECT ${columns} FROM phones WHERE user_id = ? AND id = ? AND state != 'deleted'`)
-    .get(userId, id) as Phone | undefined;
+  const row = db().prepare(`SELECT ${columns} FROM phones WHERE user_id = ? AND id = ? AND state != 'deleted'`)
+    .get(userId, id) as Omit<Phone, "name"> | undefined;
+  return row && { ...row, name: phoneName(row.id) };
 }
 
 export function phoneCard(phone: Phone): PhoneRow {
   const status = phoneStatus(phone);
   return {
     id: phone.id,
-    name: phone.id,
+    name: phone.name,
     state: status.kind,
     statusLabel: status.label,
     thumbDim: status.kind !== "running",

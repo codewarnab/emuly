@@ -516,7 +516,7 @@ test("phone HTTP API authenticates, rejects cross-site creation, passes defaults
     const created = await api.create(request());
     assert.equal(created.status, 201);
     const { id } = await created.json();
-    assert.match(id, /^phone-[a-f0-9]+$/);
+    assert.match(id, /^phone-[a-z]+-[a-z]+$/);
     assert.equal(f.database.prepare("SELECT idle_timeout_min FROM phones WHERE id = ?").get(id)?.idle_timeout_min, 240);
     assert.equal(posts, 2);
   } finally { f.close(); }

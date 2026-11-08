@@ -7,6 +7,7 @@ import { PHONE_MACHINE } from "../../lib/github/github";
 import { IDLE_MAX, IDLE_MIN, parseIdle } from "../../lib/shared/idle";
 import { GitHubError } from "../../lib/github/github";
 import { PhoneInputError, redact } from "../../lib/phone/phone-mutations";
+import { PHONE_ID } from "../../lib/shared/phone-name";
 import { RateLimitError } from "../../lib/data/rate-limit";
 import { db } from "../../lib/data/db";
 import { saveAllowance, userSettings } from "../../lib/data/usage";
@@ -36,14 +37,14 @@ export async function mutatePhone(_previous: MutationResult, form: FormData): Pr
       message = "Phone created. GitHub is preparing the codespace.";
     } else if (operation === "start" || operation === "stop" || operation === "keep" || operation === "retryBoot") {
       const value = form.get("phoneId");
-      if (typeof value !== "string" || !/^phone-[a-f0-9]{4,32}$/.test(value)) throw new PhoneInputError("Invalid phone ID");
+      if (typeof value !== "string" || !PHONE_ID.test(value)) throw new PhoneInputError("Invalid phone ID");
       id = value;
       await phoneControl()[operation](user.id, id);
       message = operation === "retryBoot" ? "Android boot requested." : operation === "keep" ? "Keep it started. The phone stops again when GitHub is available. Check Activity for progress."
         : operation === "stop" ? "Stop requested. Check Activity for progress." : "Wake requested. Check Activity for progress.";
     } else if (operation === "delete") {
       const value = form.get("phoneId");
-      if (typeof value !== "string" || !/^phone-[a-f0-9]{4,32}$/.test(value)) throw new PhoneInputError("Invalid phone ID");
+      if (typeof value !== "string" || !PHONE_ID.test(value)) throw new PhoneInputError("Invalid phone ID");
       if (form.get("confirmation") !== value) throw new PhoneInputError("Type the phone name to confirm.");
       await phoneControl().remove(user.id, value);
       deleted = true;

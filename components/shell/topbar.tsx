@@ -24,7 +24,7 @@ export function Topbar({
 }: {
   /** main nav labels; "on" marks the active one */
   nav?: Array<{ label: string; on?: boolean }>;
-  /** breadcrumb on phone pages: ["Phones", "phone-7f2a"] */
+  /** breadcrumb on phone pages: ["Phones", "phone-quiet-falcon"] */
   breadcrumb?: string[];
   /** right side (quota chip, pill, buttons, avatar) */
   children: React.ReactNode;
