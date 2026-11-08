@@ -108,8 +108,20 @@ function NewPhoneSkeleton() {
 export function PhoneRefresh() {
   const router = useRouter();
   useEffect(() => {
-    const timer = setInterval(() => { if (document.visibilityState === "visible") router.refresh(); }, 30_000);
-    return () => clearInterval(timer);
+    let lastRefresh = -Infinity;
+    const refresh = () => {
+      if (document.hidden || performance.now() - lastRefresh < 1000) return;
+      lastRefresh = performance.now();
+      router.refresh();
+    };
+    const timer = setInterval(refresh, 30_000);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
   }, [router]);
   return null;
 }

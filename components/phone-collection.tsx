@@ -35,7 +35,7 @@ export function PhoneCollection({ phones, userId }: { phones: Item[]; userId: nu
     </div>
     {view === "grid" ? <div className={s.grid}>{phones.map(phone => <ViewTransition key={phone.card.id} name={`phone-${phone.card.id}`} share="phone-morph" default="none"><div><PhoneCard phone={phone.card} controlState={phone.state} retention={phone.retention} codespace={phone.codespace} /></div></ViewTransition>)}</div>
       : <ul className={s.phoneList}>{phones.map(phone => <ViewTransition key={phone.card.id} name={`phone-${phone.card.id}`} share="phone-morph" default="none"><li className={s.phoneRow}>
-        <div><Link className={s.name} href={`/app/phones/${encodeURIComponent(phone.card.id)}`}>{phone.card.name}</Link><Pill kind={phone.card.state}>{phone.card.state}</Pill></div>
+        <div><Link className={s.name} href={`/app/phones/${encodeURIComponent(phone.card.id)}`}>{phone.card.name}</Link><Pill kind={phone.card.state}>{phone.card.statusLabel ?? phone.card.state}</Pill></div>
         <div className={s.rowDetails}><span>Last used: {phone.lastUsed ? `${phone.lastUsed.slice(0, 16).replace("T", " ")} UTC` : "Not recorded"}</span>{phone.retention && <>
           <span className={phone.retention.warning ? s.retentionWarning : undefined}>{phone.retention.message}</span>
           {phone.retention.canKeep && phone.state !== "keeping" && <KeepPhone id={phone.card.id} />}

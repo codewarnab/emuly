@@ -2,10 +2,10 @@
 // Listens on 127.0.0.1:8790. The dashboard reaches it over `gh codespace ssh -L`.
 import ws from "./ws.cjs";
 import { startScrcpy } from "./scrcpy.mjs";
+import { createApps, CHUNK_SIZE } from "./apps.mjs";
+import { AppError } from "./apk-download.mjs";
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
-import { writeFile, rm } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -59,29 +59,26 @@ async function readBody(req) {
   try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); }
   catch { throw new HttpError(400, "invalid JSON"); }
 }
-
-async function thirdPartyPackages() {
-  const out = await adb(["shell", "pm", "list", "packages", "-3"]);
-  return out.split("\n").map(line => line.trim().replace(/^package:/, "")).filter(Boolean);
-}
+const apps = await createApps({ root: join(ROOT, "data", "app-installs"), sdk: SDK, run, adb, exclusive, booted });
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 3, avd: "t", api_level: 36, booted: await booted() }),
+  "GET /health": async () => ({ ok: true, version: 4, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch"], avd: "t", api_level: 36, booted: await booted() }),
 
   "POST /boot": ({ mode }) => {
     return boot ??= exclusive(async () => {
       const start = Date.now();
       await script("boot.sh", [mode === "cold" ? "cold" : "resume"]);
+      apps.resume();
       return { booted: await booted(), seconds: Math.round((Date.now() - start) / 1000) };
     }).finally(() => { boot = undefined; });
   },
 
-  "POST /stop": () => exclusive(async () => {
+  "POST /stop": async () => { await apps.stop(); return exclusive(async () => {
     const start = Date.now();
     for (const client of streams.clients) client.close();
     await script("stop.sh");
     return { stopped: true, seconds: Math.round((Date.now() - start) / 1000) };
-  }),
+  }); },
 
   "POST /key": async ({ key }) => {
     const keys = { home: "3", back: "4" };
@@ -110,31 +107,10 @@ const routes = {
     return { ok: true };
   },
 
-  "POST /install": async ({ url, sha256 }) => {
-    if (typeof url !== "string" || !url.startsWith("https://")) throw new HttpError(400, "url must be https");
-    const response = await fetch(url);
-    if (!response.ok) throw new HttpError(502, `download failed: ${response.status}`);
-    const bytes = Buffer.from(await response.arrayBuffer());
-    if (sha256 && createHash("sha256").update(bytes).digest("hex") !== String(sha256).toLowerCase()) {
-      throw new HttpError(400, "sha256 mismatch");
-    }
-    const file = `/tmp/install-${Date.now()}.apk`;
-    await writeFile(file, bytes);
-    try {
-      const before = new Set(await thirdPartyPackages());
-      await adb(["install", "-r", file], { timeout: 300_000 });
-      const added = (await thirdPartyPackages()).find(name => !before.has(name));
-      return { package: added ?? null };
-    } finally {
-      await rm(file, { force: true });
-    }
-  },
-
-  "GET /apps": async () => {
-    const out = await adb(["shell", "pm", "list", "packages", "-3", "--show-versioncode"]);
-    return out.split("\n").map(line => line.trim().match(/^package:(\S+)(?:\s+versionCode:(\S+))?/))
-      .filter(Boolean).map(m => ({ package: m[1], version: m[2] ?? null }));
-  },
+  "GET /apps": () => apps.inventory(),
+  "POST /apps/open": ({ packageId }) => apps.open(packageId),
+  "GET /app-installs": () => apps.list(),
+  "POST /app-installs": body => apps.create(body),
 };
 
 const server = createServer(async (req, res) => {
@@ -145,6 +121,25 @@ const server = createServer(async (req, res) => {
   try {
     if (SECRET && req.headers["x-phone-secret"] !== SECRET) return send(401, { error: "unauthorized" });
     const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    const install = path.match(/^\/app-installs\/([0-9a-f-]{36})(?:\/(content|complete|cancel))?$/);
+    if (install) {
+      const [, id, action] = install;
+      if (req.method === "GET" && !action) return send(200, apps.status(id));
+      if (req.method === "POST" && action === "complete") return send(200, await apps.complete(id));
+      if (req.method === "POST" && action === "cancel") return send(200, await apps.cancel(id));
+      if (req.method === "PUT" && action === "content") {
+        if (req.headers["content-type"] !== "application/octet-stream") throw new AppError(415, "invalid_type", "Expected binary APK content.");
+        req.setTimeout(30_000, () => req.destroy());
+        const chunks = []; let size = 0;
+        for await (const chunk of req) {
+          size += chunk.length;
+          if (size > CHUNK_SIZE) throw new AppError(413, "too_large", "Upload chunk too large.");
+          chunks.push(chunk);
+        }
+        return send(200, await apps.content(id, Buffer.concat(chunks), Number(req.headers["x-upload-offset"]), req.headers["x-chunk-sha256"]));
+      }
+      return send(405, { error: "Method not allowed." });
+    }
     const handler = routes[`${req.method} ${path}`];
     if (!handler) return send(404, { error: "not found" });
     const result = await handler(req.method === "POST" ? await readBody(req) : {});
@@ -154,7 +149,7 @@ const server = createServer(async (req, res) => {
     }
     send(200, result);
   } catch (error) {
-    send(error.status ?? 500, { error: error.status ? error.message : String(error.stderr || error.message).slice(-500) });
+    send(error.status ?? 500, { error: error.status ? error.message : "Phone operation failed.", errorCode: error.code ?? "runner_error" });
   }
 }).listen(PORT, "127.0.0.1", () => console.log(`runner listening on 127.0.0.1:${PORT}`));
 

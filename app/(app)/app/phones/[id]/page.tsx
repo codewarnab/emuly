@@ -2,11 +2,12 @@ import Link from "next/link";
 import { shortMessage } from "../../../../../lib/short-message";
 import { PHONE_TABS } from "../../../../../lib/keyboard";
 import { idleLabel } from "../../../../../lib/idle";
+import { phoneStatus } from "../../../../../lib/phone-status";
 import Loading from "./loading";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { requireUser } from "../../../../../lib/auth";
-import { findPhone, listPhones, phoneCard, phoneEvents, type Phone } from "../../../../../lib/phones";
+import { findPhone, listPhones, phoneEvents, type Phone } from "../../../../../lib/phones";
 import { KeyboardTools } from "../../../../../components/keyboard-tools";
 import { syncPhoneState } from "../../../../../lib/phone-control";
 import type { SyncError } from "../../../../../lib/sync-error";
@@ -25,6 +26,7 @@ import { Pill } from "../../../../../components/pill";
 import { mockLog, mockDetail, mockPhones } from "../../../../../components/fixtures";
 import { db } from "../../../../../lib/db";
 import { streamQuality } from "../../../../../lib/display-settings";
+import { PhoneApps } from "../../../../../components/phone-apps";
 
 /** Board block 03 — the live screen. Stage left, log right, tabs on top.
     Also board 04: the Danger tab holds the one destructive action. */
@@ -132,9 +134,8 @@ async function StoredPhone({ phone, user, search, syncError }: {
 }) {
   const { tab: rawTab } = await search;
   const tab = (rawTab && tabSet.has(rawTab) ? rawTab : "log") as Tab;
-  // A failed setup keeps the phone booting and retries, so the stage shows the failure instead of waiting.
-  const setupFailed = phone.state === "booting" && /^(Phone setup failed|Could not reach the codespace)/.test(phone.state_detail ?? "");
-  const screenReady = phone.state === "running" && phone.android_state === "ready";
+  const screenReady = !phone.keeping && phone.state === "running" && phone.android_state === "ready";
+  const status = phoneStatus(phone);
   return <>
     <KeyboardTools phones={listPhones(user.id).map(item => ({ id: item.id, name: item.id }))} />
     <Topbar breadcrumb={["Phones", phone.id]}>
@@ -147,23 +148,16 @@ async function StoredPhone({ phone, user, search, syncError }: {
         {screenReady &&
           <PhoneScreen key={phone.id} id={phone.id} resting={false} live quality={streamQuality(db(), user.id)} />}
         {phone.state !== "running" && phone.state !== "stopped" && <div className={s.emptyPhone} aria-hidden />}
-        {!screenReady && <><Pill kind={phoneCard(phone).state}>{phone.state}</Pill>
-        <h2>{phone.state === "stopped" ? "Resting" : phone.state === "error" ? "Phone did not start" : setupFailed ? "Setup failed"
-          : phone.state === "running" ? phone.android_state === "failed" ? "Android boot failed"
-          : phone.android_state === "ready" ? "Live screen" : "Starting Android" : phone.state === "booting" && phone.state_detail ? "Installing Android" : "Starting the codespace"}</h2></>}
+        {!screenReady && <h2>{status.title}</h2>}
         {phone.state === "running" && phone.android_state === "booting" && <AndroidElapsed started={phone.android_started_at} />}
         {phone.state === "running" && phone.android_state === "failed" && <><p>{phone.android_error}</p><RetryBoot id={phone.id} /></>}
-        {phone.state !== "running" && <>
-        <p>{phone.state === "stopped" ? "Wake it to resume the same device."
-          : (phone.state === "error" || setupFailed) && phone.state_detail ? shortMessage(phone.state_detail)
-          : phone.state === "booting" && phone.state_detail ? phone.state_detail
-          : "The screen appears when the phone connects."}</p>
+        {(phone.state !== "running" || Boolean(phone.keeping)) && <>
+        <p>{phone.state === "error" ? shortMessage(status.description) : status.description}</p>
         </>}
-        {setupFailed && <p>phonelink tries again in about 10 minutes.</p>}
         {syncError && <SyncNotice error={syncError} />}
         {/* The one action that fits the state, next to the state it fixes. */}
         <div className={screenReady ? s.liveStageFooter : undefined}>
-        {screenReady && <Pill kind={phoneCard(phone).state}>{phone.state}</Pill>}
+        {screenReady && <Pill kind={status.kind}>{status.label}</Pill>}
         {phone.codespace_name.startsWith("pending:")
           ? phone.state === "error" && <Link className={`${s.btn} ${s.btnTiny} ${s.btnGhost}`} href={`/app/phones/${encodeURIComponent(phone.id)}?tab=danger`}>Delete this phone</Link>
           : <PhoneMutation id={phone.id} state={phone.keeping ? "keeping" : phone.state} />}
@@ -172,9 +166,9 @@ async function StoredPhone({ phone, user, search, syncError }: {
       <div>
         <Tabs active={tab} phoneId={phone.id} />
         <section role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} tabIndex={0}>
-        {tab === "danger" ? <DangerPanel phoneName={phone.id} /> :
-          <LogFeed title={tab === "apps" ? "Installed apps" : tab === "backups" ? "Backups" : "Activity"} rows={tab === "log" ? phoneEvents(user.id, phone.id) : []} live={false}
-            running={tab === "log" && phone.state === "booting" && !setupFailed ? "Setting up…" : undefined} emptyMessage={tab === "apps" ? "No apps yet." : tab === "backups" ? "No backups yet." : "No activity yet."} />}
+        {tab === "danger" ? <DangerPanel phoneName={phone.id} /> : tab === "apps" ? <PhoneApps key={phone.id} id={phone.id} ready={screenReady} /> :
+          <LogFeed title={tab === "backups" ? "Backups" : "Activity history"} rows={tab === "log" ? phoneEvents(user.id, phone.id) : []} live={false}
+            running={tab === "log" ? `Current status: ${status.title}` : undefined} emptyMessage={tab === "backups" ? "No backups yet." : "No activity yet."} />}
         </section>
         <div className={s.subgrid}>
           <Mini title="This phone" rows={[["Machine", "4-core"], ["Idle stop", idleLabel(phone.idle_timeout_min)]]} />

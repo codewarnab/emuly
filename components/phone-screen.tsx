@@ -22,6 +22,8 @@ function ControlIcon({ name }: { name: keyof typeof controlIcons }) {
 
 export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: string; live: boolean; resting: boolean; quality?: StreamQuality }) {
   const [frame, setFrame] = useState("");
+  const [screenshotFresh, setScreenshotFresh] = useState(false);
+  const [screenshotAt, setScreenshotAt] = useState(0);
   const [error, setError] = useState("");
   const [inputPending, setInputPending] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -37,44 +39,69 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
   const endpoint = `/app/phones/${encodeURIComponent(id)}/screen.png`;
   useEffect(() => {
     let disposed = false;
-    let busy = false;
-    let current = "";
+    let generation = 0;
+    let lastResume = -Infinity;
+    let expiry: ReturnType<typeof setTimeout> | undefined;
     let controller: AbortController | undefined;
     async function poll() {
-      if (!live || activeVideo.current || disposed || busy || document.visibilityState !== "visible") return;
-      busy = true;
-      controller = new AbortController();
+      if (!live || activeVideo.current || disposed || controller || document.visibilityState !== "visible") return;
+      const attempt = new AbortController();
+      controller = attempt;
+      const epoch = generation;
+      const started = performance.now();
+      let next = "";
       try {
-        const response = await fetch(endpoint, { cache: "no-store", signal: controller.signal });
+        const response = await fetch(endpoint, { cache: "no-store",
+          signal: AbortSignal.any([attempt.signal, AbortSignal.timeout(15_000)]) });
         if (!response.ok) throw new Error("Screen unavailable. Retrying…");
         const blob = await response.blob();
-        const next = URL.createObjectURL(blob);
+        next = URL.createObjectURL(blob);
         const decoded = new Image();
         decoded.src = next;
-        try { await decoded.decode(); }
-        catch (error) { URL.revokeObjectURL(next); throw error; }
-        if (disposed || document.visibilityState !== "visible") { URL.revokeObjectURL(next); return; }
-        const previous = current;
-        current = next;
+        await decoded.decode();
+        if (disposed || attempt.signal.aborted || epoch !== generation || document.hidden ||
+          activeVideo.current || started <= video.lastFrameAt.current) return;
         setFrame(next);
+        next = "";
+        setScreenshotAt(started);
+        setScreenshotFresh(true);
+        clearTimeout(expiry);
+        expiry = setTimeout(() => setScreenshotFresh(false), 5000);
         setError("");
-        URL.revokeObjectURL(previous);
       } catch {
-        if (!disposed && !controller.signal.aborted) setError("Screen unavailable. Retrying…");
-      } finally { busy = false; }
+        if (!disposed && epoch === generation && !attempt.signal.aborted) setError("Screen unavailable. Retrying…");
+      } finally {
+        if (next) URL.revokeObjectURL(next);
+        if (controller === attempt) controller = undefined;
+      }
     }
-    const visibility = () => { if (document.hidden) controller?.abort(); else void poll(); };
+    const invalidate = () => {
+      generation++;
+      controller?.abort();
+      controller = undefined;
+      clearTimeout(expiry);
+      setScreenshotFresh(false);
+    };
+    const resume = () => {
+      if (document.hidden || performance.now() - lastResume < 250) return;
+      lastResume = performance.now();
+      invalidate();
+      void poll();
+    };
+    const visibility = () => { if (document.hidden) invalidate(); else resume(); };
     const timer = setInterval(() => { void poll(); }, 1000);
     document.addEventListener("visibilitychange", visibility);
+    window.addEventListener("focus", resume);
     void poll();
     return () => {
       disposed = true;
-      controller?.abort();
+      invalidate();
       clearInterval(timer);
       document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("focus", resume);
       // Keep the displayed frame when live changes. Release it after the replacement loads or unmounts.
     };
-  }, [endpoint, live]);
+  }, [endpoint, live, video.lastFrameAt]);
   const lastFrame = useRef("");
   useEffect(() => {
     if (lastFrame.current && lastFrame.current !== frame) URL.revokeObjectURL(lastFrame.current);
@@ -83,7 +110,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
   useEffect(() => () => { URL.revokeObjectURL(lastFrame.current); }, []);
 
   async function input(body: Record<string, unknown>) {
-    if (!live || inputBusy.current) return;
+    if (!live || (!video.active && !screenshotFresh) || inputBusy.current) return;
     inputBusy.current = true;
     setInputPending(true);
     try {
@@ -94,10 +121,10 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
     finally { inputBusy.current = false; setInputPending(false); }
   }
   function position(event: { clientX: number; clientY: number }) {
-    const element = video.active ? canvas.current : image.current;
+    const element = showCanvas ? canvas.current : image.current;
     if (!element) return;
-    const width = video.active ? canvas.current!.width : image.current!.naturalWidth;
-    const height = video.active ? canvas.current!.height : image.current!.naturalHeight;
+    const width = showCanvas ? canvas.current!.width : image.current!.naturalWidth;
+    const height = showCanvas ? canvas.current!.height : image.current!.naturalHeight;
     return screenPoint(event.clientX, event.clientY, element.getBoundingClientRect(), width, height);
   }
   const wheel = useRef<(event: WheelEvent) => void>(() => {});
@@ -115,12 +142,14 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
     element?.addEventListener("wheel", handler, { passive: false });
     return () => element?.removeEventListener("wheel", handler);
   }, []);
-  const showCanvas = video.painted && (video.active || !live || !frame);
+  const showCanvas = video.painted && (video.active || !frame || video.lastFrameAt.current >= screenshotAt);
+  const fresh = live && (video.active || screenshotFresh);
+  const reconnecting = live && !fresh;
   const connectionLabel = !live ? resting ? "Resting" : "Waiting for Android"
-    : video.active ? "Live" : frame || video.painted ? "Screenshot view" : "Connecting";
+    : video.active ? "Live" : screenshotFresh ? "Screenshot view" : frame || video.painted ? "Reconnecting · showing last image" : "Connecting";
   function control(key: "home" | "back" | "recent" | "rotate" | "volumeUp" | "volumeDown", label: string) {
     return <button type="button" className={s.control} aria-label={label} title={label}
-      disabled={!live || inputPending || (!video.active && !["home", "back"].includes(key))}
+      disabled={!fresh || inputPending || (!video.active && !["home", "back"].includes(key))}
       onClick={() => { if (!video.send(key === "rotate" ? { type: "rotate" } : { type: "key", key })) void input({ type: "key", key }); }}>
       <ControlIcon name={key} /><span className={s.tooltip}>{label}</span>
     </button>;
@@ -133,11 +162,11 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
     <div className={s.viewer}>
     <div className={s.display}>
     <div ref={stage} className={`${s.screenTouch} ${!live ? s.screenDim : ""}`}
-      role="application" tabIndex={live ? 0 : -1} aria-label="Phone screen. Focus to use keyboard and paste."
+      role="application" tabIndex={fresh ? 0 : -1} aria-label="Phone screen. Focus to use keyboard and paste."
       onPointerDown={event => {
         event.currentTarget.focus();
         const point = position(event);
-        if (!point || !live) return;
+        if (!point || !fresh) return;
         if (!video.active) { void input({ type: "tap", x: point.x, y: point.y }); return; }
         if (pointers.current.size >= 10) return;
         const used = new Set(pointers.current.values());
@@ -203,7 +232,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
     </div>
     </div>
     <footer className={s.footer}>
-      <span>{video.active ? "Click to control · Type to send text" : "Click the screen to tap"}</span>
+      <span>{reconnecting ? "Controls resume when a fresh image arrives" : video.active ? "Click to control · Type to send text" : "Click the screen to tap"}</span>
       <span role="status">{video.active ? `${video.stats.fps} fps · ${video.stats.delay} ms` : live && video.supported ? "Reconnecting…" : ""}</span>
     </footer>
     {error && live && !video.active && <p className={s.error} role="status">{error}</p>}
@@ -218,6 +247,8 @@ export function AndroidElapsed({ started }: { started: string | null }) {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
-  const seconds = now && started ? Math.max(0, Math.floor((now - Date.parse(started)) / 1000)) : 0;
-  return <p>Starting Android… {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")} elapsed</p>;
+  const startedAt = Date.parse(started ?? "");
+  if (now === null || !Number.isFinite(startedAt)) return <p>Waiting for the screen to become ready.</p>;
+  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+  return <p>Elapsed time: {Math.floor(seconds / 60)} min {seconds % 60} sec</p>;
 }

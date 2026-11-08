@@ -100,7 +100,7 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
       'fixture-machine', 'error', '2026-11-02', ?)`).run(Buffer.from("sealed-pending-runner"));
     database.close();
     database = openDatabase(filename);
-    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 7);
+    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 8);
     assert.deepEqual({ ...database.prepare("SELECT * FROM phone_creations").get() }, {
       phone_id: "phone-bbbb", display_name: "phone-bbbb", outcome: "unconfirmed", requested_at: "2026-11-02",
     });
@@ -134,7 +134,7 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
     database.close();
     database = openDatabase(filename);
     assert.equal(database.prepare("SELECT count(*) AS n FROM runs").get()?.n, 1);
-    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 7);
+    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 8);
     assert.equal(database.prepare("SELECT count(*) AS n FROM phone_creations").get()?.n, 1);
     assert.equal(database.prepare("SELECT phase FROM phone_keeps").get()?.phase, "starting");
     database.exec("DELETE FROM users WHERE id = 1");

@@ -1,5 +1,6 @@
 import "server-only";
 import { shortMessage } from "./short-message.ts";
+import { phoneStatus, phoneEventMessage } from "./phone-status.ts";
 import { db } from "./db";
 import type { PhoneRow } from "../components/fixtures";
 import type { LogRow } from "../components/log-feed";
@@ -39,17 +40,16 @@ export function findPhone(userId: number, id: string): Phone | undefined {
 }
 
 export function phoneCard(phone: Phone): PhoneRow {
-  const state = phone.state === "pending" || phone.state === "stopping" ? "booting" : phone.state === "error" ? "needsyou" : phone.state;
+  const status = phoneStatus(phone);
   return {
     id: phone.id,
     name: phone.id,
-    state: state === "running" || state === "stopped" || state === "booting" ? state : "needsyou",
-    thumbDim: phone.state !== "running",
-    screenReady: phone.state === "running" && phone.android_state === "ready",
+    state: status.kind,
+    statusLabel: status.label,
+    thumbDim: status.kind !== "running",
+    screenReady: status.kind === "running",
     meta: [
-      ["Status", phone.state === "error" && phone.state_detail ? shortMessage(phone.state_detail)
-        : phone.state === "running" ? "Running" : phone.state === "stopped" ? "Resting · wakes in about 15 s"
-        : phone.state === "stopping" ? "Stopping" : "Getting ready"],
+      ["Status", status.title],
       ["Machine", "4-core · 16 GB"],
     ],
     foot: { ghost: "Backups", primary: "Open phone" },
@@ -59,6 +59,6 @@ export function phoneCard(phone: Phone): PhoneRow {
 export function phoneEvents(userId: number, id: string): LogRow[] {
   const rows = db().prepare(`SELECT ts, kind, message FROM events WHERE user_id = ? AND phone_id = ?
     ORDER BY ts DESC, id DESC LIMIT 50`).all(userId, id) as { ts: string; kind: string; message: string }[];
-  return rows.reverse().map(row => ({ time: `${row.ts.slice(11, 19)} UTC`, at: row.ts, ok: row.kind === "step", error: row.kind === "error",
-    parts: [{ type: "text", value: row.message.length > 100 ? shortMessage(row.message) : row.message }] }));
+  return rows.map(row => ({ time: `${row.ts.slice(11, 19)} UTC`, at: row.ts, ok: row.kind === "step", error: row.kind === "error",
+    parts: [{ type: "text", value: phoneEventMessage(row.message.length > 100 ? shortMessage(row.message) : row.message) }] }));
 }

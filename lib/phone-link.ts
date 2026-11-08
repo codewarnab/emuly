@@ -6,6 +6,8 @@ type Connection = Bridge & { forwarded: boolean };
 type Entry = { connection: Promise<Connection>; abort: AbortController; active: number; viewers: number; timer?: NodeJS.Timeout; awake?: NodeJS.Timeout };
 class RunnerResponseError extends Error {}
 export type RunnerPath = "/health" | "/boot" | "/stop" | "/screenshot" | "/tap" | "/key";
+export type AppsPath = "/apps" | "/apps/open" | "/app-installs" | `/app-installs/${string}`;
+export type AppsRequest = { method: "GET" | "POST" | "PUT"; json?: Record<string, unknown>; bytes?: Uint8Array; offset?: number; digest?: string; signal?: AbortSignal };
 
 /** One connection per owned phone. Only a read-only probe may fall back; never replay a mutation. */
 export function createPhoneLinks({ token, tunnel, keepAwake, fetch: request = fetch, idleMs = 120_000 }: {
@@ -78,6 +80,37 @@ export function createPhoneLinks({ token, tunnel, keepAwake, fetch: request = fe
   }
   return {
     close,
+    async apps(phone: Owner, path: AppsPath, options: AppsRequest): Promise<Response> {
+      if (!/^\/(?:apps(?:\/open)?|app-installs(?:\/[0-9a-f-]{36}(?:\/(?:content|complete|cancel))?)?)$/.test(path)) throw new Error("Invalid Apps route");
+      const { entry, release } = acquire(phone);
+      try {
+        const connection = await entry.connection;
+        const headers = new Headers({ "content-type": options.bytes ? "application/octet-stream" : "application/json" });
+        if (connection.forwarded) headers.set("X-Github-Token", await token(phone.userId));
+        if (options.bytes) { headers.set("X-Upload-Offset", String(options.offset)); headers.set("X-Chunk-Sha256", options.digest ?? ""); }
+        const signals = [entry.abort.signal, AbortSignal.timeout(90_000)];
+        if (options.signal) signals.push(options.signal);
+        const response = await request(`${connection.url}${path}`, { method: options.method, headers,
+          body: options.bytes ? Buffer.from(options.bytes) : options.json ? JSON.stringify(options.json) : undefined,
+          redirect: "manual", cache: "no-store", signal: AbortSignal.any(signals) });
+        if (!response.headers.get("content-type")?.includes("application/json")) {
+          await response.body?.cancel();
+          return Response.json({ error: "Update the phone runner before using Apps.", errorCode: "runner_update_required" }, { status: 503 });
+        }
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error("Empty Apps response");
+        const chunks: Uint8Array[] = []; let size = 0;
+        try {
+          for (;;) {
+            const { done, value } = await reader.read(); if (done) break;
+            size += value.length;
+            if (size > 512 * 1024) { await reader.cancel(); throw new Error("Apps response too large"); }
+            chunks.push(value);
+          }
+        } finally { reader.releaseLock(); }
+        return new Response(Buffer.concat(chunks), { status: response.status, headers: { "content-type": "application/json", "cache-control": "private, no-store" } });
+      } finally { release(); }
+    },
     async stream(phone: Owner) {
       const { entry, release } = acquire(phone);
       try {

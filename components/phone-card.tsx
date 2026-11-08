@@ -32,7 +32,7 @@ export function Thumb({ dim, sbRight = "5G", id, ready }: { dim?: boolean; sbRig
   );
 }
 
-const PILL_LABEL = { running: "running", stopped: "stopped", booting: "starting", needsyou: "failed" } as const;
+const PILL_LABEL = { running: "running", stopped: "stopped", stopping: "stopping", booting: "starting", needsyou: "failed" } as const;
 
 export function PhoneCard({ phone, controlState, retention, codespace = null }: { phone: PhoneRow; on?: boolean; controlState?: string; retention?: Retention | null; codespace?: string | null }) {
   const noCodespace = controlState === "error" && !codespace;
@@ -40,7 +40,7 @@ export function PhoneCard({ phone, controlState, retention, codespace = null }: 
     <div className={s.pcard}>
       <div className={s.pcardHead}>
         <Link href={`/app/phones/${encodeURIComponent(phone.id)}`} className={`${s.name} ${s.nameLink}`}>{phone.name}</Link>
-        <Pill kind={phone.state}>{PILL_LABEL[phone.state]}</Pill>
+        <Pill kind={phone.state}>{phone.statusLabel ?? PILL_LABEL[phone.state]}</Pill>
         <PhoneCardMenu id={phone.id} codespace={codespace} />
       </div>
       <div className={s.pcardBody}>

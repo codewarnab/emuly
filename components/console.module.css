@@ -16,7 +16,6 @@
 [data-theme="dark"] .themeBite { transform: translate(-7px, 3px); }
 [data-theme="dark"] .themeRays { transform: rotate(-30deg) scale(.4); opacity: 0; }
 @media (prefers-reduced-motion: reduce) { .themeCore, .themeBite, .themeRays { transition: none; } }
-:global(::view-transition-old(root)), :global(::view-transition-new(root)) { animation: none; mix-blend-mode: normal; }
 .quota { font-size: 13px; color: var(--dim); display: flex; gap: 6px; }
 .quotaBar, .quotaTxt { display: none; }
 .avatar { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; color: var(--accent); background: var(--accent-soft); font-size: 13px; font-weight: 700; }
@@ -337,7 +336,6 @@
 .retentionWarning { color: var(--amber); }
 .keepPhone { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13px; }
 @media (max-width: 680px) { .phoneRow { grid-template-columns: minmax(0, 1fr); gap: 16px; } .pagehead > .acts { flex-wrap: wrap; justify-content: flex-end; } }
-@media (prefers-reduced-motion: reduce) { :global(::view-transition-group(*)), :global(::view-transition-old(*)), :global(::view-transition-new(*)) { animation: none !important; } }
 .danger { border: 1px solid var(--danger); border-radius: 12px; padding: 16px; margin-top: 16px; }
 .dangerRow { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .dangerH { margin: 0; font-size: 15px; font-weight: 600; }

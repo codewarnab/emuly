@@ -646,7 +646,8 @@ test("setup boots Android once, persists failures until Retry boot, and records 
     await flush();
     assert.equal(android().android_state, "ready");
     const messages = f.database.prepare("SELECT message FROM events WHERE phone_id = 'phone-aaaa' ORDER BY id").all().map(row => row.message);
-    assert.ok(messages.indexOf("Phone ready") < messages.indexOf("Android starting"));
+    const runnerReady = messages.indexOf("Phone runner ready");
+    assert.ok(runnerReady >= 0 && runnerReady < messages.indexOf("Android starting"));
     assert.ok(messages.some(message => /^Android ready \(took \d+ s\)$/.test(String(message))));
   } finally { boot.resolve(Response.json({ booted: false })); await flush(); f.close(); }
 });

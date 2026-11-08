@@ -1,10 +1,11 @@
 import s from "./console.module.css";
 
-export type PillKind = "running" | "stopped" | "booting" | "needsyou";
+export type PillKind = "running" | "stopped" | "stopping" | "booting" | "needsyou";
 
 const kinds: Record<PillKind, string> = {
   running: s.pillRun,
   stopped: s.pillStop,
+  stopping: s.pillBoot,
   booting: s.pillBoot,
   needsyou: s.pillErr,
 };

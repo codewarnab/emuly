@@ -6,7 +6,9 @@
 .connection[data-live="true"] i { background: var(--safe); box-shadow: 0 0 0 3px var(--safe-soft); }
 .viewer { display: flex; align-items: center; justify-content: center; gap: 8px; }
 .display { min-width: 0; max-width: 100%; }
-.screenTouch { width: fit-content; max-width: 100%; margin: auto; background: #0b0e14; border-radius: 14px; overflow: hidden; cursor: crosshair; touch-action: none; outline: 1px solid var(--line); box-shadow: 0 4px 16px var(--shadow); }
+.screenTouch { width: fit-content; max-width: 100%; margin: auto; background: #0b0e14; border-radius: 14px; overflow: hidden; cursor: url("/cursors/touch.svg") 16 16, pointer; touch-action: none; outline: 1px solid var(--line); box-shadow: 0 4px 16px var(--shadow); }
+.screenTouch:active { cursor: url("/cursors/touch-pressed.svg") 16 16, pointer; }
+.screenTouch.screenDim { cursor: default; }
 .screenTouch:focus-visible { outline: 2px solid #b6caff; outline-offset: 4px; }
 .screenImage { display: block; width: auto; height: auto; max-width: 100%; max-height: var(--screen-height); }
 .screenDim { opacity: .5; }

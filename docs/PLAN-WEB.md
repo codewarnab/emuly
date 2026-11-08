@@ -43,7 +43,7 @@ Two hard constraints shape everything:
 - No settings page. Machine type and idle timeout are chosen at create, then shown read-only.
 - No billing UI. The quota meter links to GitHub.
 - No team/org accounts. Personal accounts only (`GET /user`).
-- No custom APK upload > 25 MB in v1 (install-by-URL only).
+- APK upload and installation from URL follow `docs/plans/apps-installation.md` (supersedes the earlier URL-only restriction).
 - No deployment. No Tailscale, Funnel, Caddy, domain, systemd, or public URL in this plan.
 
 ---

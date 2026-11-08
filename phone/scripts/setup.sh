@@ -23,7 +23,7 @@ fi
 # --- 2. X11/runtime libs the emulator needs (blank template lacks them) ---
 PKGS="libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext6 \
 libxfixes3 libxi6 libxrandr2 libxrender1 libxtst6 libxkbcommon0 libnss3 libgl1 \
-libegl1 libgbm1 libpulse0 unzip curl"
+libegl1 libgbm1 libpulse0 unzip curl bubblewrap util-linux openjdk-21-jre-headless"
 # Ubuntu 24.04 renamed libasound2; the codespace image may be older.
 if apt-cache show libasound2t64 >/dev/null 2>&1; then PKGS="$PKGS libasound2t64"; else PKGS="$PKGS libasound2"; fi
 if ! dpkg -s $PKGS >/dev/null 2>&1; then
@@ -49,8 +49,8 @@ export PATH="$SDK_DIR/cmdline-tools/latest/bin:$SDK_DIR/platform-tools:$SDK_DIR/
 
 # --- 4. Licenses + minimal packages for a headless emulator ---
 yes | sdkmanager --licenses >/dev/null 2>&1 || true
-sdkmanager --install "platform-tools" "emulator" "$IMAGE" > /dev/null 2>&1 \
-  || sdkmanager "platform-tools" "emulator" "$IMAGE" > /dev/null
+sdkmanager --install "platform-tools" "emulator" "build-tools;36.0.0" "$IMAGE" > /dev/null 2>&1 \
+  || sdkmanager "platform-tools" "emulator" "build-tools;36.0.0" "$IMAGE" > /dev/null
 echo "SDK: $IMAGE at $SDK_DIR"
 
 # --- 4b. Android CLI (primary device/emulator manager for agents) ---

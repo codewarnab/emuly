@@ -10,7 +10,6 @@ export function LogFeed({ title, rows, live = true, running, emptyMessage = "No 
   /** Text for a step that still runs, such as "Setting up…". */
   running?: string;
 }) {
-  const last = rows.at(-1)?.at;
   return (
     <div className={s.logbox}>
       <div className={s.rh}>
@@ -22,6 +21,10 @@ export function LogFeed({ title, rows, live = true, running, emptyMessage = "No 
           </span>
         )}
       </div>
+      {running && <div className={s.row} role="status">
+        <span className={s.rowT}>now</span>
+        <span className={s.rowM}>{running}</span>
+      </div>}
       {rows.length === 0 && <p className={s.emptySub}>{emptyMessage}</p>}
       {rows.map((r, i) => (
           <div className={s.row} key={i}>
@@ -33,10 +36,6 @@ export function LogFeed({ title, rows, live = true, running, emptyMessage = "No 
             </span>
           </div>
       ))}
-      {running && last && <div className={s.row} role="status">
-        <span className={s.rowT}>now</span>
-        <span className={s.rowM}>{running}</span>
-      </div>}
     </div>
   );
 }

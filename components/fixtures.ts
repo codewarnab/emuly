@@ -9,6 +9,7 @@ export type PhoneRow = {
   id: string;
   name: string;
   state: PillKind;
+  statusLabel?: string;
   /** 5 meta rows on the card, [key, value] */
   meta: Array<[string, string]>;
   thumbDim?: boolean;

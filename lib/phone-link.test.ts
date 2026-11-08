@@ -6,6 +6,44 @@ import { createPhoneLinks } from "./phone-link.ts";
 
 const phone = { userId: 1, id: "phone-aaaa", codespaceName: "owned-space" };
 
+test("Apps transports binary chunks unchanged through forwarding and bridge, preserving conflicts without replay", async () => {
+  for (const forwarded of [true, false]) {
+    let mutations = 0;
+    const payload = Buffer.alloc(4 * 1024 * 1024, 0xa5);
+    const server = createServer(async (req, res) => {
+      mutations++;
+      assert.equal(req.headers["x-github-token"], undefined);
+      assert.equal(req.headers["x-upload-offset"], "4194304");
+      const chunks: Buffer[] = [];
+      for await (const bytes of req) chunks.push(bytes);
+      assert.deepEqual(Buffer.concat(chunks), payload);
+      res.writeHead(409, { "content-type": "application/json" });
+      res.end(JSON.stringify({ errorCode: "offset_conflict" }));
+    });
+    server.listen(0, "127.0.0.1"); await once(server, "listening");
+    const address = server.address() as { port: number };
+    const links = createPhoneLinks({ token: async () => "synthetic-credential",
+      tunnel: async () => ({ url: `http://127.0.0.1:${address.port}`, close() {} }),
+      fetch: async (url, init) => {
+        if (String(url).startsWith("https://")) {
+          if (String(url).endsWith("/health")) return forwarded ? Response.json({ ok: true }) : new Response(null, { status: 403 });
+          assert.equal(new Headers(init?.headers).get("x-github-token"), "synthetic-credential");
+          assert.equal(init?.redirect, "manual");
+          assert.deepEqual(init?.body, payload);
+          mutations++;
+          return Response.json({ errorCode: "offset_conflict" }, { status: 409 });
+        }
+        return fetch(url, init);
+      } });
+    try {
+      const response = await links.apps(phone, "/app-installs/11111111-1111-1111-1111-111111111111/content", { method: "PUT", bytes: payload, offset: payload.length, digest: "a".repeat(64) });
+      assert.equal(response.status, 409);
+      assert.equal((await response.json()).errorCode, "offset_conflict");
+      assert.equal(mutations, 1);
+    } finally { links.close(phone); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+  }
+});
+
 test("private forwarding keeps tokens server-side, refuses redirects, and falls back to one reusable bridge", async () => {
   let opens = 0, closes = 0, probes = 0, requests = 0;
   const server = createServer((req, res) => {

@@ -91,7 +91,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
       // The phone may have stopped or been deleted while setup ran.
       if (current?.state !== "booting" || current.codespace_name !== codespaceName) return;
       database.prepare("UPDATE phones SET state = 'running', state_detail = NULL WHERE user_id = ? AND id = ?").run(userId, id);
-      event(userId, id, "step", "Phone ready");
+      event(userId, id, "step", "Phone runner ready");
       startBoot(userId, id);
       emit({ userId, type: "phone.ready", createdAt: iso(), data: {
         phone: { id, name: codespaceName, state: "running", machine: current.machine }, reason: "user" } });

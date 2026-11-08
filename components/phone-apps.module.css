@@ -1,0 +1,24 @@
+.panel { padding-top: 28px; }
+.panel h2 { margin: 0 0 16px; font-size: 18px; font-weight: 600; }
+.panel p { margin: 0 0 12px; }
+.panel small { display: block; color: var(--dim); font-size: 12px; }
+.drop { border: 1px dashed var(--control-line); border-radius: 12px; padding: 24px 16px; text-align: center; background: var(--panel); }
+.drop small { margin-top: 12px; }
+.dragging { border-color: var(--accent); background: var(--accent-soft); }
+.file { display: none; }
+.url { margin: 22px 0; }
+.url label { display: block; font-weight: 600; margin-bottom: 8px; }
+.url > div { display: flex; gap: 8px; }
+.url input { width: 100%; min-width: 0; border: 1px solid var(--control-line); border-radius: 8px; padding: 9px 12px; background: var(--panel); color: var(--text); }
+.url small { margin-top: 8px; }
+.error { color: var(--danger); overflow-wrap: anywhere; }
+.operation { margin: 20px 0 28px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; }
+.operation button { margin-top: 12px; margin-right: 8px; }
+.filename { color: var(--dim); overflow-wrap: anywhere; font-size: 13px; }
+.operation progress { display: block; width: 100%; accent-color: var(--accent); margin-bottom: 8px; }
+.heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-top: 28px; }
+.list { list-style: none; padding: 0; margin: 0; }
+.list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 0; border-top: 1px solid var(--line2); }
+.list li > div { min-width: 0; }
+.list strong { display: block; font-size: 14px; overflow-wrap: anywhere; }
+@media (max-width: 480px) { .url > div { flex-direction: column; } }
