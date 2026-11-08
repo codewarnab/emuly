@@ -26,3 +26,14 @@ test("database leases exclude competing work and fence a worker after lease take
     assert.equal((await database.execute("SELECT * FROM coordination_leases")).rows.length, 0);
   } finally { database.close(); }
 });
+
+test("lease completion rejects expired ownership even when work makes no transaction", async () => {
+  const database = createClient({ url: "file::memory:" });
+  try {
+    await migrateHosted(database);
+    await assert.rejects(withLease(database, "expired", async () => {
+      await database.execute("UPDATE coordination_leases SET expires_at = 0 WHERE resource = 'expired'");
+      return "stale result";
+    }), CoordinationBusyError);
+  } finally { database.close(); }
+});

@@ -39,11 +39,13 @@ export async function withLease<T>(database: DatabaseQueries, resource: string, 
   }, 20_000);
   timer.unref();
   try {
-    const result = await scope.run([...(scope.getStore() ?? []), { resource, owner }], work);
-    await renewal;
-    if (lost) throw new CoordinationBusyError();
-    await assertCoordination(database);
-    return result;
+    return await scope.run([...(scope.getStore() ?? []), { resource, owner }], async () => {
+      const result = await work();
+      await renewal;
+      if (lost) throw new CoordinationBusyError();
+      await assertCoordination(database);
+      return result;
+    });
   } finally {
     clearInterval(timer);
     await renewal;
