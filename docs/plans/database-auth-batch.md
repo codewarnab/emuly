@@ -16,7 +16,7 @@ For local development, leave `PHONELINK_DATABASE_URL` unset and run `pnpm db:mig
 
 Hosted connection settings are `PHONELINK_DATABASE_URL` and `PHONELINK_DATABASE_AUTH_TOKEN`. Supply credentials through the existing secret mechanism. The migration command also accepts URL-file and token-file paths as its two positional arguments. Neither command arguments nor logs contain credential values.
 
-Do not enable hosted mode for the full application yet. Phone operations, diagnostics, webhooks, display preferences, auto-stop acknowledgements, most poller writes, and GitHub token refresh still use synchronous SQLite. Their `db()` entry point rejects hosted mode rather than silently using a different local database. Shared OAuth refresh coordination remains part of the later migration work.
+Do not enable hosted mode for the full application yet. Phone operations, activity events, display preferences, auto-stop acknowledgements, most poller writes, and GitHub token refresh still use synchronous SQLite. Their `db()` entry point rejects hosted mode rather than silently using a different local database. Shared OAuth refresh coordination remains part of the later migration work.
 
 No existing SQLite data has been imported to Turso. No active deployment configuration has changed. The test database is left empty after hosted integration checks.
 
@@ -42,4 +42,14 @@ PR #14 stays open until the remaining issue #3 work is complete. This batch adds
 
 Validation: full suite passed (135 passed, one hosted test skipped); the hosted integration passed separately. Hosted checks now verify partial settings updates, rollback when the second settings write fails, account isolation, and usage totals. Typecheck and production build passed. Existing phone setup tracing warnings remain. Interactive browser login and settings UI were not exercised. Tests/build include unrelated working-tree phone/UI edits, which remain excluded from this PR.
 
-Next: migrate diagnostics, events/webhooks, phone operations, and remaining shared helpers. Complete shared coordination, import rehearsal, scheduling, streaming/storage, and Vercel acceptance before merging and cutover.
+## Diagnostics, events and webhooks batch (2026-11-08)
+
+- Diagnostics storage, collection, reports, browser ingestion, and callers now await libSQL queries. Records, aggregates, and collector cursors commit together. Storage failures remain isolated from measured work. Diagnostics stay private and disabled by default.
+- Webhook CRUD, event fan-out, tests, retries, claims, automatic disablement, API handlers, and settings pages use async queries. Rate checks and test enqueue share a write transaction. Claims commit before DNS or HTTP requests.
+- Local libSQL operations queue while an interactive transaction holds its connection. Separate transaction handles prevent unrelated writes from entering a rollback. Remote transactions retain database locking across processes.
+- Phone lifecycle and poller transactions still use an explicit `legacy-events.ts` bridge. It shares the sanitized fan-out statement and keeps fan-out atomic with native lifecycle writes. Activity log writes remain with that later batch. Remove this bridge when those transactions migrate.
+- Native phone code temporarily receives the async diagnostics client against the same local file. Diagnostic lookup waits recheck phone state before starting setup or boot. Concurrent browser requests share one viewing window.
+
+Validation: typecheck, production build, and full suite passed (135 passed, one hosted check skipped). Explicit Turso checks passed separately, including encrypted webhook delivery, sanitized payloads, test rate limits, ownership checks, and rollback of diagnostic records and aggregates when cursor writes fail. Duplicate collector batches aggregate once. The test database was cleared afterward. Existing phone setup tracing warnings remain. Tests/build include unrelated working-tree edits, excluded from this PR. No real receiver, browser flow, or deployed application was tested.
+
+Next: migrate phone operations, activity events, poller writes, and remaining shared helpers. Complete shared coordination, import rehearsal, scheduling, streaming/storage, and Vercel acceptance before merging and cutover.

@@ -1,23 +1,23 @@
 import "server-only";
-import type { DatabaseQueries } from "../data/async-database.ts";
 import type { DatabaseSync } from "node:sqlite";
 import { GitHubError } from "../github/github.ts";
 import { readUsage, type Usage } from "../data/usage.ts";
 import { userSettings } from "../data/settings.ts";
-import { emitEvent, type EventEmitter } from "../data/events.ts";
+import { emitEvent, type LegacyEventEmitter as EventEmitter } from "../data/legacy-events.ts";
+import type { Client } from "@libsql/client";
 import { retentionStatus } from "../data/retention.ts";
 import { createDiagnostics } from "../diagnostics/diagnostics.ts";
 
 /** One loop owns sync, budget, retention policy and webhook delivery. */
 export function createStatePoller({ database, settingsDatabase, sync, autoStop, autoKeep, deliver, emit = event => emitEvent(event, database), clock = Date.now }: {
-  database: DatabaseSync; settingsDatabase: DatabaseQueries; sync: (userId: number) => Promise<void>; clock?: () => number;
+  database: DatabaseSync; settingsDatabase: Client; sync: (userId: number) => Promise<void>; clock?: () => number;
   autoStop?: (userId: number, phoneId: string) => Promise<unknown>; emit?: EventEmitter;
   autoKeep?: (userId: number, phoneId: string) => Promise<unknown>;
   deliver?: () => Promise<void>;
 }) {
   let running = false;
   const retryAt = new Map<number, number>();
-  const diagnostics = createDiagnostics(database);
+  const diagnostics = createDiagnostics(settingsDatabase);
 
   function notifyLow(userId: number, usage: Usage) {
     const left = Math.max(0, usage.allowance_core_hours - usage.used_core_hours);
@@ -135,7 +135,7 @@ export function createStatePoller({ database, settingsDatabase, sync, autoStop, 
           database.prepare("INSERT INTO poller_retries VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET retry_at = excluded.retry_at, error_code = excluded.error_code")
             .run(id, clock() + delay, delay === 60000 ? "unknown_failure" : "rate_limited");
           for (const row of database.prepare("SELECT id FROM phones WHERE user_id = ? AND state = 'booting' LIMIT 50").all(id)) {
-            diagnostics.mark(diagnostics.current(id, String(row.id)), "poll_backoff", {
+            await diagnostics.mark(await diagnostics.current(id, String(row.id)), "poll_backoff", {
               outcome: "failed", errorCode: delay === 60000 ? "unknown_failure" : "rate_limited", retryDelayMs: delay });
           }
           // Do not log provider errors: they can contain credentials. Pages report sync failures.

@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "../data/db.ts";
+import { asyncDb } from "../data/async-db.ts";
 import { getAccessToken } from "../github/github-token.ts";
 import { codespaceExec, openCodespacePort } from "../github/codespace-tunnel.ts";
 import { createPhoneLinks, type RunnerPath, type AppsPath, type AppsRequest } from "./phone-link.ts";
@@ -9,7 +10,7 @@ const global = globalThis as unknown as { __phoneLinks?: ReturnType<typeof creat
 const links = () => {
   if (global.__phoneLinksVersion !== 5) { global.__phoneLinks = undefined; global.__phoneLinksVersion = 5; }
   return global.__phoneLinks ??= createPhoneLinks({ token: getAccessToken, tunnel: openCodespacePort,
-  observations: phoneObservations(db()),
+  observations: phoneObservations(asyncDb()),
   // Command completion is measured; provider idle-timer reset remains unverified.
   keepAwake: (token, codespaceName) => codespaceExec({ token, codespaceName, command: "echo phonelink-awake", pty: true, timeoutMs: 90_000 }) });
 };

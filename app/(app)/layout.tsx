@@ -16,7 +16,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
 async function AuthenticatedShell({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const disabledWebhooks = webhookControl().list(user.id).filter(hook => !hook.enabled && hook.failing_since);
+  const disabledWebhooks = (await webhookControl().list(user.id)).filter(hook => !hook.enabled && hook.failing_since);
   return (
     <div className={s.app}>
       <AutoStopNotice notices={unreadAutoStops(db(), user.id)} />

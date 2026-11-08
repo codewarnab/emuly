@@ -54,7 +54,7 @@ function fixture() {
     }
     return Response.json(space);
   };
-  const makeService = () => createPhoneService({ database, clock, emit, encrypt: value => Buffer.from(value),
+  const makeService = () => createPhoneService({ database, diagnosticsDatabase: asyncDatabase, clock, emit, encrypt: value => Buffer.from(value),
     github: createGitHubClient({ database, accessToken: async () => "synthetic-token", fetch: fetcher }) });
   let service = makeService();
   const makeTick = () => createStatePoller({ database, settingsDatabase: asyncDatabase, clock, emit, sync: service.sync,
