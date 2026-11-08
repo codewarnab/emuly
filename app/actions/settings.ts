@@ -1,7 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "../../lib/auth/auth";
-import { db } from "../../lib/data/db";
 import { asyncDb } from "../../lib/data/async-db";
 import { redirect } from "next/navigation";
 import { choosePlan, saveHoursSetting, type HoursField } from "../../lib/data/settings";
@@ -11,7 +10,7 @@ import { saveStreamQuality } from "../../lib/shared/display-settings";
 export async function saveDisplayQuality(value: unknown) {
   const user = await requireUser();
   try {
-    const result = saveStreamQuality(db(), user.id, value);
+    const result = await saveStreamQuality(asyncDb(), user.id, value);
     if (result.ok) revalidatePath("/app", "layout");
     return result;
   } catch { return { ok: false, message: "Settings could not be saved. Try again." }; }

@@ -15,6 +15,8 @@ import { createPhoneService } from "../phone/phone-mutations.ts";
 import { createGitHubClient, GitHubError, type Codespace } from "../github/github.ts";
 import { createStatePoller } from "../phone/poller.ts";
 import { unreadAutoStops, acknowledgeAutoStops } from "../shared/hours.ts";
+import { createAccessTokenProvider } from "../github/github-token.ts";
+import { streamQuality, saveStreamQuality } from "../shared/display-settings.ts";
 import { randomBytes } from "node:crypto";
 
 // This contract covers the actual async auth functions and migration runner together.
@@ -180,6 +182,48 @@ for (const hosted of [false, true]) {
       await restarted();
       assert.ok(retried.includes(2));
       assert.equal((await client.execute("SELECT user_id FROM poller_retries WHERE user_id = 2")).rows.length, 0);
+      assert.equal(await streamQuality(client, 2), "auto");
+      assert.equal((await saveStreamQuality(client, 2, "sharp")).ok, true);
+      assert.equal((await saveStreamQuality(client, 2, "invalid")).ok, false);
+      assert.equal(await streamQuality(client, 2), "sharp");
+      assert.equal(await streamQuality(client, 1), "auto");
+      const previousClientId = process.env.PHONELINK_GITHUB_CLIENT_ID;
+      const previousClientSecret = process.env.PHONELINK_GITHUB_CLIENT_SECRET;
+      process.env.PHONELINK_GITHUB_CLIENT_ID = "synthetic-client";
+      process.env.PHONELINK_GITHUB_CLIENT_SECRET = "synthetic-secret";
+      try {
+        const now = Date.parse("2026-11-08T00:00:00.000Z");
+        await client.execute({ sql: "UPDATE users SET token_cipher = ?, token_expires_at = ?, refresh_cipher = ?, refresh_expires_at = ? WHERE id = 2",
+          args: [seal("synthetic-access", key), new Date(now).toISOString(), seal("synthetic-refresh", key), new Date(now + 86_400_000).toISOString()] });
+        const accessToken = createAccessTokenProvider({ database: client, encrypt: value => seal(value, key), decrypt: value => open(value, key) });
+        let exchanges = 0;
+        const options = { clock: () => now, fetch: async (_url: unknown, init?: RequestInit) => {
+          exchanges++;
+          assert.equal((init!.body as URLSearchParams).get("refresh_token"), "synthetic-refresh");
+          return Response.json({ access_token: "synthetic-rotated", refresh_token: "synthetic-next-refresh", expires_in: 28_800,
+            refresh_token_expires_in: 15_552_000, scope: "codespace", token_type: "bearer" });
+        } };
+        assert.deepEqual(await Promise.all([accessToken(2, options), accessToken(2, options), accessToken(2, options)]),
+          ["synthetic-rotated", "synthetic-rotated", "synthetic-rotated"]);
+        assert.equal(exchanges, 1);
+        const storedTokens = (await client.execute("SELECT token_cipher, refresh_cipher FROM users WHERE id = 2")).rows[0];
+        assert.equal(open(storedTokens.token_cipher as unknown as Uint8Array, key), "synthetic-rotated");
+        assert.equal(open(storedTokens.refresh_cipher as unknown as Uint8Array, key), "synthetic-next-refresh");
+        assert.equal(await accessToken(2, options), "synthetic-rotated");
+        assert.equal(exchanges, 1);
+        await insertSession(client, 2);
+        const otherSession = await insertSession(client, 1);
+        await client.execute("UPDATE users SET token_expires_at = '2000-01-01' WHERE id = 2");
+        await assert.rejects(accessToken(2, { clock: () => now, fetch: async () => Response.json({ error: "synthetic-private-error" }, { status: 400 }) }), /^Error: Sign in again$/);
+        assert.equal((await client.execute("SELECT id FROM sessions WHERE user_id = 2")).rows.length, 0);
+        assert.equal((await readSession(client, otherSession.value))?.userId, 1);
+        await deleteSession(client, otherSession.value);
+      } finally {
+        if (previousClientId === undefined) delete process.env.PHONELINK_GITHUB_CLIENT_ID;
+        else process.env.PHONELINK_GITHUB_CLIENT_ID = previousClientId;
+        if (previousClientSecret === undefined) delete process.env.PHONELINK_GITHUB_CLIENT_SECRET;
+        else process.env.PHONELINK_GITHUB_CLIENT_SECRET = previousClientSecret;
+      }
       const original = await insertSession(client, 1);
       await migrateHosted(client);
       assert.equal(Number((await client.execute("SELECT count(*) AS n FROM schema_migrations")).rows[0].n), MIGRATIONS.length);
