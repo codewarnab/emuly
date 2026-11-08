@@ -6,18 +6,30 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { migrate, openDatabase } from "./database.ts";
 
+test("request connections require explicit migrations and never advance the schema", () => {
+  const directory = mkdtempSync(join(tmpdir(), "phonelink-schema-gate-"));
+  const filename = join(directory, "app.db");
+  try {
+    assert.throws(() => openDatabase(filename, false), /Run pnpm db:migrate/);
+    const unchanged = new DatabaseSync(filename);
+    assert.equal(unchanged.prepare("PRAGMA user_version").get()?.user_version, 0);
+    assert.equal(unchanged.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'table'").get()?.n, 0);
+    unchanged.close();
+    openDatabase(filename).close();
+    openDatabase(filename, false).close();
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("migrate applies a migration added after the connection was opened", () => {
   const dir = mkdtempSync(join(tmpdir(), "phonelink-db-"));
   const database = openDatabase(join(dir, "app.db"));
   try {
     const { user_version: latest } = database.prepare("PRAGMA user_version").get() as { user_version: number };
     // Simulate a connection opened before the latest migration existed.
-    database.exec(`DROP TABLE phone_setup_attempts; DROP TABLE diagnostic_cursors; DROP TABLE diagnostic_steps;
-      DROP TABLE diagnostic_operations; DROP TABLE diagnostic_daily; DROP TABLE diagnostic_phone_runs; DROP TABLE diagnostic_health; DROP TABLE poller_retries;
-      PRAGMA user_version = ${latest - 1}`);
+    database.exec(`DROP TABLE app_admissions; DROP TABLE stream_tickets; DROP TABLE coordination_leases; PRAGMA user_version = ${latest - 1}`);
     migrate(database);
     assert.equal((database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, latest);
-    assert.ok(database.prepare("SELECT attempt_id FROM phone_setup_attempts"));
+    assert.ok(database.prepare("SELECT owner FROM coordination_leases"));
     migrate(database); // no-op when current
   } finally {
     database.close();
@@ -101,7 +113,7 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
       'fixture-machine', 'error', '2026-11-02', ?)`).run(Buffer.from("sealed-pending-runner"));
     database.close();
     database = openDatabase(filename);
-    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 9);
+    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 10);
     assert.deepEqual({ ...database.prepare("SELECT * FROM phone_creations").get() }, {
       phone_id: "phone-bbbb", display_name: "phone-bbbb", outcome: "unconfirmed", requested_at: "2026-11-02",
     });
@@ -135,7 +147,7 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
     database.close();
     database = openDatabase(filename);
     assert.equal(database.prepare("SELECT count(*) AS n FROM runs").get()?.n, 1);
-    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 9);
+    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 10);
     assert.equal(database.prepare("SELECT count(*) AS n FROM phone_creations").get()?.n, 1);
     assert.equal(database.prepare("SELECT phase FROM phone_keeps").get()?.phase, "starting");
     database.exec("DELETE FROM users WHERE id = 1");

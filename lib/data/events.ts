@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
-import { db } from "./db.ts";
+import type { DatabaseQueries } from "./async-database.ts";
+import { asyncDb } from "./async-db.ts";
 import { WEBHOOK_EVENTS } from "../webhooks/webhook-event-types.ts";
 
 export { WEBHOOK_EVENTS } from "../webhooks/webhook-event-types.ts";
@@ -13,7 +13,7 @@ export type OutgoingEvent = {
   /** Internal routing for the Test button; never serialized into the payload. */
   webhookId?: string;
 };
-export type EventEmitter = (event: OutgoingEvent) => void;
+export type EventEmitter = (event: OutgoingEvent, queries?: DatabaseQueries) => void | Promise<unknown>;
 function safeText(value: string) {
   return value.replace(/(?:gh[opsu]_|github_pat_)[A-Za-z0-9_]+/g, "[redacted]")
     .replace(/(?:https?|wss?):\/\/\S+/gi, "[url removed]")
@@ -36,21 +36,25 @@ function publicData(data: Record<string, unknown>) {
   return result;
 }
 
-export function createEventEmitter(database: DatabaseSync) {
-  return (event: OutgoingEvent) => {
-    if (!(WEBHOOK_EVENTS as readonly string[]).includes(event.type)) throw new Error("Unknown webhook event");
-    const id = `evt_${randomUUID()}`;
-    const body = JSON.stringify({ id, type: event.type, version: 1, created_at: event.createdAt, data: publicData(event.data) });
-    // One statement keeps fan-out atomic, including within a caller's transaction.
-    database.prepare(`INSERT INTO webhook_deliveries
-      (id, webhook_id, event_id, type, body, next_try_at, state, created_at)
-      SELECT 'dlv_' || lower(hex(randomblob(16))), id, ?, ?, ?, ?, 'pending', ? FROM webhooks
-      WHERE user_id = ? AND enabled = 1 AND (? IS NULL OR id = ?) AND (? IS NOT NULL OR events = '*' OR EXISTS
-        (SELECT 1 FROM json_each(CASE WHEN events = '*' THEN '[]' ELSE events END) WHERE value = ?))`)
-      .run(id, event.type, body, event.createdAt, event.createdAt, event.userId,
-        event.webhookId ?? null, event.webhookId ?? null, event.webhookId ?? null, event.type);
-    return id;
-  };
+export function eventStatement(event: OutgoingEvent) {
+  if (!(WEBHOOK_EVENTS as readonly string[]).includes(event.type)) throw new Error("Unknown webhook event");
+  const id = `evt_${randomUUID()}`;
+  const body = JSON.stringify({ id, type: event.type, version: 1, created_at: event.createdAt, data: publicData(event.data) });
+  // One statement keeps fan-out atomic, including within a caller's transaction.
+  return { sql: `INSERT INTO webhook_deliveries
+    (id, webhook_id, event_id, type, body, next_try_at, state, created_at)
+    SELECT 'dlv_' || lower(hex(randomblob(16))), id, ?, ?, ?, ?, 'pending', ? FROM webhooks
+    WHERE user_id = ? AND enabled = 1 AND (? IS NULL OR id = ?) AND (? IS NOT NULL OR events = '*' OR EXISTS
+      (SELECT 1 FROM json_each(CASE WHEN events = '*' THEN '[]' ELSE events END) WHERE value = ?))`, args: [id, event.type, body, event.createdAt, event.createdAt, event.userId, event.webhookId ?? null, event.webhookId ?? null, event.webhookId ?? null, event.type] };
 }
 
-export function emitEvent(event: OutgoingEvent, database: DatabaseSync = db()) { return createEventEmitter(database)(event); }
+/** The supplied handle keeps fan-out inside a caller's transaction. */
+export function createEventEmitter(database: DatabaseQueries) {
+return async (event: OutgoingEvent) => {
+  const statement = eventStatement(event);
+  await database.execute(statement);
+  return String(statement.args[0]);
+};
+}
+
+export function emitEvent(event: OutgoingEvent, database: DatabaseQueries = asyncDb()) { return createEventEmitter(database)(event); }

@@ -1,3 +1,4 @@
+import { asyncDb } from "../../../../../lib/data/async-db";
 import Link from "next/link";
 import { shortMessage } from "../../../../../lib/shared/short-message";
 import { phoneName } from "../../../../../lib/shared/phone-name";
@@ -25,7 +26,6 @@ import { DangerPanel } from "@/components/phone/danger-panel";
 import { Button } from "@/components/ui/button";
 import { Pill } from "@/components/ui/pill";
 import { mockLog, mockDetail, mockPhones } from "@/lib/shared/fixtures";
-import { db } from "../../../../../lib/data/db";
 import { streamQuality } from "../../../../../lib/shared/display-settings";
 import { PhoneApps } from "@/components/phone/phone-apps";
 
@@ -78,19 +78,19 @@ async function PhoneContent({
 }) {
   const user = await requireUser();
   const { id } = await params;
-  let phone = findPhone(user.id, id);
+  let phone = (await findPhone(user.id, id));
   const mock = process.env.PHONELINK_MOCK === "1" && id === "phone-7f2a";
   if (!phone && !mock) notFound();
   if (!mock && phone) {
     const syncError = await syncPhoneState(user.id);
-    phone = findPhone(user.id, id);
+    phone = (await findPhone(user.id, id));
     if (!phone) notFound();
     return <StoredPhone phone={phone} user={user} search={searchParams} syncError={syncError} />;
   }
 
   return (
     <>
-      <KeyboardTools phones={listPhones(user.id).map(item => ({ id: item.id, name: item.name,
+      <KeyboardTools phones={(await listPhones(user.id)).map(item => ({ id: item.id, name: item.name,
         ...(item.id === mockDetail.phone ? { stream: mockDetail.streamUrl, adb: mockDetail.thisPhone.find(([key]) => key === "adb")?.[1] } : {}),
       }))} />
       <Topbar breadcrumb={["Phones", phoneName(mockDetail.phone)]}>
@@ -138,7 +138,7 @@ async function StoredPhone({ phone, user, search, syncError }: {
   const screenReady = !phone.keeping && phone.state === "running" && phone.android_state === "ready";
   const status = phoneStatus(phone);
   return <>
-    <KeyboardTools phones={listPhones(user.id).map(item => ({ id: item.id, name: item.name }))} />
+    <KeyboardTools phones={(await listPhones(user.id)).map(item => ({ id: item.id, name: item.name }))} />
     <Topbar breadcrumb={["Phones", phone.name]}>
       <Avatar initials={user.initials} login={user.login} />
     </Topbar>
@@ -147,7 +147,7 @@ async function StoredPhone({ phone, user, search, syncError }: {
         <h1 className={s.srOnly}>Phone details</h1>
       <section className={`${s.stage} ${s.disconnected} ${screenReady ? s.liveStage : ""}`} aria-label="Phone screen">
         {screenReady &&
-          <PhoneScreen key={phone.id} id={phone.id} resting={false} live quality={streamQuality(db(), user.id)} />}
+          <PhoneScreen key={phone.id} id={phone.id} resting={false} live quality={await streamQuality(asyncDb(), user.id)} />}
         {phone.state !== "running" && phone.state !== "stopped" && <div className={s.emptyPhone} aria-hidden />}
         {!screenReady && <h2>{status.title}</h2>}
         {phone.state === "running" && phone.android_state === "booting" && <AndroidElapsed started={phone.android_started_at} />}
@@ -168,7 +168,7 @@ async function StoredPhone({ phone, user, search, syncError }: {
         <Tabs active={tab} phoneId={phone.id} />
         <section role="tabpanel" className={s.tabPanel} id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} tabIndex={0}>
         {tab === "danger" ? <DangerPanel phoneName={phone.id} /> : tab === "apps" ? <PhoneApps key={phone.id} id={phone.id} ready={screenReady} /> :
-          <LogFeed rows={tab === "log" ? phoneEvents(user.id, phone.id) : []} live={false}
+          <LogFeed rows={tab === "log" ? (await phoneEvents(user.id, phone.id)) : []} live={false}
             running={tab === "log" ? `Current status: ${status.title}` : undefined} emptyMessage={tab === "backups" ? "No backups yet." : "No activity yet."} />}
         </section>
         <div className={s.subgrid}>

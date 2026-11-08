@@ -72,13 +72,35 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
   useEffect(() => {
     if (!active || !ready) return;
     let polling = false;
+    let stream: EventSource | undefined;
+    let healthy = false;
+    const connect = () => {
+      stream?.close();
+      healthy = false;
+      if (document.hidden) return;
+      stream = new EventSource(`${base}/app-events`);
+      stream.onmessage = event => {
+        try {
+          const latest = parseAppInstalls(JSON.parse(event.data)).operations[0] ?? null;
+          healthy = true;
+          if (alive.current && !transferRunning.current) {
+            setOperation(latest);
+            setError("");
+            if (latest && installFinished(latest.stage)) void refresh();
+          }
+        } catch { healthy = false; }
+      };
+      stream.onerror = () => { healthy = false; };
+    };
+    connect();
+    document.addEventListener("visibilitychange", connect);
     const timer = setInterval(() => {
-      if (document.visibilityState !== "visible" || transferRunning.current || polling) return;
+      if (healthy || document.visibilityState !== "visible" || transferRunning.current || polling) return;
       polling = true;
       void refreshOperation().finally(() => { polling = false; });
     }, 1500);
-    return () => clearInterval(timer);
-  }, [active, ready, refreshOperation]);
+    return () => { clearInterval(timer); stream?.close(); document.removeEventListener("visibilitychange", connect); };
+  }, [active, ready, base, refresh, refreshOperation]);
 
   async function upload(file: File, initial: AppInstall, signal: AbortSignal) {
     let current = initial;

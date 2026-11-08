@@ -35,7 +35,7 @@ function WebhooksSkeleton() {
 async function WebhooksContent() {
   const user = await requireUser();
   const service = webhookControl();
-  const hooks = service.list(user.id);
-  const recent = Object.fromEntries(hooks.map(hook => [hook.id, service.deliveries(user.id, hook.id).slice(0, 5)]));
+  const hooks = await service.list(user.id);
+  const recent = Object.fromEntries(await Promise.all(hooks.map(async hook => [hook.id, (await service.deliveries(user.id, hook.id)).slice(0, 5)])));
   return <WebhookSettings initial={hooks} recent={recent} />;
 }

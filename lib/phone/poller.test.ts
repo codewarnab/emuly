@@ -1,6 +1,9 @@
+import { pathToFileURL } from "node:url";
+import { createClient } from "../data/async-database.ts";
+import { rm } from "node:fs/promises";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "../data/database.ts";
@@ -15,6 +18,7 @@ import type { OutgoingEvent } from "../data/events.ts";
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "phonelink-poller-"));
   const database = openDatabase(join(directory, "test.db"));
+  const asyncDatabase = createClient({ url: pathToFileURL(join(directory, "test.db")).href });
   let time = Date.parse("2026-11-07T00:00:00Z");
   const clock = () => time;
   const spaces = new Map<string, Codespace>();
@@ -24,7 +28,7 @@ function fixture() {
   for (const id of [1, 2]) database.prepare(`INSERT INTO users
     (id, github_id, login, token_cipher, token_scopes, created_at, last_seen_at)
     VALUES (?, ?, 'fixture', ?, 'codespace', '2026-11-01', '2026-11-01')`).run(id, id, Buffer.from("fixture"));
-  const github = createGitHubClient({ database, accessToken: async id => `synthetic-${id}`, fetch: async (url, init) => {
+  const github = createGitHubClient({ database: asyncDatabase, accessToken: async id => `synthetic-${id}`, fetch: async (url, init) => {
     const path = new URL(String(url)).pathname;
     if (path === "/user/codespaces") return Response.json({ codespaces: [...spaces.values(),
       { id: 999, name: "foreign-unregistered", state: "Available", machine: { name: "fixture", cpus: 64 } }] });
@@ -43,10 +47,10 @@ function fixture() {
     return Response.json(space);
   } });
   const emit = (event: OutgoingEvent) => { outgoing.push(event); };
-  const service = createPhoneService({ database, github, clock, emit, encrypt: value => Buffer.from(value) });
-  const makeTick = () => createStatePoller({ database, clock, emit, sync: service.sync, autoStop: service.autoStop });
+  const service = createPhoneService({ database: asyncDatabase, github, clock, emit, encrypt: value => Buffer.from(value) });
+  const makeTick = () => createStatePoller({ database: asyncDatabase, clock, emit, sync: service.sync, autoStop: service.autoStop });
   return {
-    database, spaces, calls, outgoing, failures, service, clock, makeTick,
+    asyncDatabase, database, spaces, calls, outgoing, failures, service, clock, makeTick,
     setTime(value: string) { time = Date.parse(value); }, advance(ms: number) { time += ms; },
     add(id = "phone-aaaa", userId = 1) {
       const name = `generated-${id}`;
@@ -56,7 +60,13 @@ function fixture() {
         .run(id, userId, name, new Date(time).toISOString(), new Date(time).toISOString(), Buffer.from("secret-fixture"));
       spaces.set(name, { id: spaces.size + 1, name, state: "Available", machine: { name: "fixture", cpus: 2 } });
     },
-    close() { database.close(); rmSync(directory, { recursive: true, force: true }); },
+    async close() {
+      asyncDatabase.close();
+      database.close();
+      // Native SQLite statements can retain Windows file handles until collection.
+      globalThis.gc?.();
+      await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    },
   };
 }
 
@@ -64,7 +74,7 @@ test("hours.low emits each threshold once per UTC month, survives a new poller, 
   const f = fixture();
   try {
     f.add();
-    updateSettings(f.database, 1, { allowance_core_hours: 10 });
+    await updateSettings(f.asyncDatabase, 1, { allowance_core_hours: 10 });
     const tick = f.makeTick();
     await tick();
     f.advance(4 * 3_600_000); // 8 used, 20% left, 60 minutes at 2 cores.
@@ -76,54 +86,54 @@ test("hours.low emits each threshold once per UTC month, survives a new poller, 
     await f.makeTick()();
     assert.deepEqual(f.outgoing.filter(e => e.type === "hours.low").map(e => e.data.threshold), ["20%", "10%", "30min"]);
     assert.equal(f.calls.length, 0);
-    const usage = readUsage(f.database, 1, f.clock);
+    const usage = await readUsage(f.asyncDatabase, 1, f.clock);
     assert.equal(hoursWarning(usage, false), "About 30 minutes of hours left. Stopping keeps your phones.");
     assert.match(hoursWarning(usage, true)!, /next tick/);
     f.setTime("2026-12-01T00:00:00Z");
     await tick();
-    assert.equal(hoursWarning(readUsage(f.database, 1, f.clock), false), null);
+    assert.equal(hoursWarning(await readUsage(f.asyncDatabase, 1, f.clock), false), null);
     f.advance(4.5 * 3_600_000);
     await tick();
     assert.equal(f.outgoing.filter(e => e.type === "hours.low").length, 6);
     assert.equal(f.outgoing.at(-1)?.data.month, "2026-12");
     assert.ok(!JSON.stringify(f.outgoing).includes("secret-fixture"));
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("enabling auto-stop below the boundary stops only owned phones once, preserves the phone, and permits resuming later", async () => {
   const f = fixture();
   try {
     f.add(); f.add("phone-bbbb", 2);
-    updateSettings(f.database, 1, { allowance_core_hours: 1 });
+    await updateSettings(f.asyncDatabase, 1, { allowance_core_hours: 1 });
     const tick = f.makeTick();
     await tick(); // Already 30 minutes remaining, but not opted in.
     assert.equal(f.calls.length, 0);
-    updateSettings(f.database, 1, { auto_stop_before_empty: true });
+    await updateSettings(f.asyncDatabase, 1, { auto_stop_before_empty: true });
     const before = f.database.prepare("SELECT codespace_name, runner_secret FROM phones WHERE id = 'phone-aaaa'").get();
     await tick();
     await f.makeTick()(); // Available can remain stale after stop returns 202.
     assert.deepEqual(f.calls, ["/user/codespaces/generated-phone-aaaa/stop"]);
     assert.equal(f.database.prepare("SELECT state FROM phones WHERE id = 'phone-bbbb'").get()?.state, "running");
     assert.equal(f.outgoing.filter(e => e.type === "hours.auto_stopped").length, 1);
-    assert.equal(unreadAutoStops(f.database, 1).length, 1);
-    const notices = unreadAutoStops(f.database, 1);
-    acknowledgeAutoStops(f.database, 2, notices.map(n => n.id));
-    assert.equal(unreadAutoStops(f.database, 1).length, 1);
-    acknowledgeAutoStops(f.database, 1, notices.map(n => n.id));
-    acknowledgeAutoStops(f.database, 1, notices.map(n => n.id));
-    assert.deepEqual(unreadAutoStops(f.database, 1), []);
+    assert.equal((await unreadAutoStops(f.asyncDatabase, 1)).length, 1);
+    const notices = (await unreadAutoStops(f.asyncDatabase, 1));
+    await acknowledgeAutoStops(f.asyncDatabase, 2, notices.map(n => n.id));
+    assert.equal((await unreadAutoStops(f.asyncDatabase, 1)).length, 1);
+    await acknowledgeAutoStops(f.asyncDatabase, 1, notices.map(n => n.id));
+    await acknowledgeAutoStops(f.asyncDatabase, 1, notices.map(n => n.id));
+    assert.deepEqual((await unreadAutoStops(f.asyncDatabase, 1)), []);
     f.advance(60_000);
     f.spaces.get("generated-phone-aaaa")!.state = "Shutdown";
     await tick();
-    assert.deepEqual(readUsage(f.database, 1, f.clock).running, []);
+    assert.deepEqual((await readUsage(f.asyncDatabase, 1, f.clock)).running, []);
     assert.equal(f.outgoing.filter(e => e.type === "phone.stopped").length, 1);
-    updateSettings(f.database, 1, { allowance_core_hours: 120 });
+    await updateSettings(f.asyncDatabase, 1, { allowance_core_hours: 120 });
     await f.service.start(1, "phone-aaaa");
     await tick();
-    assert.equal(readUsage(f.database, 1, f.clock).running.length, 1);
+    assert.equal((await readUsage(f.asyncDatabase, 1, f.clock)).running.length, 1);
     assert.deepEqual(f.database.prepare("SELECT codespace_name, runner_secret FROM phones WHERE id = 'phone-aaaa'").get(), before);
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM runs WHERE phone_id = 'phone-aaaa'").get()?.n, 2);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("auto-stop retries failed phones, skips accepted phones, and backs off rate limits without blocking another account", async () => {
@@ -131,13 +141,13 @@ test("auto-stop retries failed phones, skips accepted phones, and backs off rate
   try {
     for (const id of ["phone-aaaa", "phone-bbbb", "phone-cccc"]) f.add(id);
     f.add("phone-dddd", 2);
-    for (const user of [1, 2]) updateSettings(f.database, user, { allowance_core_hours: 1, auto_stop_before_empty: true });
+    for (const user of [1, 2]) await updateSettings(f.asyncDatabase, user, { allowance_core_hours: 1, auto_stop_before_empty: true });
     f.failures.set("generated-phone-aaaa", 500);
     f.failures.set("generated-phone-bbbb", 429);
     const tick = f.makeTick();
     await tick();
     assert.deepEqual(f.calls, ["/user/codespaces/generated-phone-aaaa/stop", "/user/codespaces/generated-phone-bbbb/stop", "/user/codespaces/generated-phone-dddd/stop"]);
-    assert.equal(unreadAutoStops(f.database, 1).length, 0);
+    assert.equal((await unreadAutoStops(f.asyncDatabase, 1)).length, 0);
     f.failures.clear();
     f.advance(299_999);
     await tick();
@@ -145,10 +155,10 @@ test("auto-stop retries failed phones, skips accepted phones, and backs off rate
     f.advance(1);
     await tick();
     assert.equal(f.calls.length, 6);
-    assert.equal(unreadAutoStops(f.database, 1).length, 1, "one toast for one auto-stop run");
+    assert.equal((await unreadAutoStops(f.asyncDatabase, 1)).length, 1, "one toast for one auto-stop run");
     await tick();
     assert.equal(f.calls.length, 6);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("auto-stop can protect more than six phones in one tick without the interactive mutation limit", async () => {
@@ -156,11 +166,11 @@ test("auto-stop can protect more than six phones in one tick without the interac
   try {
     for (let n = 0; n < 8; n++) f.add(`phone-000${n}`);
     f.spaces.get("generated-phone-0000")!.state = "Provisioning";
-    updateSettings(f.database, 1, { allowance_core_hours: 1, auto_stop_before_empty: true });
+    await updateSettings(f.asyncDatabase, 1, { allowance_core_hours: 1, auto_stop_before_empty: true });
     await f.makeTick()();
     assert.equal(f.calls.length, 8);
-    assert.equal(unreadAutoStops(f.database, 1).length, 1, "one toast for one auto-stop run");
+    assert.equal((await unreadAutoStops(f.asyncDatabase, 1)).length, 1, "one toast for one auto-stop run");
     await f.makeTick()();
     assert.equal(f.calls.length, 8);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
