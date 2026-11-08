@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { db } from "../data/db.ts";
+import { openDatabase } from "../data/database.ts";
 import { listPhones, findPhone, phoneCard } from "./phones.ts";
 import { phoneStatus } from "./phone-status.ts";
 
@@ -11,6 +12,7 @@ test("phone lists, cards, and detail share persisted setup failure and handle re
   const directory = mkdtempSync(join(tmpdir(), "phonelink-status-"));
   const previousPath = process.env.PHONELINK_DB;
   process.env.PHONELINK_DB = join(directory, "test.db");
+  openDatabase(process.env.PHONELINK_DB!).close();
   const database = db();
   try {
     database.exec(`INSERT INTO users (id, github_id, login, token_cipher, token_scopes, created_at, last_seen_at)

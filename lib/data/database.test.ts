@@ -6,6 +6,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { migrate, openDatabase } from "./database.ts";
 
+test("request connections require explicit migrations and never advance the schema", () => {
+  const directory = mkdtempSync(join(tmpdir(), "phonelink-schema-gate-"));
+  const filename = join(directory, "app.db");
+  try {
+    assert.throws(() => openDatabase(filename, false), /Run pnpm db:migrate/);
+    const unchanged = new DatabaseSync(filename);
+    assert.equal(unchanged.prepare("PRAGMA user_version").get()?.user_version, 0);
+    assert.equal(unchanged.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'table'").get()?.n, 0);
+    unchanged.close();
+    openDatabase(filename).close();
+    openDatabase(filename, false).close();
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("migrate applies a migration added after the connection was opened", () => {
   const dir = mkdtempSync(join(tmpdir(), "phonelink-db-"));
   const database = openDatabase(join(dir, "app.db"));

@@ -28,6 +28,7 @@ Needs Node 26 and pnpm.
 ```sh
 pnpm install
 cp .env.example .env.local   # then fill in values (see below)
+pnpm db:migrate              # apply schema changes before starting the app
 pnpm dev                     # http://localhost:4321
 ```
 
