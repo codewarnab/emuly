@@ -1,8 +1,8 @@
 import "server-only";
-import { db } from "./db.ts";
+import { db } from "../data/db.ts";
 import { getAccessToken } from "./github-token.ts";
 import { createBillingClient, planAllowance } from "./github-billing.ts";
-import { readUsage, reconcileUsage } from "./usage.ts";
+import { readUsage, reconcileUsage } from "../data/usage.ts";
 
 const global = globalThis as unknown as { __billing?: ReturnType<typeof createBillingClient> };
 export const billingClient = global.__billing ??= createBillingClient({ accessToken: getAccessToken });

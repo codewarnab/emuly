@@ -1,7 +1,7 @@
 import "server-only";
-import { db } from "./db.ts";
-import { open, seal } from "./crypto.ts";
-import { exchangeTokens } from "./github-oauth.ts";
+import { db } from "../data/db.ts";
+import { open, seal } from "../auth/crypto.ts";
+import { exchangeTokens } from "../auth/github-oauth.ts";
 
 type TokenRow = {
   token_cipher: Uint8Array;

@@ -1,9 +1,9 @@
 import type { createPhoneService } from "./phone-mutations.ts";
 import { PhoneInputError, redact } from "./phone-mutations.ts";
-import { GitHubError, PHONE_MACHINE } from "../github.ts";
-import { IDLE_MAX, IDLE_MIN, validIdle } from "../idle.ts";
-import { RateLimitError } from "../rate-limit.ts";
-import type { Usage } from "../usage.ts";
+import { GitHubError, PHONE_MACHINE } from "../github/github.ts";
+import { IDLE_MAX, IDLE_MIN, validIdle } from "../shared/idle.ts";
+import { RateLimitError } from "../data/rate-limit.ts";
+import type { Usage } from "../data/usage.ts";
 
 /** HTTP boundary shared by route handlers. Identity always comes from the session. */
 export function createPhoneApi({ user, service, template, usage, defaults }: {

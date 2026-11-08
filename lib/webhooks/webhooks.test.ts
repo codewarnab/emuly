@@ -6,15 +6,15 @@ import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase } from "./database.ts";
-import { seal, open } from "./crypto-core.ts";
+import { openDatabase } from "../data/database.ts";
+import { seal, open } from "../auth/crypto-core.ts";
 import { createWebhookService } from "./webhooks.ts";
 import { createWebhookOutbox } from "./webhook-outbox.ts";
 import { createWebhookApi } from "./webhook-api.ts";
 import { signWebhook, verifyWebhook, webhookTarget, type ResolveHost, type SendWebhook } from "./webhook-security.ts";
-import { createStatePoller } from "./phone/poller.ts";
-import { createGitHubClient, type Codespace } from "./github.ts";
-import { createPhoneService } from "./phone/phone-mutations.ts";
+import { createStatePoller } from "../phone/poller.ts";
+import { createGitHubClient, type Codespace } from "../github/github.ts";
+import { createPhoneService } from "../phone/phone-mutations.ts";
 
 const publicDns: ResolveHost = async () => [{ address: "93.184.216.34", family: 4 }];
 function fixture() {

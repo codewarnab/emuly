@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { diagnosticReport } from "../lib/diagnostic-reports.ts";
+import { diagnosticReport } from "../lib/diagnostics/diagnostic-reports.ts";
 
 // No dotenv, provider credentials, HTTP listener, or schema migration in the reader.
 const [filename, mode = "list", operationId] = process.argv.slice(2);

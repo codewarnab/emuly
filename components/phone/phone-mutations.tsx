@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { IdleTimeoutField } from "@/components/settings/idle-timeout-field";
 import { usePhoneAction } from "@/components/phone/use-phone-action";
-import type { Usage } from "@/lib/usage";
+import type { Usage } from "@/lib/data/usage";
 import s from "@/components/console.module.css";
 
 export function PhoneMutation({ id, state }: { id: string; state: string }) {
@@ -44,7 +44,7 @@ export function NewPhone({ usage }: { usage: Usage }) {
   const running = usage.running.length > 0;
   const [options, setOptions] = useState<Awaited<ReturnType<typeof phoneCreationOptions>> | null>(null);
   const left = Math.max(0, usage.allowance_core_hours - usage.used_core_hours);
-  // Every phone uses the 4-core machine (PHONE_MACHINE in lib/github.ts).
+  // Every phone uses the 4-core machine (PHONE_MACHINE in lib/github/github.ts).
   const nextRate = usage.running.reduce((sum, phone) => sum + phone.cores, 4);
   async function show() {
     setOpen(true);

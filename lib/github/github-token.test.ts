@@ -5,9 +5,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getAccessToken } from "./github-token.ts";
-import { db } from "./db.ts";
-import { seal, open } from "./crypto.ts";
-import { insertSession } from "./session-store.ts";
+import { db } from "../data/db.ts";
+import { seal, open } from "../auth/crypto.ts";
+import { insertSession } from "../auth/session-store.ts";
 
 test("tokens refresh once for concurrent callers, persist encrypted, and invalidate sessions on failure", async () => {
   const directory = mkdtempSync(join(tmpdir(), "phonelink-token-test-"));

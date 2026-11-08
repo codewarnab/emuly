@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { seal, open } from "./crypto-core.ts";
-import { openDatabase } from "./database.ts";
+import { openDatabase } from "../data/database.ts";
 import { insertSession, readSession, deleteSession } from "./session-store.ts";
 
 test("encryption survives serialization and rejects tampered boxes and wrong keys", () => {

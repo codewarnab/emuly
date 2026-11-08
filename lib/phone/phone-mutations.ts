@@ -1,13 +1,13 @@
 import "server-only";
 import type { SetupResult } from "./phone-setup.ts";
-import { validIdle } from "../idle.ts";
+import { validIdle } from "../shared/idle.ts";
 import { randomBytes } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import { GitHubError, type Codespace, type createGitHubClient } from "../github.ts";
-import { assertMutationRate } from "../rate-limit.ts";
-import { emitEvent, type EventEmitter } from "../events.ts";
-import { retentionExpiry } from "../retention.ts";
-import { createDiagnostics, measure, newDiagnosticId } from "../diagnostics.ts";
+import { GitHubError, type Codespace, type createGitHubClient } from "../github/github.ts";
+import { assertMutationRate } from "../data/rate-limit.ts";
+import { emitEvent, type EventEmitter } from "../data/events.ts";
+import { retentionExpiry } from "../data/retention.ts";
+import { createDiagnostics, measure, newDiagnosticId } from "../diagnostics/diagnostics.ts";
 
 type GitHub = ReturnType<typeof createGitHubClient>;
 type StoredPhone = {

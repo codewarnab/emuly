@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { IDLE_MAX, IDLE_MIN, IDLE_PRESETS, idleLabel } from "@/lib/idle";
+import { IDLE_MAX, IDLE_MIN, IDLE_PRESETS, idleLabel } from "@/lib/shared/idle";
 import s from "@/components/console.module.css";
 
 /** Preset idle timeouts plus a custom number of minutes. Submits one field: `name`. */

@@ -2,7 +2,7 @@ import { KeyboardTools } from "@/components/shell/keyboard-tools";
 import { Topbar } from "@/components/shell/topbar";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { getUser } from "../../lib/auth";
+import { getUser } from "../../lib/auth/auth";
 import s from "../../components/console.module.css";
 
 type Props = { searchParams: Promise<{ error?: string | string[] }> };

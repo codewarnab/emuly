@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { IDLE_MAX, IDLE_MIN, IDLE_PRESETS, idleLabel, validIdle } from "@/lib/idle";
+import { IDLE_MAX, IDLE_MIN, IDLE_PRESETS, idleLabel, validIdle } from "@/lib/shared/idle";
 import { useSettingsControls } from "@/components/settings/settings-provider";
 import { InfoTip } from "@/components/ui/info-tip";
 import s from "@/components/console.module.css";

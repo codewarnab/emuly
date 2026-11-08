@@ -2,7 +2,7 @@
 import { useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { PHONE_TABS, phoneTabHref } from "@/lib/keyboard";
+import { PHONE_TABS, phoneTabHref } from "@/lib/shared/keyboard";
 import s from "@/components/console.module.css";
 export const TABS = PHONE_TABS;
 export type Tab = (typeof TABS)[number];

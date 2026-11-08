@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { SyncError } from "@/lib/sync-error";
+import type { SyncError } from "@/lib/shared/sync-error";
 import { Button } from "@/components/ui/button";
 import s from "@/components/console.module.css";
 

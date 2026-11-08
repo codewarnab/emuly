@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { requireUser } from "../../../../../lib/auth";
-import { webhookControl } from "../../../../../lib/webhook-control";
+import { requireUser } from "../../../../../lib/auth/auth";
+import { webhookControl } from "../../../../../lib/webhooks/webhook-control";
 import { WebhookSettings } from "@/components/settings/webhook-settings";
 import s from "../../../../../components/console.module.css";
 

@@ -3,9 +3,9 @@ import { PhoneCardMenu } from "@/components/phone/phone-card-menu";
 import { Button } from "@/components/ui/button";
 import s from "@/components/console.module.css";
 import { Pill } from "@/components/ui/pill";
-import type { PhoneRow } from "@/lib/fixtures";
+import type { PhoneRow } from "@/lib/shared/fixtures";
 import { PhoneMutation, KeepPhone } from "@/components/phone/phone-mutations";
-import type { Retention } from "@/lib/retention";
+import type { Retention } from "@/lib/data/retention";
 import { PhonePreview } from "@/components/phone/phone-preview";
 
 export function Thumb({ dim, sbRight = "5G", id, ready }: { dim?: boolean; sbRight?: string; id?: string; ready?: boolean }) {

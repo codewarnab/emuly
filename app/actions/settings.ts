@@ -1,11 +1,11 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { requireUser } from "../../lib/auth";
-import { db } from "../../lib/db";
+import { requireUser } from "../../lib/auth/auth";
+import { db } from "../../lib/data/db";
 import { redirect } from "next/navigation";
-import { choosePlan, saveHoursSetting, type HoursField } from "../../lib/settings";
-import { acknowledgeAutoStops } from "../../lib/hours";
-import { saveStreamQuality } from "../../lib/display-settings";
+import { choosePlan, saveHoursSetting, type HoursField } from "../../lib/data/settings";
+import { acknowledgeAutoStops } from "../../lib/shared/hours";
+import { saveStreamQuality } from "../../lib/shared/display-settings";
 
 export async function saveDisplayQuality(value: unknown) {
   const user = await requireUser();

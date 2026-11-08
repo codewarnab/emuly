@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { SETTINGS_TABS } from "@/lib/keyboard";
+import { SETTINGS_TABS } from "@/lib/shared/keyboard";
 import s from "@/components/console.module.css";
 
 export function SettingsTabs() {

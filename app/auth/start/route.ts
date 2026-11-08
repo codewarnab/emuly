@@ -1,8 +1,8 @@
 import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
-import { randomId } from "../../../lib/crypto";
+import { randomId } from "../../../lib/auth/crypto";
 import { env } from "../../../lib/env";
-import { cookieName, cookieOptions } from "../../../lib/auth-cookies";
+import { cookieName, cookieOptions } from "../../../lib/auth/auth-cookies";
 
 export async function GET(request: NextRequest) {
   const store = await cookies();

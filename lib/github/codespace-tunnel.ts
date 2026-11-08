@@ -5,7 +5,7 @@ import { TunnelRelayTunnelClient } from "@microsoft/dev-tunnels-connections";
 import type { Tunnel } from "@microsoft/dev-tunnels-contracts";
 import { ManagementApiVersions, TunnelManagementHttpClient } from "@microsoft/dev-tunnels-management";
 import ssh2 from "ssh2";
-import { measure } from "./diagnostics.ts";
+import { measure } from "../diagnostics/diagnostics.ts";
 
 /**
  * Runs a shell command in a codespace without the gh binary. Same path as `gh codespace ssh`:

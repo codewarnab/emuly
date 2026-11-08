@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
-import { migrate } from "./database.ts";
+import { migrate } from "../data/database.ts";
 import { createGitHubClient, GitHubError } from "./github.ts";
 
 test("GitHub errors parse retry headers with precedence, preserve rate-limit signals and redact tokens", async t => {

@@ -1,5 +1,5 @@
 import "server-only";
-import { env } from "./env.ts";
+import { env } from "../env.ts";
 import * as crypto from "./crypto-core.ts";
 
 export const seal = (plain: string) => crypto.seal(plain, env.tokenKey);

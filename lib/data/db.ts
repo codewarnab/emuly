@@ -1,7 +1,7 @@
 import "server-only";
 import type { DatabaseSync } from "node:sqlite";
 import { migrate, openDatabase } from "./database.ts";
-import { env } from "./env.ts";
+import { env } from "../env.ts";
 
 // One connection per process; survives dev hot reload.
 const g = globalThis as unknown as { __phonelinkDb?: DatabaseSync };

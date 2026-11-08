@@ -1,12 +1,12 @@
 import "server-only";
-import { db } from "../db.ts";
-import { seal } from "../crypto.ts";
-import { getAccessToken } from "../github-token.ts";
-import { createGitHubClient } from "../github.ts";
+import { db } from "../data/db.ts";
+import { seal } from "../auth/crypto.ts";
+import { getAccessToken } from "../github/github-token.ts";
+import { createGitHubClient } from "../github/github.ts";
 import { createPhoneService, PhoneInputError } from "./phone-mutations.ts";
 import { createPhoneSetup } from "./phone-setup.ts";
 import { runnerRequest, closeRunner } from "./phone-runner.ts";
-import { syncError, type SyncError } from "../sync-error.ts";
+import { syncError, type SyncError } from "../shared/sync-error.ts";
 
 // Share mutation guards across requests and development hot reloads.
 // Hot reload keeps globalThis but runs this module again, so a service built by older code

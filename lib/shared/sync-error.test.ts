@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { GitHubError } from "./github.ts";
+import { GitHubError } from "../github/github.ts";
 import { syncError } from "./sync-error.ts";
 
 test("sync maps expired GitHub sign-in to reconnect", () => {

@@ -1,10 +1,10 @@
 import "server-only";
 import { cache } from "react";
 import { redirect } from "next/navigation";
-import { db } from "./db";
+import { db } from "../data/db";
 import { getSession } from "./session";
 
-// One GitHub account per user; see lib/github.ts for the Terms and billing rationale.
+// One GitHub account per user; see lib/github/github.ts for the Terms and billing rationale.
 export const getUser = cache(async () => {
   const session = await getSession();
   if (!session) return null;

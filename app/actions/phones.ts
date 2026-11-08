@@ -1,16 +1,16 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireUser } from "../../lib/auth";
+import { requireUser } from "../../lib/auth/auth";
 import { phoneControl, templateRepository } from "../../lib/phone/phone-control";
-import { PHONE_MACHINE } from "../../lib/github";
-import { IDLE_MAX, IDLE_MIN, parseIdle } from "../../lib/idle";
-import { GitHubError } from "../../lib/github";
+import { PHONE_MACHINE } from "../../lib/github/github";
+import { IDLE_MAX, IDLE_MIN, parseIdle } from "../../lib/shared/idle";
+import { GitHubError } from "../../lib/github/github";
 import { PhoneInputError, redact } from "../../lib/phone/phone-mutations";
-import { RateLimitError } from "../../lib/rate-limit";
-import { db } from "../../lib/db";
-import { saveAllowance, userSettings } from "../../lib/usage";
-import { clearAllowanceOverride } from "../../lib/settings";
+import { RateLimitError } from "../../lib/data/rate-limit";
+import { db } from "../../lib/data/db";
+import { saveAllowance, userSettings } from "../../lib/data/usage";
+import { clearAllowanceOverride } from "../../lib/data/settings";
 
 type MutationResult = { message: string; phoneId?: string };
 

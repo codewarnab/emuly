@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { saveDisplayQuality } from "@/app/actions/settings";
-import type { StreamQuality } from "@/lib/display-settings";
+import type { StreamQuality } from "@/lib/shared/display-settings";
 import s from "@/components/console.module.css";
 
 export function DisplaySettings({ initial }: { initial: StreamQuality }) {

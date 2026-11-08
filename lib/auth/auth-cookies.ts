@@ -1,5 +1,5 @@
 import "server-only";
-import { env } from "./env";
+import { env } from "../env";
 
 export function cookieName(kind: "session" | "state" | "billing") {
   return `${env.cookieInsecure ? "" : "__Host-"}pl_${kind}`;

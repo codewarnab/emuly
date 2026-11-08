@@ -1,7 +1,7 @@
 import { Suspense } from "react";
-import { requireUser } from "../../../../lib/auth";
-import { db } from "../../../../lib/db";
-import { chosenPlan } from "../../../../lib/settings";
+import { requireUser } from "../../../../lib/auth/auth";
+import { db } from "../../../../lib/data/db";
+import { chosenPlan } from "../../../../lib/data/settings";
 import { savePlan } from "../../../actions/settings";
 import { Topbar, Avatar } from "@/components/shell/topbar";
 import { ConsoleLoading } from "@/components/ui/console-loading";

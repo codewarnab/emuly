@@ -1,9 +1,9 @@
-﻿import { getUser } from "../../../../../../lib/auth";
-import { getSession } from "../../../../../../lib/session";
+﻿import { getUser } from "../../../../../../lib/auth/auth";
+import { getSession } from "../../../../../../lib/auth/session";
 import { findPhone } from "../../../../../../lib/phone/phones";
 import { runnerStream } from "../../../../../../lib/phone/phone-runner";
 import { createPhoneStreamApi } from "../../../../../../lib/phone/phone-stream-api";
-import { db } from "../../../../../../lib/db";
+import { db } from "../../../../../../lib/data/db";
 import { phoneObservations } from "../../../../../../lib/phone/phone-observation";
 
 const stream = createPhoneStreamApi({ user: async () => {

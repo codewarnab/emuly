@@ -1,7 +1,7 @@
 import Link from "next/link";
 import s from "@/components/console.module.css";
-import type { AccountUsage } from "@/lib/billing";
-import { quotaState } from "@/lib/github-billing";
+import type { AccountUsage } from "@/lib/github/billing";
+import { quotaState } from "@/lib/github/github-billing";
 
 export function QuotaStrip({ usage, defaultCores = 4 }: { usage: AccountUsage; defaultCores?: number }) {
   const cores = Math.max(1, defaultCores);

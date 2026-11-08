@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { timeAgo, utcLabel } from "@/lib/relative-time";
+import { timeAgo, utcLabel } from "@/lib/shared/relative-time";
 
 /** Re-renders every minute so relative times and timers stay current. */
 function useNow() {

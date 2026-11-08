@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
   logging: { incomingRequests: false },
   cacheComponents: true,
   partialPrefetching: true,
-  // Codespace tunnel stack (lib/codespace-tunnel.ts). These packages use optional
+  // Codespace tunnel stack (lib/github/codespace-tunnel.ts). These packages use optional
   // requires (node-rsa, cpu-features) and native Node APIs, so load them with plain require.
   serverExternalPackages: [
     "@microsoft/dev-tunnels-connections", "@microsoft/dev-tunnels-management",

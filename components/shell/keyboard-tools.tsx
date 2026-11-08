@@ -2,9 +2,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { AGENT_PROMPT } from "@/lib/agent-prompt";
-import { filterCommands, PHONE_TABS, phoneTabHref, SETTINGS_TABS, SETTINGS_KEYS } from "@/lib/keyboard";
+import { filterCommands, PHONE_TABS, phoneTabHref, SETTINGS_TABS, SETTINGS_KEYS } from "@/lib/shared/keyboard";
 import { useSettingsControls } from "@/components/settings/settings-provider";
-import type { Webhook } from "@/lib/webhooks";
+import type { Webhook } from "@/lib/webhooks/webhooks";
 import { copyText, useToast } from "@/components/ui/ui-provider";
 import { cycleTheme, setTheme, type Theme } from "@/components/shell/theme-toggle";
 import { useShortcuts } from "@/components/shell/use-shortcuts";

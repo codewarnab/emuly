@@ -1,6 +1,6 @@
 import Loading from "./loading";
 import { Suspense } from "react";
-import { requireUser } from "../../../lib/auth";
+import { requireUser } from "../../../lib/auth/auth";
 import { listPhones, phoneCard } from "../../../lib/phone/phones";
 import { EmptyPhones } from "@/components/phone/empty-phones";
 import s from "../../../components/console.module.css";
@@ -10,14 +10,14 @@ import { NewPhone, PhoneRefresh, StopAll } from "@/components/phone/phone-mutati
 import { syncPhoneState } from "../../../lib/phone/phone-control";
 import { SyncNotice } from "@/components/shell/sync-notice";
 import { Topbar, Avatar } from "@/components/shell/topbar";
-import { db } from "../../../lib/db";
-import { readUsage, userSettings } from "../../../lib/usage";
-import { readAccountUsage } from "../../../lib/billing";
-import { chosenPlan } from "../../../lib/settings";
+import { db } from "../../../lib/data/db";
+import { readUsage, userSettings } from "../../../lib/data/usage";
+import { readAccountUsage } from "../../../lib/github/billing";
+import { chosenPlan } from "../../../lib/data/settings";
 import { redirect } from "next/navigation";
 import { KeyboardTools } from "@/components/shell/keyboard-tools";
-import { hoursWarning } from "../../../lib/hours";
-import { retentionStatus } from "../../../lib/retention";
+import { hoursWarning } from "../../../lib/shared/hours";
+import { retentionStatus } from "../../../lib/data/retention";
 
 /** Dashboard: each phone is a codespace in the signed-in user's account. */
 export default function DashboardPage() {

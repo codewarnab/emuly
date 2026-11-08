@@ -2,13 +2,13 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 import { env } from "../../../lib/env";
-import { db, now } from "../../../lib/db";
-import { seal } from "../../../lib/crypto";
-import { createSession } from "../../../lib/session";
-import { cookieName, cookieOptions } from "../../../lib/auth-cookies";
-import { exchangeTokens, githubIdentity, githubGet, SignInError } from "../../../lib/github-oauth";
-import { getUser } from "../../../lib/auth";
-import { billingClient } from "../../../lib/billing";
+import { db, now } from "../../../lib/data/db";
+import { seal } from "../../../lib/auth/crypto";
+import { createSession } from "../../../lib/auth/session";
+import { cookieName, cookieOptions } from "../../../lib/auth/auth-cookies";
+import { exchangeTokens, githubIdentity, githubGet, SignInError } from "../../../lib/auth/github-oauth";
+import { getUser } from "../../../lib/auth/auth";
+import { billingClient } from "../../../lib/github/billing";
 
 export async function GET(request: NextRequest) {
   const store = await cookies();

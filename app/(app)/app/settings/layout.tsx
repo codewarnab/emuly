@@ -1,12 +1,12 @@
 ﻿import { Suspense } from "react";
-import { requireUser } from "../../../../lib/auth";
+import { requireUser } from "../../../../lib/auth/auth";
 import { Topbar, Avatar } from "@/components/shell/topbar";
 import { SettingsTabs } from "@/components/settings/settings-tabs";
 import { SettingsProvider } from "@/components/settings/settings-provider";
 import { KeyboardTools } from "@/components/shell/keyboard-tools";
 import { listPhones } from "../../../../lib/phone/phones";
-import { db } from "../../../../lib/db";
-import { chosenPlan, userSettings } from "../../../../lib/settings";
+import { db } from "../../../../lib/data/db";
+import { chosenPlan, userSettings } from "../../../../lib/data/settings";
 import s from "../../../../components/console.module.css";
 
 // Keep the shared controls mounted when switching settings tabs.

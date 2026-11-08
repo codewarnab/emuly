@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
-import { migrate } from "./database.ts";
+import { migrate } from "../data/database.ts";
 import { saveStreamQuality, streamQuality } from "./display-settings.ts";
 
 test("stream quality defaults to Auto and saves per account without changing other settings", () => {

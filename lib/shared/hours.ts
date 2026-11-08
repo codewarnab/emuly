@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { Usage } from "./usage.ts";
+import type { Usage } from "../data/usage.ts";
 
 export function hoursWarning(usage: Usage, automatic: boolean) {
   if (usage.hours_left_at_current_rate === null || usage.hours_left_at_current_rate > 0.5) return null;

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect } from "react";
-import { shortcutKey } from "@/lib/keyboard";
+import { shortcutKey } from "@/lib/shared/keyboard";
 export function useShortcuts(handle: (key: string) => void, open: boolean, clock: () => number = Date.now) {
   useEffect(() => {
     let prefixAt: number | null = null;

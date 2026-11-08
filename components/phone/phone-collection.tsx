@@ -1,10 +1,10 @@
 "use client";
 import { startTransition, useEffect, useState, ViewTransition } from "react";
 import Link from "next/link";
-import type { PhoneRow } from "@/lib/fixtures";
+import type { PhoneRow } from "@/lib/shared/fixtures";
 import { PhoneCard } from "@/components/phone/phone-card";
 import { PhoneMutation, KeepPhone } from "@/components/phone/phone-mutations";
-import type { Retention } from "@/lib/retention";
+import type { Retention } from "@/lib/data/retention";
 import { Pill } from "@/components/ui/pill";
 import s from "@/components/console.module.css";
 

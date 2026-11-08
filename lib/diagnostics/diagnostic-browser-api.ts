@@ -1,5 +1,5 @@
 import { diagnosticHealth } from "./diagnostics.ts";
-import type { phoneObservations } from "./phone/phone-observation.ts";
+import type { phoneObservations } from "../phone/phone-observation.ts";
 
 /** Write-only observation endpoint. Identity comes exclusively from the authenticated session. */
 export function createDiagnosticBrowserApi({ user, phone, observations }: {

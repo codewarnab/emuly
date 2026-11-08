@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import { createEventEmitter, emitEvent, WEBHOOK_EVENTS } from "./events.ts";
+import { createEventEmitter, emitEvent, WEBHOOK_EVENTS } from "../data/events.ts";
 import { webhookTarget, WebhookInputError, type ResolveHost } from "./webhook-security.ts";
 
 export type Webhook = { id: string; url: string; events: "*" | string[]; enabled: boolean; created_at: string; failing_since: string | null };

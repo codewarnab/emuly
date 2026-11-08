@@ -1,6 +1,6 @@
 import "server-only";
-import { env } from "./env.ts";
-import { githubFetch } from "./github.ts";
+import { env } from "../env.ts";
+import { githubFetch } from "../github/github.ts";
 
 export class SignInError extends Error {
   readonly code: string;

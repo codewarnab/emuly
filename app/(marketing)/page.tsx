@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { getSession } from "../../lib/session";
+import { getSession } from "../../lib/auth/session";
 import type { Metadata } from "next";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
 import { Brand } from "@/components/shell/topbar";

@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { db } from "./db.ts";
-import { WEBHOOK_EVENTS } from "./webhook-event-types.ts";
+import { WEBHOOK_EVENTS } from "../webhooks/webhook-event-types.ts";
 
-export { WEBHOOK_EVENTS } from "./webhook-event-types.ts";
+export { WEBHOOK_EVENTS } from "../webhooks/webhook-event-types.ts";
 
 export type OutgoingEvent = {
   userId: number;

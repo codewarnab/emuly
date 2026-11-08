@@ -1,9 +1,9 @@
 import "server-only";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { codespaceExec } from "../codespace-tunnel.ts";
-import { collectProgress, measure, progressCursor, diagnosticHealth, diagnosticOperation } from "../diagnostics.ts";
-import { validateStep, type Step } from "../diagnostic-contract.ts";
+import { codespaceExec } from "../github/codespace-tunnel.ts";
+import { collectProgress, measure, progressCursor, diagnosticHealth, diagnosticOperation } from "../diagnostics/diagnostics.ts";
+import { validateStep, type Step } from "../diagnostics/diagnostic-contract.ts";
 
 /** Files copied into each codespace, relative to `phone/` in this repository. */
 const FILES = ["scripts/progress.sh", "scripts/read-progress.py", "scripts/bounded-log.py", "scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "runner/runner.mjs", "runner/apps.mjs", "runner/apk-download.mjs", "runner/scrcpy.mjs", "runner/scrcpy-protocol.mjs"];

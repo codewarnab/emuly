@@ -1,7 +1,7 @@
 ﻿"use client";
 import { useEffect, useId, useRef, useState } from "react";
-import type { Webhook, Delivery } from "@/lib/webhooks";
-import { WEBHOOK_EVENTS } from "@/lib/webhook-event-types";
+import type { Webhook, Delivery } from "@/lib/webhooks/webhooks";
+import { WEBHOOK_EVENTS } from "@/lib/webhooks/webhook-event-types";
 import { copyText, useToast } from "@/components/ui/ui-provider";
 import { Button } from "@/components/ui/button";
 import s from "@/components/console.module.css";

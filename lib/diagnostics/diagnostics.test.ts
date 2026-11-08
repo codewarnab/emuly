@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
-import { migrate } from "./database.ts";
+import { migrate } from "../data/database.ts";
 import { validateStep, type Step } from "./diagnostic-contract.ts";
 import { createDiagnostics, measure } from "./diagnostics.ts";
 import { diagnosticReport } from "./diagnostic-reports.ts";
-import { phoneObservations } from "./phone/phone-observation.ts";
+import { phoneObservations } from "../phone/phone-observation.ts";
 import { createDiagnosticBrowserApi } from "./diagnostic-browser-api.ts";
 
 const ts = "2026-11-08T00:00:00.000Z";

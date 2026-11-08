@@ -1,5 +1,5 @@
 import "server-only";
-import { measure } from "../diagnostics.ts";
+import { measure } from "../diagnostics/diagnostics.ts";
 import type { phoneObservations } from "./phone-observation.ts";
 
 type Bridge = { url: string; close: () => void };

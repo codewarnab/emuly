@@ -1,6 +1,6 @@
-import { requireUser } from "../../../../../lib/auth";
-import { db } from "../../../../../lib/db";
-import { streamQuality } from "../../../../../lib/display-settings";
+import { requireUser } from "../../../../../lib/auth/auth";
+import { db } from "../../../../../lib/data/db";
+import { streamQuality } from "../../../../../lib/shared/display-settings";
 import { DisplaySettings } from "@/components/settings/display-settings";
 
 export default async function DisplayPage() {

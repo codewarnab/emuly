@@ -1,7 +1,7 @@
 import "server-only";
-import { db } from "./db";
-import { seal, open } from "./crypto";
-import { env } from "./env";
+import { db } from "../data/db";
+import { seal, open } from "../auth/crypto";
+import { env } from "../env";
 import { createWebhookService } from "./webhooks";
 import { createWebhookOutbox } from "./webhook-outbox";
 

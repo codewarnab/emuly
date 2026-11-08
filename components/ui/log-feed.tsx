@@ -1,5 +1,5 @@
 import s from "@/components/console.module.css";
-import type { LogPart } from "@/lib/fixtures";
+import type { LogPart } from "@/lib/shared/fixtures";
 import { TimeAgo } from "@/components/ui/event-time";
 
 /** `at` is the ISO time used to show when the event happened. */

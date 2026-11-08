@@ -1,11 +1,11 @@
 import "server-only";
 import type { DatabaseSync } from "node:sqlite";
-import { GitHubError } from "../github.ts";
-import { readUsage, type Usage } from "../usage.ts";
-import { userSettings } from "../settings.ts";
-import { emitEvent, type EventEmitter } from "../events.ts";
-import { retentionStatus } from "../retention.ts";
-import { createDiagnostics } from "../diagnostics.ts";
+import { GitHubError } from "../github/github.ts";
+import { readUsage, type Usage } from "../data/usage.ts";
+import { userSettings } from "../data/settings.ts";
+import { emitEvent, type EventEmitter } from "../data/events.ts";
+import { retentionStatus } from "../data/retention.ts";
+import { createDiagnostics } from "../diagnostics/diagnostics.ts";
 
 /** One loop owns sync, budget, retention policy and webhook delivery. */
 export function createStatePoller({ database, sync, autoStop, autoKeep, deliver, emit = event => emitEvent(event, database), clock = Date.now }: {

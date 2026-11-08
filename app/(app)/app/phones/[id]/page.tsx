@@ -1,16 +1,16 @@
 import Link from "next/link";
-import { shortMessage } from "../../../../../lib/short-message";
-import { PHONE_TABS } from "../../../../../lib/keyboard";
-import { idleLabel } from "../../../../../lib/idle";
+import { shortMessage } from "../../../../../lib/shared/short-message";
+import { PHONE_TABS } from "../../../../../lib/shared/keyboard";
+import { idleLabel } from "../../../../../lib/shared/idle";
 import { phoneStatus } from "../../../../../lib/phone/phone-status";
 import Loading from "./loading";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { requireUser } from "../../../../../lib/auth";
+import { requireUser } from "../../../../../lib/auth/auth";
 import { findPhone, listPhones, phoneEvents, type Phone } from "../../../../../lib/phone/phones";
 import { KeyboardTools } from "@/components/shell/keyboard-tools";
 import { syncPhoneState } from "../../../../../lib/phone/phone-control";
-import type { SyncError } from "../../../../../lib/sync-error";
+import type { SyncError } from "../../../../../lib/shared/sync-error";
 import { SyncNotice } from "@/components/shell/sync-notice";
 import { PhoneMutation, PhoneRefresh, RetryBoot } from "@/components/phone/phone-mutations";
 import { PhoneScreen, AndroidElapsed } from "@/components/phone/phone-screen";
@@ -23,9 +23,9 @@ import { Mini, UrlRow } from "@/components/ui/mini";
 import { DangerPanel } from "@/components/phone/danger-panel";
 import { Button } from "@/components/ui/button";
 import { Pill } from "@/components/ui/pill";
-import { mockLog, mockDetail, mockPhones } from "@/lib/fixtures";
-import { db } from "../../../../../lib/db";
-import { streamQuality } from "../../../../../lib/display-settings";
+import { mockLog, mockDetail, mockPhones } from "@/lib/shared/fixtures";
+import { db } from "../../../../../lib/data/db";
+import { streamQuality } from "../../../../../lib/shared/display-settings";
 import { PhoneApps } from "@/components/phone/phone-apps";
 
 /** Board block 03 — the live screen. Stage left, log right, tabs on top.

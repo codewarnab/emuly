@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePhoneVideo } from "@/components/phone/use-phone-video";
 import { screenPoint, phoneKeys } from "@/lib/phone/phone-video";
 import s from "@/components/phone/phone-screen.module.css";
-import type { StreamQuality } from "@/lib/display-settings";
+import type { StreamQuality } from "@/lib/shared/display-settings";
 
 const controlIcons = {
   back: <path d="m14 6-6 6 6 6" />,

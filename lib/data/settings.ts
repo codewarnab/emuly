@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { IDLE_MAX, IDLE_MIN, validIdle } from "./idle.ts";
+import { IDLE_MAX, IDLE_MIN, validIdle } from "../shared/idle.ts";
 
 export type UserSettings = {
   allowance_core_hours: number;

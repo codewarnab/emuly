@@ -1,4 +1,4 @@
-import { getUser } from "../../../../../../lib/auth";
+import { getUser } from "../../../../../../lib/auth/auth";
 import { findPhone } from "../../../../../../lib/phone/phones";
 import { runnerRequest } from "../../../../../../lib/phone/phone-runner";
 import { createPhoneScreenApi } from "../../../../../../lib/phone/phone-screen-api";

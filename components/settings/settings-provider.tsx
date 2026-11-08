@@ -1,7 +1,7 @@
 "use client";
 import { createContext, useContext, useEffect, useOptimistic, useState, useTransition } from "react";
 import { saveHoursField } from "@/app/actions/settings";
-import type { HoursField } from "@/lib/settings";
+import type { HoursField } from "@/lib/data/settings";
 import s from "@/components/console.module.css";
 
 export type HoursValues = { idle: number; autoStop: boolean; autoKeep: boolean; plan: "free" | "pro" | "custom"; allowance: number };

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { cookieName } from "./lib/auth-cookies";
-import { db } from "./lib/db";
-import { readSession } from "./lib/session-store.ts";
+import { cookieName } from "./lib/auth/auth-cookies";
+import { db } from "./lib/data/db";
+import { readSession } from "./lib/auth/session-store.ts";
 import { env } from "./lib/env";
 
 /** Redirect before streaming. Pages also authorize independently via requireUser(). */

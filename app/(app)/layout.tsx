@@ -1,12 +1,12 @@
 import { ConsoleLoading } from "@/components/ui/console-loading";
 import Link from "next/link";
 import { Suspense } from "react";
-import { requireUser } from "../../lib/auth";
+import { requireUser } from "../../lib/auth/auth";
 import s from "../../components/console.module.css";
-import { db } from "../../lib/db";
-import { unreadAutoStops } from "../../lib/hours";
+import { db } from "../../lib/data/db";
+import { unreadAutoStops } from "../../lib/shared/hours";
 import { AutoStopNotice } from "@/components/shell/auto-stop-notice";
-import { webhookControl } from "../../lib/webhook-control";
+import { webhookControl } from "../../lib/webhooks/webhook-control";
 
 /** Console shell wrapper + mobile tabbar (board 05).
     Topbars are rendered per page (dashboard nav vs phone breadcrumb). */

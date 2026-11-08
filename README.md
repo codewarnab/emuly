@@ -101,8 +101,13 @@ components/
   marketing/         landing hero
 lib/
   phone/            lifecycle, setup, runner link, stream, apps, video, poller
-  diagnostics       startup reports, contracts, browser API
-  env, crypto (AES-256-GCM), SQLite (node:sqlite), sessions, GitHub OAuth
+  diagnostics/      startup reports, contracts, browser API
+  auth/             sessions, cookies, crypto, GitHub OAuth
+  github/           API client, tokens, billing, codespace tunnel
+  data/             SQLite, events, settings, usage, retention, rate limits
+  webhooks/         fan-out, signing, outbox, delivery API
+  shared/           display settings, hours, idle, keyboard, formatting
+  env.ts, api.ts, agent-prompt.ts
 proxy.ts            protects /app/* (Next 16 replacement for middleware)
 public/agents/      agent logos (from svgl.app)
 docs/
