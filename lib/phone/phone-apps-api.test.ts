@@ -34,3 +34,55 @@ test("Apps preserves runner conflicts and missing-operation errors and keeps res
   assert.equal(response.headers.get("cache-control"), "private, no-store");
   }
 });
+
+test("Apps validates success responses without changing valid records or status codes", async () => {
+  const operation = { id: "11111111-1111-4111-8111-111111111111", source: "upload", filename: "app.apk",
+    stage: "failed", bytesReceived: 10, totalBytes: 10, canCancel: false, errorCode: "install_failed", message: "Choose another APK." };
+  const scenarios = [
+    { route: ["apps"], method: "GET", payload: { apps: [{ packageId: "com.example.app", versionCode: null, launchable: false }], fetchedAt: "2026-11-08" }, status: 200 },
+    { route: ["app-installs"], method: "GET", payload: { operations: [operation] }, status: 200 },
+    { route: ["app-installs", operation.id], method: "GET", payload: operation, status: 200 },
+    { route: ["app-installs"], method: "POST", payload: operation, status: 202 },
+    { route: ["app-installs", operation.id, "complete"], method: "POST", payload: operation, status: 200 },
+    { route: ["app-installs", operation.id, "cancel"], method: "POST", payload: { ...operation, stage: "cancelled" }, status: 200 },
+    { route: ["apps", "open"], method: "POST", payload: { ok: true }, status: 200 },
+  ];
+  for (const scenario of scenarios) {
+    const api = createPhoneAppsApi({ user: async () => ({ id: 51 }), phone: () => ({ state: "running", android_state: "ready" }),
+      runner: async () => Response.json(scenario.payload) });
+    const body = scenario.route.join("/") === "apps/open" ? { packageId: "com.example.app" }
+      : { source: "upload", key: "11111111-1111-4111-8111-111111111111", filename: "app.apk", totalBytes: 10 };
+    const response = await api(request(scenario.method, scenario.method === "POST" ? JSON.stringify(body) : undefined), "one", scenario.route);
+    assert.equal(response.status, scenario.status);
+    assert.deepEqual(await response.json(), scenario.payload);
+  }
+});
+
+test("Apps returns safe 502 errors for malformed runner successes, errors, and JSON", async () => {
+  const scenarios = [
+    { route: ["apps"], body: JSON.stringify({ apps: [null] }), status: 200 },
+    { route: ["app-installs"], body: JSON.stringify({ operations: [{}] }), status: 200 },
+    { route: ["app-installs", "11111111-1111-4111-8111-111111111111"], body: "null", status: 200 },
+    { route: ["apps"], body: JSON.stringify({ error: { private: "sensitive detail" } }), status: 503 },
+    { route: ["apps"], body: "sensitive non-JSON detail", status: 200 },
+  ];
+  for (const scenario of scenarios) {
+    const api = createPhoneAppsApi({ user: async () => ({ id: 52 }), phone: () => ({ state: "running", android_state: "ready" }),
+      runner: async () => new Response(scenario.body, { status: scenario.status }) });
+    const response = await api(request("GET"), "one", scenario.route);
+    assert.equal(response.status, 502);
+    assert.deepEqual(await response.json(), { error: "Invalid phone response. Refresh status before retrying.", errorCode: "invalid_response" });
+    assert.equal(response.headers.get("cache-control"), "private, no-store");
+  }
+});
+
+test("Apps checks update and launch acknowledgements before reporting success", async () => {
+  for (const valid of [true, false]) {
+    const api = createPhoneAppsApi({ user: async () => ({ id: 53 }), phone: () => ({ state: "running", android_state: "ready" }),
+      runner: async () => Response.json({ ok: valid ? true : "true" }), upgrade: async () => ({ status: valid ? "working" : "unknown" }) });
+    const open = await api(request("POST", JSON.stringify({ packageId: "com.example.app" })), "one", ["apps", "open"]);
+    const update = await api(request("POST"), "one", ["apps", "update"]);
+    assert.equal(open.status, valid ? 200 : 502);
+    assert.equal(update.status, valid ? 200 : 502);
+  }
+});

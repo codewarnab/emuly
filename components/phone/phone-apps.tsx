@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { APK_CHUNK_BYTES, APK_MAX_BYTES, installFinished, type AppInstall, type InstalledApp } from "@/lib/phone/phone-apps-contract";
+import { parseAppInventory, parseAppInstall, parseAppInstalls, parseAppOpened, parsePhoneError, parseRunnerUpdate, readPhoneResponse } from "@/lib/phone/phone-response";
 import s from "@/components/phone/phone-apps.module.css";
 
 const stages: Record<string, string> = { uploading: "Uploading APK", downloading: "Downloading APK", validating: "Checking APK",
@@ -32,28 +33,28 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
   const alive = useRef(true);
   const active = operation !== null && !installFinished(operation.stage);
 
-  const api = useCallback(async (path: string, options: RequestInit = {}) => {
+  const api = useCallback(async <T,>(path: string, parse: (value: unknown) => T, options: RequestInit = {}) => {
     const response = await fetch(`${base}/${path}`, { ...options, cache: "no-store", signal: options.signal ?? AbortSignal.timeout(95_000) });
-    const result = await response.json();
     if (!response.ok) {
+      const result = await readPhoneResponse(response, parsePhoneError);
       if (result.errorCode === "runner_update_required") setNeedsUpdate(true);
-      throw new Error(result.error ?? "Phone request failed.");
+      throw new Error(result.error);
     }
-    return result;
+    return readPhoneResponse(response, parse);
   }, [base]);
   const json = (value: unknown): RequestInit => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) });
 
   const refresh = useCallback(async () => {
     if (!ready) return;
     try {
-      const result = await api("apps");
+      const result = await api("apps", parseAppInventory);
       if (alive.current) { setApps(result.apps); setInventoryError(""); }
     } catch (cause) { if (alive.current) setInventoryError(cause instanceof Error ? cause.message : "Could not load apps."); }
   }, [api, ready]);
   const refreshOperation = useCallback(async () => {
     if (!ready) return;
     try {
-      const result = await api("app-installs");
+      const result = await api("app-installs", parseAppInstalls);
       const latest: AppInstall | null = result.operations[0] ?? null;
       if (alive.current && !transferRunning.current) {
         setOperation(latest);
@@ -89,20 +90,20 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
       let acknowledged = false;
       for (let attempt = 0; attempt < 3 && !acknowledged; attempt++) {
         try {
-          current = await api(`app-installs/${current.id}/content`, { method: "PUT", body: bytes, signal,
+          current = await api(`app-installs/${current.id}/content`, parseAppInstall, { method: "PUT", body: bytes, signal,
             headers: { "content-type": "application/octet-stream", "x-upload-offset": String(offset), "x-chunk-sha256": digest } });
           acknowledged = true;
         } catch (cause) {
           signal.throwIfAborted();
           // A missing acknowledgement does not prove the write failed.
-          current = await api(`app-installs/${current.id}`, { signal });
+          current = await api(`app-installs/${current.id}`, parseAppInstall, { signal });
           if (current.bytesReceived === offset + bytes.byteLength || current.stage !== "uploading") acknowledged = true;
           else if (attempt === 2) throw cause;
         }
       }
       if (alive.current) setOperation(current);
     }
-    if (current.stage === "uploading") current = await api(`app-installs/${current.id}/complete`, { method: "POST", signal });
+    if (current.stage === "uploading") current = await api(`app-installs/${current.id}/complete`, parseAppInstall, { method: "POST", signal });
     if (alive.current) setOperation(current);
   }
   async function install(file?: File, retry = false) {
@@ -121,9 +122,9 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
     const abort = new AbortController(); controller.current = abort;
     try {
       let result: AppInstall;
-      if (request.id) result = await api(`app-installs/${request.id}`, { signal: abort.signal });
+      if (request.id) result = await api(`app-installs/${request.id}`, parseAppInstall, { signal: abort.signal });
       else {
-        result = await api("app-installs", { ...json(request.file ? { source: "upload", key: request.key, filename: request.file.name, totalBytes: request.file.size }
+        result = await api("app-installs", parseAppInstall, { ...json(request.file ? { source: "upload", key: request.key, filename: request.file.name, totalBytes: request.file.size }
           : { source: "url", key: request.key, url: request.url }), signal: abort.signal });
         request.id = result.id;
       }
@@ -141,20 +142,20 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
     if (!operation) return;
     controller.current?.abort();
     try {
-      const result = await api(`app-installs/${operation.id}/cancel`, { method: "POST" });
+      const result = await api(`app-installs/${operation.id}/cancel`, parseAppInstall, { method: "POST" });
       setOperation(result); setError(""); pending.current = null;
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not cancel. Refresh status."); }
   }
   async function openApp(packageId: string) {
     setOpening(packageId); setNotice("");
-    try { await api("apps/open", json({ packageId })); setNotice(`Opened ${packageId}.`); }
+    try { await api("apps/open", parseAppOpened, json({ packageId })); setNotice(`Opened ${packageId}.`); }
     catch (cause) { setNotice(cause instanceof Error ? cause.message : "Could not open app."); }
     finally { setOpening(""); }
   }
   async function updateRunner() {
     setUpdating(true); setError("");
     try {
-      const result = await api("apps/update", { method: "POST" });
+      const result = await api("apps/update", parseRunnerUpdate, { method: "POST" });
       if (result.status === "ready") { setNeedsUpdate(false); setNotice("App installation is ready."); void refresh(); void refreshOperation(); }
       else setNotice("Updating phone support. Select Check update again in a few seconds. The live screen may reconnect.");
     } catch { setError("Phone update status is unavailable. Check the update again."); }

@@ -161,6 +161,17 @@ test("ticket failures use bounded retry delays and disposal cancels the next ret
   t.mock.timers.tick(10000); await setImmediate(); assert.equal(b.requests.length, before);
 });
 
+test("malformed stream tickets retry without opening a socket", async t => {
+  const b = browser(t);
+  b.ticket(async () => ({ ticket: 123, attemptId: {} }));
+  b.start(); await setImmediate();
+  assert.equal(b.sockets.length, 0);
+  assert.equal(b.states.at(-1), "retrying");
+  b.ticket(async () => ({ ticket: "valid-without-diagnostics" }));
+  t.mock.timers.tick(1000); await setImmediate();
+  assert.equal(b.sockets.length, 1);
+});
+
 test("screenshot fallback reports presence without sockets and stops after disposal", async t => {
   const b = browser(t, false), session = b.start(); await setImmediate();
   assert.equal(b.sockets.length, 0); assert.equal(b.states.at(-1), "fallback");

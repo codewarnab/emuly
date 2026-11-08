@@ -1,4 +1,5 @@
 import { avcCodec, retryDelays, videoPacket } from "../../lib/phone/phone-video.ts";
+import { parseStreamTicket, readPhoneResponse } from "../../lib/phone/phone-response.ts";
 import { phoneTiming } from "./phone-timing.ts";
 
 export type VideoConnectionState = "connecting" | "streaming" | "retrying" | "suspended" | "fallback" | "disposed";
@@ -79,7 +80,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
     try {
       const response = await fetch(`/app/phones/${encodeURIComponent(id)}/stream-ticket`, { method: "POST", signal: AbortSignal.any([request.signal, AbortSignal.timeout(90_000)]) });
       if (!response.ok) throw new Error("Stream unavailable");
-      const { ticket, attemptId } = await response.json();
+      const { ticket, attemptId } = await readPhoneResponse(response, parseStreamTicket);
       if (disposed() || document.hidden || attempt !== request || attempt.signal.aborted) return;
       report = phoneTiming(id, attemptId, attemptStart);
       report("presence");
@@ -93,7 +94,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
         void fetch(`/app/phones/${encodeURIComponent(id)}/stream-ticket`, { method: "POST", signal: attempt.signal })
           .then(async response => {
             if (!response.ok) return;
-            const { attemptId: renewed } = await response.json();
+            const { attemptId: renewed } = await readPhoneResponse(response, parseStreamTicket);
             if (state === "disposed" || request !== attempt || attempt.signal.aborted) return;
             report = phoneTiming(id, renewed, started); issuedAt = started;
             report("presence");
@@ -217,7 +218,7 @@ function createFallback({ id, onState }: VideoConnectionOptions) {
     try {
       const response = await fetch(`/app/phones/${encodeURIComponent(id)}/stream-ticket`, { method: "POST", signal: request.signal });
       if (!response.ok) return;
-      const { attemptId } = await response.json();
+      const { attemptId } = await readPhoneResponse(response, parseStreamTicket);
       if (request.signal.aborted) return;
       enabled = typeof attemptId === "string";
       report = phoneTiming(id, attemptId, started);
