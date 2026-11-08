@@ -9,6 +9,8 @@ const stages: Record<string, string> = { uploading: "Uploading APK", downloading
   installing: "Installing app", succeeded: "App installed", failed: "Installation failed", cancelled: "Installation cancelled",
   expired: "Installation expired", interrupted: "Installation needs verification" };
 const size = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+/** First letter of the last package segment, for the app tile. */
+const monogram = (packageId: string) => (packageId.split(".").filter(Boolean).pop() ?? packageId).charAt(0).toUpperCase();
 
 export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
   const base = `/v1/phones/${encodeURIComponent(id)}`;
@@ -160,39 +162,60 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
   }
   const blocked = !ready || busy || active || needsUpdate;
   return <section className={s.panel} aria-label="Apps">
-    <h2>Install an app</h2>
-    {!ready && <p role="status">Start the phone to install apps.</p>}
-    {needsUpdate && <div className={s.operation}><p>Update this phone to enable app installation. The live screen may reconnect.</p>
-      <Button type="button" disabled={updating || !ready} onClick={() => { void updateRunner(); }}>{updating ? "Checking update…" : "Check update"}</Button></div>}
-    <div className={`${s.drop} ${dragging ? s.dragging : ""}`}
-      onDragOver={event => { event.preventDefault(); if (!blocked) setDragging(true); }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={event => {
-        event.preventDefault(); setDragging(false);
-        if (blocked) return;
-        if (event.dataTransfer.files.length !== 1) { setError("Drop one APK at a time."); return; }
-        void install(event.dataTransfer.files[0]);
-      }}>
-      <p>Drop an APK here</p>
-      <Button type="button" variant="ghost" disabled={blocked} onClick={() => input.current?.click()}>Upload APK</Button>
-      <input ref={input} className={s.file} type="file" accept=".apk,application/vnd.android.package-archive" disabled={blocked}
-        aria-label="Choose an APK" onChange={event => {
-          const file = event.target.files?.[0]; event.target.value = "";
-          if (file) void install(file);
-        }} />
-      <small>One standalone APK · Up to 250 MiB</small>
+    <div className={s.card}>
+      <div className={s.cardHead}>
+        <h2>Install an app</h2>
+        {!ready && <span className={s.tag}>Phone off</span>}
+      </div>
+      {!ready && <p className={s.hint} role="status">Start the phone to install apps.</p>}
+      {needsUpdate && <div className={s.update}>
+        <p>Update this phone to enable app installation. The live screen may reconnect.</p>
+        <Button type="button" tiny disabled={updating || !ready} onClick={() => { void updateRunner(); }}>{updating ? "Checking update…" : "Check update"}</Button>
+      </div>}
+      <div className={`${s.drop} ${dragging ? s.dragging : ""} ${blocked ? s.off : ""}`}
+        onDragOver={event => { event.preventDefault(); if (!blocked) setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={event => {
+          event.preventDefault(); setDragging(false);
+          if (blocked) return;
+          if (event.dataTransfer.files.length !== 1) { setError("Drop one APK at a time."); return; }
+          void install(event.dataTransfer.files[0]);
+        }}>
+        <span className={s.dropIcon} aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 15V4" /><path d="m7.5 8.5 4.5-4.5 4.5 4.5" /><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+          </svg>
+        </span>
+        <div className={s.dropBody}>
+          <p className={s.dropTitle}>Drop an APK here</p>
+          <small>Standalone APK · up to 250 MiB</small>
+        </div>
+        <Button type="button" disabled={blocked} onClick={() => input.current?.click()}>Upload APK</Button>
+        <input ref={input} className={s.file} type="file" accept=".apk,application/vnd.android.package-archive" disabled={blocked}
+          aria-label="Choose an APK" onChange={event => {
+            const file = event.target.files?.[0]; event.target.value = "";
+            if (file) void install(file);
+          }} />
+      </div>
+      <form className={s.url} onSubmit={(event: FormEvent) => { event.preventDefault(); void install(); }}>
+        <label htmlFor={`apk-url-${id}`}>Install from URL</label>
+        <div className={s.field}>
+          <input id={`apk-url-${id}`} type="url" value={url} required maxLength={4096} disabled={blocked}
+            placeholder="https://example.com/app.apk" autoComplete="off" spellCheck={false} onChange={event => setUrl(event.target.value)} />
+          <Button disabled={blocked || !url.trim()}>Install</Button>
+        </div>
+        <small>Direct HTTPS download links. No sign-in links.</small>
+      </form>
     </div>
-    <form className={s.url} onSubmit={(event: FormEvent) => { event.preventDefault(); void install(); }}>
-      <label htmlFor={`apk-url-${id}`}>Install from URL</label>
-      <div><input id={`apk-url-${id}`} type="url" value={url} required maxLength={4096} disabled={blocked}
-        placeholder="https://example.com/app.apk" autoComplete="off" spellCheck={false} onChange={event => setUrl(event.target.value)} />
-        <Button disabled={blocked || !url.trim()}>Install</Button></div>
-      <small>Direct HTTPS download links. No sign-in links.</small>
-    </form>
-    {error && <p className={s.error} role="alert">{error}</p>}
-    {error && pending.current && <Button type="button" tiny variant="ghost" disabled={!ready || busy} onClick={() => { void install(undefined, true); }}>Retry connection</Button>}
-    {operation && <article className={s.operation} aria-label="Installation progress">
-      <p role="status"><strong>{stages[operation.stage] ?? "Checking status"}</strong></p>
+    {error && <div className={s.alert} role="alert">
+      <p>{error}</p>
+      {pending.current && <Button type="button" tiny variant="ghost" disabled={!ready || busy} onClick={() => { void install(undefined, true); }}>Retry connection</Button>}
+    </div>}
+    {operation && <article className={`${s.card} ${s.operation}`} aria-label="Installation progress">
+      <div className={s.opHead}>
+        {active && <span className={s.pulse} aria-hidden="true" />}
+        <p role="status"><strong>{stages[operation.stage] ?? "Checking status"}</strong></p>
+      </div>
       <p className={s.filename}>{operation.filename}</p>
       {["uploading", "downloading"].includes(operation.stage) && <>
         <progress aria-label={stages[operation.stage]} value={operation.totalBytes ? operation.bytesReceived : undefined} max={operation.totalBytes ?? undefined} />
@@ -202,17 +225,31 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
       {operation.stage === "installing" && <small>You can leave this tab. Installation will continue.</small>}
       {operation.stage === "uploading" && !busy && !pending.current && <p>This upload stopped when you left the page. Cancel it, then select the APK again.</p>}
       {operation.message && <p>{operation.message}</p>}
-      {operation.canCancel && <Button type="button" tiny variant="ghost" onClick={() => { void cancel(); }}>Cancel</Button>}
-      <Button type="button" tiny variant="ghost" disabled={!ready || busy} onClick={() => { void refreshOperation(); }}>Refresh status</Button>
+      <div className={s.opActions}>
+        {operation.canCancel && <Button type="button" tiny variant="ghost" onClick={() => { void cancel(); }}>Cancel</Button>}
+        <Button type="button" tiny variant="ghost" disabled={!ready || busy} onClick={() => { void refreshOperation(); }}>Refresh status</Button>
+      </div>
     </article>}
-    <div className={s.heading}><h2>Installed apps</h2><Button type="button" tiny variant="ghost" disabled={!ready} onClick={() => { void refresh(); void refreshOperation(); }}>Refresh</Button></div>
-    {inventoryError && <p className={s.error} role="alert">{inventoryError}</p>}
-    {ready && !inventoryError && apps === null && <p role="status">Loading apps…</p>}
-    {ready && !inventoryError && apps?.length === 0 && <p>No user-installed apps yet.</p>}
-    {apps && apps.length > 0 && <ul className={s.list}>{apps.map(app => <li key={app.packageId}>
-      <div><strong>{app.packageId}</strong><small>Version code {app.versionCode ?? "unavailable"}</small></div>
-      {app.launchable ? <Button type="button" tiny variant="ghost" disabled={!ready || !!opening} onClick={() => { void openApp(app.packageId); }}>{opening === app.packageId ? "Opening…" : "Open"}</Button> : <small>No launcher</small>}
-    </li>)}</ul>}
-    {notice && <p role="status">{notice}</p>}
+    <div className={s.card}>
+      <div className={s.cardHead}>
+        <h2>Installed apps</h2>
+        <Button type="button" tiny variant="ghost" disabled={!ready} onClick={() => { void refresh(); void refreshOperation(); }}>Refresh</Button>
+      </div>
+      {inventoryError && <div className={s.alert} role="alert"><p>{inventoryError}</p></div>}
+      {ready && !inventoryError && apps === null && <p className={s.hint} role="status">Loading apps…</p>}
+      {ready && !inventoryError && apps?.length === 0 && <div className={s.empty}>
+        <p>No user-installed apps yet.</p>
+        <small>Apps you install above appear here.</small>
+      </div>}
+      {apps && apps.length > 0 && <ul className={s.list}>{apps.map(app => <li key={app.packageId}>
+        <span className={s.appIcon} aria-hidden="true">{monogram(app.packageId)}</span>
+        <div className={s.appMeta}>
+          <strong>{app.packageId}</strong>
+          <small>Version code {app.versionCode ?? "unavailable"}</small>
+        </div>
+        {app.launchable ? <Button type="button" tiny variant="ghost" disabled={!ready || !!opening} onClick={() => { void openApp(app.packageId); }}>{opening === app.packageId ? "Opening…" : "Open"}</Button> : <span className={s.tag}>No launcher</span>}
+      </li>)}</ul>}
+      {notice && <p className={s.status} role="status">{notice}</p>}
+    </div>
   </section>;
 }

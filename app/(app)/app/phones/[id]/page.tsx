@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { shortMessage } from "../../../../../lib/shared/short-message";
+import { phoneName } from "../../../../../lib/shared/phone-name";
 import { PHONE_TABS } from "../../../../../lib/shared/keyboard";
 import { idleLabel } from "../../../../../lib/shared/idle";
 import { phoneStatus } from "../../../../../lib/phone/phone-status";
@@ -42,10 +43,10 @@ async function TabPanel({ phoneId, search }: { phoneId: string; search: Promise<
     <>
       <Tabs active={tab} phoneId={phoneId} />
 
-      <section role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} tabIndex={0}>
+      <section role="tabpanel" className={s.tabPanel} id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} tabIndex={0}>
       {tab === "log" && (
         <>
-          <LogFeed title={`Activity for ${mockLog.phone}`} rows={mockLog.rows} />
+          <LogFeed title={`Activity for ${phoneName(mockLog.phone)}`} rows={mockLog.rows} />
           <UrlRow url={mockDetail.streamUrl} />
           <div className={s.subgrid}>
             <Mini title="This phone" rows={mockDetail.thisPhone} />
@@ -89,10 +90,10 @@ async function PhoneContent({
 
   return (
     <>
-      <KeyboardTools phones={listPhones(user.id).map(item => ({ id: item.id, name: item.id,
+      <KeyboardTools phones={listPhones(user.id).map(item => ({ id: item.id, name: item.name,
         ...(item.id === mockDetail.phone ? { stream: mockDetail.streamUrl, adb: mockDetail.thisPhone.find(([key]) => key === "adb")?.[1] } : {}),
       }))} />
-      <Topbar breadcrumb={["Phones", mockDetail.phone]}>
+      <Topbar breadcrumb={["Phones", phoneName(mockDetail.phone)]}>
         <Pill kind={mockDetail.state}>
           running <span className={s.upTxt}>for {mockDetail.upFor}</span>
         </Pill>
@@ -137,8 +138,8 @@ async function StoredPhone({ phone, user, search, syncError }: {
   const screenReady = !phone.keeping && phone.state === "running" && phone.android_state === "ready";
   const status = phoneStatus(phone);
   return <>
-    <KeyboardTools phones={listPhones(user.id).map(item => ({ id: item.id, name: item.id }))} />
-    <Topbar breadcrumb={["Phones", phone.id]}>
+    <KeyboardTools phones={listPhones(user.id).map(item => ({ id: item.id, name: item.name }))} />
+    <Topbar breadcrumb={["Phones", phone.name]}>
       <Avatar initials={user.initials} login={user.login} />
     </Topbar>
     <main className={`${s.detail} ${screenReady ? s.detailLive : ""}`} id="main-content" tabIndex={-1}>
@@ -165,9 +166,9 @@ async function StoredPhone({ phone, user, search, syncError }: {
       </section>
       <div>
         <Tabs active={tab} phoneId={phone.id} />
-        <section role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} tabIndex={0}>
+        <section role="tabpanel" className={s.tabPanel} id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} tabIndex={0}>
         {tab === "danger" ? <DangerPanel phoneName={phone.id} /> : tab === "apps" ? <PhoneApps key={phone.id} id={phone.id} ready={screenReady} /> :
-          <LogFeed title={tab === "backups" ? "Backups" : "Activity history"} rows={tab === "log" ? phoneEvents(user.id, phone.id) : []} live={false}
+          <LogFeed rows={tab === "log" ? phoneEvents(user.id, phone.id) : []} live={false}
             running={tab === "log" ? `Current status: ${status.title}` : undefined} emptyMessage={tab === "backups" ? "No backups yet." : "No activity yet."} />}
         </section>
         <div className={s.subgrid}>

@@ -6,21 +6,22 @@ import { TimeAgo } from "@/components/ui/event-time";
 export type LogRow = { time: string; at?: string; ok?: boolean; error?: boolean; parts: LogPart[] };
 
 export function LogFeed({ title, rows, live = true, running, emptyMessage = "No activity yet. Updates will appear when this phone connects." }: {
-  title: string; rows: LogRow[]; live?: boolean; emptyMessage?: string;
+  /** Heading above the feed. Omit when the tab label already names the list. */
+  title?: string; rows: LogRow[]; live?: boolean; emptyMessage?: string;
   /** Text for a step that still runs, such as "Setting up…". */
   running?: string;
 }) {
   return (
     <div className={s.logbox}>
-      <div className={s.rh}>
-        <h4>{title}</h4>
+      {(title || live) && <div className={s.rh}>
+        {title && <h4>{title}</h4>}
         {live && (
           <span className={s.live}>
             <i />
             streaming
           </span>
         )}
-      </div>
+      </div>}
       {running && <div className={s.row} role="status">
         <span className={s.rowT}>now</span>
         <span className={s.rowM}>{running}</span>

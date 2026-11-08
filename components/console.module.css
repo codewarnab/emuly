@@ -160,11 +160,15 @@
 .takeover b { color: var(--text); }
 .sw2 { margin-left: auto; width: 28px; height: 16px; border-radius: 16px; background: var(--accent); position: relative; }
 .sw2::after { content: ''; width: 12px; height: 12px; position: absolute; top: 2px; right: 2px; background: var(--on-accent); border-radius: 50%; }
-.tabs { display: flex; gap: 28px; border-bottom: 1px solid var(--line); margin-bottom: 24px; font-size: 14px; }
-.tabs a { padding: 12px 0 16px; color: var(--dim); }
-.tabs .on { color: var(--text); border-bottom: 2px solid var(--accent); margin-bottom: -1px; }
+.tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--line2); font-size: 13.5px; }
+.tabs a { padding: 8px 0 10px; color: var(--dim); transition: color 120ms ease; }
+.tabs a:hover { color: var(--text); }
+.tabs .on { color: var(--text); border-bottom: 2px solid var(--accent); margin-bottom: -1px; font-weight: 500; }
 .tabs .dangerTab { color: var(--danger); }
-.logbox { padding: 8px 0 20px; }
+/* One shared top gap for every tab, so switching tabs never shifts the content. */
+.tabPanel { padding-top: 16px; }
+.tabPanel .danger { margin-top: 0; }
+.logbox { padding: 0 0 20px; }
 .rh { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 20px; }
 .rh h4 { font-size: 15px; font-weight: 600; margin: 0; }
 .live { font-size: 13px; display: flex; gap: 6px; align-items: center; color: var(--safe); }

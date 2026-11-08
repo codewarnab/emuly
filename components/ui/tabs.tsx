@@ -6,7 +6,7 @@ import { PHONE_TABS, phoneTabHref } from "@/lib/shared/keyboard";
 import s from "@/components/console.module.css";
 export const TABS = PHONE_TABS;
 export type Tab = (typeof TABS)[number];
-const labels: Record<Tab, string> = { log: "Agent log", apps: "Apps", backups: "Backups", danger: "Danger" };
+const labels: Record<Tab, string> = { log: "Activity log", apps: "Apps", backups: "Backups", danger: "Danger" };
 export function Tabs({ active, phoneId }: { active: Tab; phoneId: string }) {
   const router = useRouter();
   const refs = useRef<(HTMLAnchorElement | null)[]>([]);

@@ -1,24 +1,111 @@
-.panel { padding-top: 28px; }
-.panel h2 { margin: 0 0 16px; font-size: 18px; font-weight: 600; }
-.panel p { margin: 0 0 12px; }
-.panel small { display: block; color: var(--dim); font-size: 12px; }
-.drop { border: 1px dashed var(--control-line); border-radius: 12px; padding: 24px 16px; text-align: center; background: var(--panel); }
-.drop small { margin-top: 12px; }
+/* Compact panel: small type, thin borders, no heavy shadows. */
+.panel { display: grid; gap: 10px; }
+.panel h2 { margin: 0; font-size: 13px; font-weight: 600; color: var(--text); }
+.panel p { margin: 0; font-size: 13px; }
+.panel small { display: block; color: var(--dim); font-size: 12px; line-height: 1.45; }
+
+/* Buttons stay small and quiet; only the primary action carries the accent. */
+.panel button { height: 32px; padding: 0 12px; border-radius: 8px; font-size: 12.5px; font-weight: 500; }
+
+.card { padding: 14px 16px; border: 1px solid var(--line2); border-radius: 12px; background: var(--panel); }
+.cardHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.cardHead button, .opActions button {
+  height: 28px; padding: 0 8px; border-color: transparent; background: transparent; color: var(--dim); font-weight: 500;
+}
+.cardHead button:not(:disabled):hover, .opActions button:not(:disabled):hover {
+  background: var(--panel2); border-color: transparent; color: var(--text);
+}
+.cardHead button:disabled, .opActions button:disabled { background: transparent; border-color: transparent; color: var(--dim2); }
+.hint { color: var(--dim); margin-bottom: 12px; }
+.tag { flex: none; padding: 2px 8px; border-radius: 6px; background: var(--panel2); color: var(--dim); font-size: 11px; font-weight: 500; }
+
+/* One-line drop target: icon, label, action. No dead space. */
+.drop {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  transition: border-color 140ms ease, background 140ms ease;
+}
+.drop:hover:not(.off) { border-color: var(--control-line); background: var(--panel2); }
 .dragging { border-color: var(--accent); background: var(--accent-soft); }
+.off { border-color: var(--line2); background: transparent; }
+.dropIcon {
+  flex: none; display: grid; place-items: center;
+  width: 34px; height: 34px; border-radius: 9px;
+  background: var(--accent-soft); color: var(--accent);
+}
+.dropIcon svg { width: 17px; height: 17px; }
+.off .dropIcon { background: var(--panel2); color: var(--dim); }
+.dropBody { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.dropTitle { font-weight: 600; }
 .file { display: none; }
-.url { margin: 22px 0; }
-.url label { display: block; font-weight: 600; margin-bottom: 8px; }
-.url > div { display: flex; gap: 8px; }
-.url input { width: 100%; min-width: 0; border: 1px solid var(--control-line); border-radius: 8px; padding: 9px 12px; background: var(--panel); color: var(--text); }
-.url small { margin-top: 8px; }
-.error { color: var(--danger); overflow-wrap: anywhere; }
-.operation { margin: 20px 0 28px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; }
-.operation button { margin-top: 12px; margin-right: 8px; }
-.filename { color: var(--dim); overflow-wrap: anywhere; font-size: 13px; }
-.operation progress { display: block; width: 100%; accent-color: var(--accent); margin-bottom: 8px; }
-.heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-top: 28px; }
-.list { list-style: none; padding: 0; margin: 0; }
-.list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 0; border-top: 1px solid var(--line2); }
-.list li > div { min-width: 0; }
-.list strong { display: block; font-size: 14px; overflow-wrap: anywhere; }
-@media (max-width: 480px) { .url > div { flex-direction: column; } }
+
+.url { margin-top: 14px; }
+.url label { display: block; margin-bottom: 6px; color: var(--dim); font-size: 12px; font-weight: 500; }
+.field { display: flex; gap: 6px; }
+.url input {
+  flex: 1; min-width: 0; height: 32px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); color: var(--text); font-size: 13px;
+  transition: border-color 140ms ease;
+}
+.url input:hover:not(:disabled) { border-color: var(--control-line); }
+.url input:focus { border-color: var(--accent); }
+.url input:disabled { background: var(--panel2); }
+.url input::placeholder { color: var(--dim2); }
+.url small { margin-top: 6px; }
+
+.alert {
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.alert button { margin-top: 8px; height: 28px; }
+
+.update { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; margin-bottom: 12px; border-radius: 10px; background: var(--accent-soft); font-size: 12.5px; }
+
+/* Progress card: status dot, stage, slim bar. */
+.operation { display: grid; gap: 8px; }
+.opHead { display: flex; align-items: center; gap: 7px; }
+.opHead strong { font-size: 13px; font-weight: 600; }
+.pulse { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 1.6s ease-out infinite; }
+@keyframes pulse { 70%, 100% { box-shadow: 0 0 0 6px transparent; } }
+.filename { color: var(--dim); font-size: 12px; overflow-wrap: anywhere; font-family: var(--mono); }
+.operation progress { width: 100%; height: 6px; border: 0; border-radius: 999px; background: var(--panel2); appearance: none; overflow: hidden; }
+.operation progress::-webkit-progress-bar { background: var(--panel2); border-radius: 999px; }
+.operation progress::-webkit-progress-value { background: var(--accent); border-radius: 999px; transition: width 240ms ease; }
+.operation progress::-moz-progress-bar { background: var(--accent); border-radius: 999px; }
+.opActions { display: flex; flex-wrap: wrap; gap: 4px; margin-left: -8px; }
+
+/* Inventory rows: tile, package, version, action. */
+.list { list-style: none; margin: 0 -8px; padding: 0; display: grid; gap: 1px; }
+.list li { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; transition: background 120ms ease; }
+.list li:hover { background: var(--panel2); }
+.appIcon {
+  flex: none; display: grid; place-items: center;
+  width: 30px; height: 30px; border-radius: 8px;
+  background: var(--accent-soft); color: var(--accent);
+  font-size: 12px; font-weight: 700;
+}
+.appMeta { flex: 1; min-width: 0; }
+.appMeta strong { display: block; font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.appMeta small { margin-top: 1px; font-size: 11.5px; }
+
+.empty { display: flex; align-items: center; gap: 8px; padding: 12px; border: 1px dashed var(--line2); border-radius: 10px; color: var(--dim); }
+.empty p { font-size: 12.5px; }
+
+.status { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); font-size: 12px; }
+
+@media (max-width: 480px) {
+  .drop { flex-wrap: wrap; }
+  .dropBody { flex-basis: calc(100% - 46px); }
+  .drop button, .field button { width: 100%; }
+  .field { flex-direction: column; }
+  .card { padding: 12px; }
+}
