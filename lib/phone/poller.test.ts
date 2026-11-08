@@ -47,7 +47,7 @@ function fixture() {
     return Response.json(space);
   } });
   const emit = (event: OutgoingEvent) => { outgoing.push(event); };
-  const service = createPhoneService({ database, github, clock, emit, encrypt: value => Buffer.from(value) });
+  const service = createPhoneService({ database, diagnosticsDatabase: asyncDatabase, github, clock, emit, encrypt: value => Buffer.from(value) });
   const makeTick = () => createStatePoller({ database, settingsDatabase: asyncDatabase, clock, emit, sync: service.sync, autoStop: service.autoStop });
   return {
     asyncDatabase, database, spaces, calls, outgoing, failures, service, clock, makeTick,

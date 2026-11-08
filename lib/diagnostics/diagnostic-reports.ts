@@ -1,28 +1,28 @@
-import type { DatabaseSync } from "node:sqlite";
+import type { DatabaseQueries } from "../data/async-database.ts";
 import { diagnosticId, operationKinds, outcomes, validateStep } from "./diagnostic-contract.ts";
 
 const safeRelease = (v: unknown) => v === "unknown" || (typeof v === "string" && /^[a-f0-9]{7,40}$/.test(v));
 const integer = (v: unknown) => Number.isSafeInteger(v) && Number(v) >= 0;
 
 /** Local-only read boundary. Outputs never contain ownership IDs, source text, or wall-clock timestamps. */
-export function diagnosticReport(database: DatabaseSync, mode: string, operationId?: string) {
-  if (mode === "list") return database.prepare(`SELECT id, kind, outcome, started_at, dropped_records FROM diagnostic_operations
-    ORDER BY rowid DESC LIMIT 50`).all().flatMap(r => diagnosticId(r.id) && operationKinds.includes(r.kind as never) && outcomes.includes(r.outcome as never)
+export async function diagnosticReport(database: DatabaseQueries, mode: string, operationId?: string) {
+  if (mode === "list") return (await database.execute({ sql: `SELECT id, kind, outcome, started_at, dropped_records FROM diagnostic_operations
+    ORDER BY rowid DESC LIMIT 50`, args: [] })).rows.flatMap(r => diagnosticId(r.id) && operationKinds.includes(r.kind as never) && outcomes.includes(r.outcome as never)
       ? [{ operation: r.id, kind: r.kind, outcome: r.outcome, stale: Date.now() - Date.parse(String(r.started_at)) > 3600000,
         droppedRecords: integer(r.dropped_records) ? r.dropped_records : null }] : []);
   if (mode === "health") return {
-    counters: database.prepare("SELECT code, count FROM diagnostic_health LIMIT 4").all().filter(r =>
+    counters: (await database.execute({ sql: "SELECT code, count FROM diagnostic_health LIMIT 4", args: [] })).rows.filter(r =>
       ["writeFailures", "invalidRecords", "droppedRecords", "collectorFailures"].includes(String(r.code)) && integer(r.count)),
-    databaseBytes: Number(database.prepare("PRAGMA page_count").get()?.page_count ?? 0) * Number(database.prepare("PRAGMA page_size").get()?.page_size ?? 0),
+    databaseBytes: Number((await database.execute({ sql: "PRAGMA page_count", args: [] })).rows[0]?.page_count ?? 0) * Number((await database.execute({ sql: "PRAGMA page_size", args: [] })).rows[0]?.page_size ?? 0),
   };
   if (mode === "aggregate") return aggregate(database);
   if (mode !== "timeline" || !diagnosticId(operationId)) throw new Error("Invalid report request");
-  const operation = database.prepare("SELECT run_id, started_at FROM diagnostic_operations WHERE id = ?").get(operationId);
+  const operation = (await database.execute({ sql: "SELECT run_id, started_at FROM diagnostic_operations WHERE id = ?", args: [operationId] })).rows[0];
   if (!operation) throw new Error("Operation unavailable");
-  const origin = database.prepare("SELECT min(started_at) AS ts FROM diagnostic_operations WHERE run_id = ?").get(operation.run_id);
+  const origin = (await database.execute({ sql: "SELECT min(started_at) AS ts FROM diagnostic_operations WHERE run_id = ?", args: [operation.run_id] })).rows[0];
   const start = Date.parse(String(origin?.ts));
-  const rows = database.prepare(`SELECT s.record, s.observed_at FROM diagnostic_steps s JOIN diagnostic_operations o ON o.id = s.operation_id
-    WHERE o.run_id = ? ORDER BY s.observed_at, s.rowid LIMIT 501`).all(operation.run_id);
+  const rows = (await database.execute({ sql: `SELECT s.record, s.observed_at FROM diagnostic_steps s JOIN diagnostic_operations o ON o.id = s.operation_id
+    WHERE o.run_id = ? ORDER BY s.observed_at, s.rowid LIMIT 501`, args: [operation.run_id] })).rows;
   const records = rows.slice(0, 500).flatMap(row => {
     try { const step = validateStep(JSON.parse(String(row.record))); return step ? [{ step, observed: String(row.observed_at) }] : []; }
     catch { return []; }
@@ -42,7 +42,7 @@ export function diagnosticReport(database: DatabaseSync, mode: string, operation
   const stop = records.map(r => r.step).findLast(s => s.code === "provider_stop");
   const ready = records.find(r => r.step.code === "android_boot" && r.step.outcome === "succeeded");
   const paint = records.find(r => r.step.code === "first_painted");
-  const dropped = database.prepare("SELECT sum(dropped_records) AS n FROM diagnostic_operations WHERE run_id = ?").get(operation.run_id)?.n;
+  const dropped = (await database.execute({ sql: "SELECT sum(dropped_records) AS n FROM diagnostic_operations WHERE run_id = ?", args: [operation.run_id] })).rows[0]?.n;
   return { timeline, truncated: rows.length > 500, droppedRecords: integer(dropped) ? dropped : null,
     startup: { androidReadyObservedAfterMs: ready ? Math.max(0, Date.parse(ready.observed) - start) : null,
       firstPaintObservedAfterMs: paint ? Math.max(0, Date.parse(paint.observed) - start) : null, quality: "observed_interval" },
@@ -52,8 +52,8 @@ export function diagnosticReport(database: DatabaseSync, mode: string, operation
     timing: "Source durations are independent. Observed offsets include polling delay. Nested steps overlap." };
 }
 
-function aggregate(database: DatabaseSync) {
-  const rows = database.prepare("SELECT * FROM diagnostic_daily ORDER BY day DESC LIMIT 10001").all();
+async function aggregate(database: DatabaseQueries) {
+  const rows = (await database.execute({ sql: "SELECT * FROM diagnostic_daily ORDER BY day DESC LIMIT 10001", args: [] })).rows;
   const groups = new Map<string, { release: string; code: string; quality: string; disposition: string; bootMethod: string;
     cause: string; confidence: string; count: number; failures: number; incomplete: number; durations: [number, number][] }>();
   for (const r of rows.slice(0, 10000)) {

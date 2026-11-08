@@ -1,4 +1,5 @@
 import "server-only";
+import { asyncDb } from "../data/async-db.ts";
 import { db } from "../data/db.ts";
 import { seal } from "../auth/crypto.ts";
 import { getAccessToken } from "../github/github-token.ts";
@@ -17,7 +18,7 @@ const global = globalThis as unknown as { __phoneControl?: ReturnType<typeof cre
 export function phoneControl() {
   if (global.__phoneControlBuild !== build) { global.__phoneControl = undefined; global.__phoneControlBuild = build; }
   return global.__phoneControl ??= createPhoneService({
-    database: db(), github: createGitHubClient({ database: db(), accessToken: getAccessToken }), encrypt: seal,
+    database: db(), diagnosticsDatabase: asyncDb(), github: createGitHubClient({ database: db(), accessToken: getAccessToken }), encrypt: seal,
     setup: createPhoneSetup({ token: userId => getAccessToken(userId) }),
     collectProgress: createPhoneSetup({ token: userId => getAccessToken(userId) }).collect,
     runner: runnerRequest, disconnect: closeRunner,

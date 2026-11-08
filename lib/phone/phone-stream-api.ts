@@ -7,7 +7,7 @@ export function createPhoneStreamApi({ user, phone, open, observation }: {
   user: () => Promise<Identity | null>;
   phone: (userId: number, id: string) => { state: string; android_state: string } | undefined;
   open: (userId: number, id: string, sessionId: string) => Promise<Lease>;
-  observation?: (userId: number, id: string) => string | undefined;
+  observation?: (userId: number, id: string) => string | undefined | Promise<string | undefined>;
 }) {
   return async (request: Request, id: string) => {
     const origin = new URL(request.url).origin;
@@ -21,7 +21,7 @@ export function createPhoneStreamApi({ user, phone, open, observation }: {
     try {
       const ticket = issueStreamTicket({ userId: identity.id, phoneId: id, origin, cookie: request.headers.get("cookie") ?? "",
         open: () => open(identity.id, id, identity.sessionId) });
-      const attemptId = observation?.(identity.id, id);
+      const attemptId = await observation?.(identity.id, id);
       return Response.json({ ticket, ...(attemptId ? { attemptId } : {}) }, { headers: { "Cache-Control": "private, no-store" } });
     } catch { return new Response(null, { status: 503 }); }
   };
