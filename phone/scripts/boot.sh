@@ -31,8 +31,21 @@ if pgrep -f "qemu-system-x86_6[4]" >/dev/null 2>&1; then
   exit 0
 fi
 
-[ -d "$HOME/.android/avd/${AVD_NAME}.avd" ] \
-  || { echo "FATAL: AVD $AVD_NAME missing. Run setup.sh first."; exit 1; }
+avd_dir="$HOME/.android/avd/${AVD_NAME}.avd"
+[ -d "$avd_dir" ] || { echo "FATAL: AVD $AVD_NAME missing. Run setup.sh first."; exit 1; }
+
+# A qemu process killed mid-snapshot leaves a lock behind. The next start then
+# fails with: FATAL | A snapshot operation for '<avd>' is pending and timeout
+# has expired. No qemu runs at this point (checked above), so every lock is stale.
+mapfile -t stale_locks < <(
+  find "$avd_dir" -maxdepth 3 -type f -name '*.lock' 2>/dev/null
+  if [ -f "$avd_dir.lock" ]; then echo "$avd_dir.lock"; fi
+)
+if [ "${#stale_locks[@]}" -gt 0 ]; then
+  echo "removing stale emulator locks: ${stale_locks[*]}"
+  rm -f -- "${stale_locks[@]}"
+fi
+
 ph_begin adb_init
 adb start-server >/dev/null 2>&1 || true
 ph_end
