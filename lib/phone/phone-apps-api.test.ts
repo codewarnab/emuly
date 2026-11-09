@@ -76,6 +76,19 @@ test("Apps returns safe 502 errors for malformed runner successes, errors, and J
   }
 });
 
+test("Apps gives an account admission back when the runner never accepts the operation", async () => {
+  const calls: string[] = [];
+  const key = "11111111-1111-4111-8111-111111111111";
+  const api = createPhoneAppsApi({ user: async () => ({ id: 61 }), phone: () => ({ state: "running", android_state: "ready" }),
+    runner: async () => { throw new Error("tunnel closed"); },
+    sharedAdmission: { current: async () => undefined,
+      claim: async () => { calls.push("claim"); return true; },
+      release: async (_userId: number, _phoneId: string, operation: string) => { calls.push(`release:${operation}`); } } });
+  const response = await api(request("POST", JSON.stringify({ source: "url", key, url: "https://example.com/app.apk" })), "one", ["app-installs"]);
+  assert.equal(response.status, 502);
+  assert.deepEqual(calls, ["claim", `release:${key}`]);
+});
+
 test("Apps checks update and launch acknowledgements before reporting success", async () => {
   for (const valid of [true, false]) {
     const api = createPhoneAppsApi({ user: async () => ({ id: 53 }), phone: () => ({ state: "running", android_state: "ready" }),

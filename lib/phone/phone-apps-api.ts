@@ -44,6 +44,8 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmissi
 }) {
   return async (request: Request, id: string, parts: string[]) => {
     let transfer = false;
+    /** The account admission this request took, so a failed request can give it back. */
+    let claimed: { userId: number; key: string } | null = null;
     try {
       const identity = await user();
       if (!identity) bad(401, "Sign in again.");
@@ -95,6 +97,7 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmissi
           }
           if (sharedAdmission) {
             if (!await sharedAdmission.claim(identity.id, id, input.key)) bad(429, "Two installations are already active. Refresh their status first.");
+            claimed = { userId: identity.id, key: input.key };
             admissionKey = input.key;
           } else {
           for (const [key, item] of admission) if (item.expires < Date.now()) admission.delete(key);
@@ -121,6 +124,9 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmissi
       if (!response.ok && route === "app-installs" && request.method === "POST" && response.status !== 409) await release();
       return Response.json(payload, { status: response.ok && route === "app-installs" && request.method === "POST" ? 202 : response.status, headers });
     } catch (error) {
+      // The claim named an operation the runner never created. Holding it would block
+      // every retry on this account until the lease expired.
+      if (claimed) try { await sharedAdmission?.release(claimed.userId, id, claimed.key); } catch {}
       if (error instanceof PhoneResponseError) return Response.json({ error: error.message, errorCode: "invalid_response" }, { status: 502, headers });
       return Response.json({ error: error instanceof InputError ? error.message : "Phone connection unavailable. Refresh status before retrying.", errorCode: error instanceof InputError ? "invalid_request" : "connection_unavailable" },
         { status: error instanceof InputError ? error.status : 502, headers });
