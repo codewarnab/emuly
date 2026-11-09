@@ -15,7 +15,12 @@ import { measure } from "../diagnostics/diagnostics.ts";
  * Every step uses the owner's token, so it only reaches the owner's codespaces.
  */
 export class CodespaceTunnelError extends Error {
-  constructor(message: string, readonly diagnosticCode: "connection_failed" | "timeout" = "connection_failed") { super(message); }
+  // Node loads this file with type stripping only, which rejects parameter properties.
+  readonly diagnosticCode: "connection_failed" | "timeout";
+  constructor(message: string, diagnosticCode: "connection_failed" | "timeout" = "connection_failed") {
+    super(message);
+    this.diagnosticCode = diagnosticCode;
+  }
 }
 
 const AGENT_PORT = 16634;
