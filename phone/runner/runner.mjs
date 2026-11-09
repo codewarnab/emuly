@@ -3,6 +3,7 @@
 import ws from "./ws.cjs";
 import { startScrcpy } from "./scrcpy.mjs";
 import { createApps, CHUNK_SIZE } from "./apps.mjs";
+import { ADB_OUTPUT_MAX_BYTES, adbArguments, adbTimeout, isScreencap } from "./adb-protocol.mjs";
 import { AppError } from "./apk-download.mjs";
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
@@ -35,6 +36,23 @@ function run(cmd, args, { timeout = 60_000, binary = false, env = process.env } 
 }
 const adb = (args, options) => run(ADB, ["-s", SERIAL, ...args], options);
 const script = (name, args = []) => run("bash", [join(ROOT, "scripts", name), ...args], { timeout: 600_000 });
+let adbBusy = false;
+
+/** Run one caller-supplied adb call. A non-zero exit is data, not a transport failure. */
+function adbCapture(args, { timeout, binary }) {
+  return new Promise((resolve, reject) => {
+    execFile(ADB, ["-s", SERIAL, ...args], { timeout, maxBuffer: ADB_OUTPUT_MAX_BYTES, encoding: binary ? "buffer" : "utf8" },
+      (error, stdout, stderr) => {
+        if (error?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+          return reject(new HttpError(413, "adb output was larger than 5 MB. Narrow the command."));
+        }
+        if (error?.killed) return reject(new HttpError(504, `adb timed out after ${Math.round(timeout / 1000)} s.`));
+        if (error?.code === "ENOENT") return reject(new HttpError(503, "adb is not available in this codespace."));
+        resolve({ exitCode: error ? (typeof error.code === "number" ? error.code : 1) : 0,
+          stdout, stderr: Buffer.isBuffer(stderr) ? stderr.toString("utf8") : stderr });
+      });
+  });
+}
 
 async function booted() {
   try { return (await adb(["shell", "getprop", "sys.boot_completed"], { timeout: 5000 })).trim() === "1"; }
@@ -62,7 +80,7 @@ async function readBody(req) {
 const apps = await createApps({ root: join(ROOT, "data", "app-installs"), sdk: SDK, run, adb, exclusive, booted });
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 8, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard"], avd: "t", api_level: 36, booted: await booted() }),
+  "GET /health": async () => ({ ok: true, version: 9, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough"], avd: "t", api_level: 36, booted: await booted() }),
 
   "POST /boot": ({ diagnosticOperation }) => {
     return boot ??= exclusive(async () => {
@@ -113,6 +131,21 @@ const routes = {
   "POST /apps/open": ({ packageId }) => apps.open(packageId),
   "GET /app-installs": () => apps.list(),
   "POST /app-installs": body => apps.create(body),
+
+  "POST /adb": async body => {
+    if (adbBusy) throw new HttpError(409, "Another adb command is running. Retry when it finishes.");
+    const args = adbArguments(body.args);
+    const seconds = adbTimeout(body.timeout_s);
+    const binary = body.binary === true || isScreencap(args);
+    // Take the slot before the first await so two requests cannot both pass the check.
+    adbBusy = true;
+    try {
+      if (!(await booted())) throw new HttpError(409, "Android is not ready. Start the phone first.");
+      const result = await adbCapture(args, { timeout: seconds * 1000 + 2000, binary });
+      if (binary && result.exitCode !== 0) throw new HttpError(502, result.stderr || "adb screenshot failed.");
+      return binary ? { png: result.stdout } : { exit_code: result.exitCode, stdout: result.stdout, stderr: result.stderr };
+    } finally { adbBusy = false; }
+  },
 };
 
 const server = createServer(async (req, res) => {

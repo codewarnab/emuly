@@ -89,6 +89,20 @@ test("Apps gives an account admission back when the runner never accepts the ope
   assert.deepEqual(calls, ["claim", `release:${key}`]);
 });
 
+test("Apps lets origin-less agent keys through but rejects origin-less cookie sessions", async () => {
+  const make = (method: string) => new Request("https://emuly.test/v1/phones/one/apps/open", { method,
+    headers: { "content-type": "application/json" }, body: JSON.stringify({ packageId: "com.example.app" }) });
+  for (const [authKind, expected] of [["agent", 200], ["session", 403]] as const) {
+    let reached = false;
+    const api = createPhoneAppsApi({ user: async () => ({ id: 1, authKind }),
+      phone: () => ({ state: "running", android_state: "ready" }),
+      runner: async () => { reached = true; return Response.json({ ok: true }); } });
+    const response = await api(make("POST"), "one", ["apps", "open"]);
+    assert.equal(response.status, expected);
+    assert.equal(reached, authKind === "agent");
+  }
+});
+
 test("Apps checks update and launch acknowledgements before reporting success", async () => {
   for (const valid of [true, false]) {
     const api = createPhoneAppsApi({ user: async () => ({ id: 53 }), phone: () => ({ state: "running", android_state: "ready" }),

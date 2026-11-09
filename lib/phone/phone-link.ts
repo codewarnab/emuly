@@ -1,5 +1,6 @@
 import "server-only";
 import { measure } from "../diagnostics/diagnostics.ts";
+import { ADB_OUTPUT_MAX_BYTES } from "./phone-adb-contract.ts";
 import type { phoneObservations } from "./phone-observation.ts";
 
 type Bridge = { url: string; close: () => void };
@@ -10,6 +11,7 @@ class RunnerResponseError extends Error {}
 export type RunnerPath = "/health" | "/boot" | "/stop" | "/screenshot" | "/tap" | "/key";
 export type AppsPath = "/apps" | "/apps/open" | "/app-installs" | `/app-installs/${string}`;
 export type AppsRequest = { method: "GET" | "POST" | "PUT"; json?: Record<string, unknown>; bytes?: Uint8Array; offset?: number; digest?: string; signal?: AbortSignal };
+export type AdbRequest = { args: string[]; timeout_s: number; binary?: boolean };
 
 /** One connection per owned phone. Only a read-only probe may fall back; never replay a mutation. */
 export function createEmulyLinks({ token, tunnel, keepAwake, observations, fetch: request = fetch, idleMs = 120_000 }: {
@@ -113,6 +115,31 @@ export function createEmulyLinks({ token, tunnel, keepAwake, observations, fetch
           }
         } finally { reader.releaseLock(); }
         return new Response(Buffer.concat(chunks), { status: response.status, headers: { "content-type": "application/json", "cache-control": "private, no-store" } });
+      } finally { release(); }
+    },
+    async adb(phone: Owner, input: AdbRequest): Promise<Response> {
+      const { entry, release } = acquire(phone);
+      try {
+        const connection = await entry.connection;
+        const headers = new Headers({ "content-type": "application/json" });
+        if (connection.forwarded) headers.set("X-Github-Token", await token(phone.userId));
+        const response = await request(`${connection.url}/adb`, { method: "POST", headers, body: JSON.stringify(input),
+          redirect: "manual", cache: "no-store",
+          signal: AbortSignal.any([entry.abort.signal, AbortSignal.timeout(input.timeout_s * 1000 + 20_000)]) });
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error("Empty adb response");
+        const chunks: Uint8Array[] = []; let size = 0;
+        try {
+          for (;;) {
+            const { done, value } = await reader.read(); if (done) break;
+            size += value.length;
+            // JSON escaping can make the text body larger than the runner's output cap.
+            if (size > ADB_OUTPUT_MAX_BYTES * 4) { await reader.cancel(); throw new Error("adb response too large"); }
+            chunks.push(value);
+          }
+        } finally { reader.releaseLock(); }
+        return new Response(Buffer.concat(chunks), { status: response.status,
+          headers: { "content-type": response.headers.get("content-type") ?? "application/json", "cache-control": "private, no-store" } });
       } finally { release(); }
     },
     async stream(phone: Owner) {

@@ -6,7 +6,7 @@ import { collectProgress, measure, progressCursor, diagnosticHealth, diagnosticO
 import { validateStep, type Step } from "../diagnostics/diagnostic-contract.ts";
 
 /** Files copied into each codespace, relative to `phone/` in this repository. */
-const FILES = ["scripts/progress.sh", "scripts/read-progress.py", "scripts/bounded-log.py", "scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "runner/runner.mjs", "runner/apps.mjs", "runner/apps-protocol.mjs", "runner/apk-download.mjs", "runner/scrcpy.mjs", "runner/scrcpy-protocol.mjs"];
+const FILES = ["scripts/progress.sh", "scripts/read-progress.py", "scripts/bounded-log.py", "scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "runner/runner.mjs", "runner/apps.mjs", "runner/apps-protocol.mjs", "runner/adb-protocol.mjs", "runner/apk-download.mjs", "runner/scrcpy.mjs", "runner/scrcpy-protocol.mjs"];
 
 export class PhoneSetupError extends Error {}
 export type SetupStatus = "ready" | "working";
@@ -45,7 +45,7 @@ export function setupScript(root = join(process.cwd(), "phone"), cursor = 0) {
   return `export PATH="/usr/local/share/nvm/current/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 mkdir -p "$HOME/emuly" && builtin cd "$HOME/emuly"
 ${diagnosticOperation() ? `if [ -f scripts/read-progress.py ]; then python3 scripts/read-progress.py ${diagnosticOperation()} ${Number.isSafeInteger(cursor) && cursor >= 0 ? cursor : 0}; fi` : ""}
-if curl -fsS http://127.0.0.1:8790/health 2>/dev/null | grep -q '"version":8'; then echo EMULY_READY; exit 0; fi
+if curl -fsS http://127.0.0.1:8790/health 2>/dev/null | grep -q '"version":9'; then echo EMULY_READY; exit 0; fi
 # A runner from an older build answers health but must be replaced before files are uploaded.
 if curl -fsS http://127.0.0.1:8790/health >/dev/null 2>&1; then
   pkill -f "node runner/runner.mjs" 2>/dev/null || true
@@ -59,7 +59,7 @@ emuly_wait() {
   [ -f .pid ] && kill -0 "$(cat .pid)" 2>/dev/null || return 0
   for i in $(seq 1 75); do
     if [ -f .failed ]; then rm -f .failed .pid; echo EMULY_FAILED; exit 1; fi
-    if curl -fsS http://127.0.0.1:8790/health 2>/dev/null | grep -q '"version":8'; then echo EMULY_READY; exit 0; fi
+    if curl -fsS http://127.0.0.1:8790/health 2>/dev/null | grep -q '"version":9'; then echo EMULY_READY; exit 0; fi
     kill -0 "$(cat .pid)" 2>/dev/null || return 0
     sleep 1
   done
