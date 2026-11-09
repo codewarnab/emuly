@@ -26,10 +26,10 @@ test("migrate applies a migration added after the connection was opened", () => 
   try {
     const { user_version: latest } = database.prepare("PRAGMA user_version").get() as { user_version: number };
     // Simulate a connection opened before the latest migration existed.
-    database.exec(`DROP TABLE app_admissions; DROP TABLE stream_tickets; DROP TABLE coordination_leases; PRAGMA user_version = ${latest - 1}`);
+    database.exec(`CREATE TABLE backups (id INTEGER PRIMARY KEY); PRAGMA user_version = ${latest - 1}`);
     migrate(database);
     assert.equal((database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, latest);
-    assert.ok(database.prepare("SELECT owner FROM coordination_leases"));
+    assert.equal(database.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = 'backups'").get()?.n, 0);
     migrate(database); // no-op when current
   } finally {
     database.close();
@@ -113,7 +113,7 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
       'fixture-machine', 'error', '2026-11-02', ?)`).run(Buffer.from("sealed-pending-runner"));
     database.close();
     database = openDatabase(filename);
-    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 10);
+    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 11);
     assert.deepEqual({ ...database.prepare("SELECT * FROM phone_creations").get() }, {
       phone_id: "phone-bbbb", display_name: "phone-bbbb", outcome: "unconfirmed", requested_at: "2026-11-02",
     });
@@ -125,7 +125,7 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
     assert.deepEqual([idle_timeout_min, cores, retention_min], [240, null, 43200]);
     assert.equal(database.prepare("SELECT id FROM sessions").get()?.id, "hashed-session");
     assert.equal(database.prepare("SELECT message FROM events").get()?.message, "old history");
-    assert.equal(database.prepare("SELECT generation FROM backups").get()?.generation, "gen-1");
+    assert.equal(database.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = 'backups'").get()?.n, 0);
     database.exec(`INSERT INTO user_settings (user_id) VALUES (1);
       INSERT INTO phone_keeps VALUES ('phone-aaaa', 'starting', '2026-11-07', NULL);
       INSERT INTO runs (phone_id, cores, started_at, source) VALUES ('phone-aaaa', 4, '2026-11-07', 'emuly');
@@ -147,7 +147,7 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
     database.close();
     database = openDatabase(filename);
     assert.equal(database.prepare("SELECT count(*) AS n FROM runs").get()?.n, 1);
-    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 10);
+    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 11);
     assert.equal(database.prepare("SELECT count(*) AS n FROM phone_creations").get()?.n, 1);
     assert.equal(database.prepare("SELECT phase FROM phone_keeps").get()?.phase, "starting");
     database.exec("DELETE FROM users WHERE id = 1");

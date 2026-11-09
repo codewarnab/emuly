@@ -10,7 +10,7 @@ export function filterCommands<T extends { label: string; keywords?: string }>(i
   const words = query.toLowerCase().trim().split(/\s+/);
   return items.filter(item => words.every(word => `${item.label} ${item.keywords ?? ""}`.toLowerCase().includes(word)));
 }
-export const PHONE_TABS = ["log", "apps", "backups", "danger"] as const;
+export const PHONE_TABS = ["log", "apps", "danger"] as const;
 export const SETTINGS_TABS = [
   { label: "Hours", href: "/app/settings/hours", key: "1", shortcut: "g s" },
   { label: "Webhooks", href: "/app/settings/webhooks", key: "2", shortcut: "g w" },
