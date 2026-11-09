@@ -141,8 +141,10 @@ export async function createApps({ root, sdk, run, adb, exclusive, booted }) {
     } catch (error) {
       if (error instanceof AppError) throw error;
       // Keep the user message stable; the runner log carries the parser's own reason.
-      const detail = String(error?.stderr || error?.stdout || error?.message || "").split("\n").map(line => line.trim()).find(Boolean);
-      console.error(`apk-inspect-failed: ${(detail ?? "no detail").slice(0, 300)}`);
+      // The JVM prints "Picked up JAVA_TOOL_OPTIONS" first on every run; it is never the reason.
+      const detail = [error?.stderr, error?.stdout, error?.message].map(text => String(text ?? "")).join("\n").split("\n")
+        .map(line => line.trim()).filter(line => line && !line.startsWith("Picked up ")).slice(0, 4).join(" | ");
+      console.error(`apk-inspect-failed: ${(detail || "no detail").slice(0, 600)}`);
       fail(400, "invalid_apk", "Choose a valid, signed standalone APK. The file could not be verified.");
     }
     if (!validPackage(summary[0]) || !/^\d+$/.test(summary[1] ?? "")) fail(400, "invalid_apk", "The APK has invalid package metadata.");
