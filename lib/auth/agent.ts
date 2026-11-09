@@ -34,3 +34,16 @@ export function allowAgentExchange(ip: string, now = Date.now()) {
   }
   return true;
 }
+
+const SAFE_KEY = /^emuly_key_[A-Za-z0-9_-]+$/;
+
+/** Ready-to-run commands that keep the key in the Windows user variable EMULY_KEY,
+    so the agent never handles a file path. The key is checked before it is quoted. */
+export function agentKeyCommands(key: string) {
+  if (!SAFE_KEY.test(key)) throw new Error("Unexpected agent key format.");
+  return {
+    save: `setx EMULY_KEY "${key}"`,
+    read: "[Environment]::GetEnvironmentVariable('EMULY_KEY','User')",
+    clear: 'setx EMULY_KEY ""',
+  };
+}

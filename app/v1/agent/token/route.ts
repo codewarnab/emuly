@@ -1,6 +1,6 @@
 import { asyncDb } from "../../../../lib/data/async-db";
 import { AgentInputError, exchangeSetupCode } from "../../../../lib/data/agents";
-import { allowAgentExchange } from "../../../../lib/auth/agent";
+import { agentKeyCommands, allowAgentExchange } from "../../../../lib/auth/agent";
 
 /** Exchanges a one-time setup code for a 90-day agent key. No cookie is needed. */
 export async function POST(request: Request) {
@@ -22,7 +22,7 @@ export async function POST(request: Request) {
       return json({ error: "invalid_code",
         message: "This setup code is invalid, already used, or expired. Click Copy prompt in the Emuly console for a new one." }, 401);
     }
-    return json({ key: result.key, expires_at: result.expiresAt });
+    return json({ key: result.key, expires_at: result.expiresAt, ...agentKeyCommands(result.key) });
   } catch (error) {
     if (error instanceof AgentInputError || error instanceof SyntaxError) {
       return json({ error: "invalid_input", message: error.message }, 400);
