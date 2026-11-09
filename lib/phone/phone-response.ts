@@ -38,6 +38,8 @@ export function parseAppInstall(value: unknown): AppInstall {
   requireField(bytes(result.bytesReceived) && (result.totalBytes === null || (bytes(result.totalBytes) && result.totalBytes > 0)));
   requireField(result.totalBytes === null || result.bytesReceived <= result.totalBytes);
   requireField(typeof result.canCancel === "boolean");
+  requireField(result.createdAt === undefined || (text(result.createdAt, 64) && Number.isFinite(Date.parse(result.createdAt))));
+  requireField(result.updatedAt === undefined || (text(result.updatedAt, 64) && Number.isFinite(Date.parse(result.updatedAt))));
   requireField(result.packageId === undefined || packageId(result.packageId));
   requireField(result.versionCode === undefined || version(result.versionCode));
   requireField(result.errorCode === undefined || code(result.errorCode));

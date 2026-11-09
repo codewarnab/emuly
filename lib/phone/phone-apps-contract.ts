@@ -5,5 +5,6 @@ export type InstalledApp = { packageId: string; versionCode: string | null; laun
 export type AppInstall = {
   id: string; source: "upload" | "url"; filename: string; stage: AppInstallStage;
   bytesReceived: number; totalBytes: number | null; canCancel: boolean;
+  createdAt?: string; updatedAt?: string;
   packageId?: string; versionCode?: string; errorCode?: string; message?: string;
 };
