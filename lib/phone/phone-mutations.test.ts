@@ -643,7 +643,7 @@ test("setup boots Android once, persists failures until Retry boot, and records 
   const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
     setup: async () => "ready", runner: async (_user, _id, path, body) => {
       assert.equal(path, "/boot");
-      assert.deepEqual(body, { mode: "resume" });
+      assert.deepEqual(body, {});
       boots++;
       return boot.promise;
     } });
