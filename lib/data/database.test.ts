@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { migrate, openDatabase } from "./database.ts";
+import { MIGRATIONS } from "./migrations.ts";
 
 test("request connections require explicit migrations and never advance the schema", () => {
   const directory = mkdtempSync(join(tmpdir(), "emuly-schema-gate-"));
@@ -25,11 +26,13 @@ test("migrate applies a migration added after the connection was opened", () => 
   const database = openDatabase(join(dir, "app.db"));
   try {
     const { user_version: latest } = database.prepare("PRAGMA user_version").get() as { user_version: number };
-    // Simulate a connection opened before the latest migration existed.
-    database.exec(`CREATE TABLE backups (id INTEGER PRIMARY KEY); PRAGMA user_version = ${latest - 1}`);
+    // Simulate a connection opened before the agent login migrations existed.
+    database.exec(`DROP TABLE IF EXISTS agent_keys; DROP TABLE IF EXISTS agent_setup_codes;
+      DROP TABLE IF EXISTS agent_device_codes; ALTER TABLE user_settings DROP COLUMN agent_delete_phones;
+      PRAGMA user_version = 11`);
     migrate(database);
     assert.equal((database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, latest);
-    assert.equal(database.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = 'backups'").get()?.n, 0);
+    assert.equal(database.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name IN ('agent_setup_codes', 'agent_keys', 'agent_device_codes')").get()?.n, 3);
     migrate(database); // no-op when current
   } finally {
     database.close();
@@ -113,7 +116,7 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
       'fixture-machine', 'error', '2026-11-02', ?)`).run(Buffer.from("sealed-pending-runner"));
     database.close();
     database = openDatabase(filename);
-    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 11);
+    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, MIGRATIONS.length);
     assert.deepEqual({ ...database.prepare("SELECT * FROM phone_creations").get() }, {
       phone_id: "phone-bbbb", display_name: "phone-bbbb", outcome: "unconfirmed", requested_at: "2026-11-02",
     });
@@ -132,7 +135,7 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
       INSERT INTO notices VALUES (1, 'hours.low', '2026-11');`);
     assert.deepEqual({ ...database.prepare("SELECT * FROM user_settings").get() }, {
       user_id: 1, allowance_core_hours: 120, default_machine: null, default_idle_min: 30,
-      auto_stop_before_empty: 0, auto_keep: 0,
+      auto_stop_before_empty: 0, auto_keep: 0, agent_delete_phones: 0,
     });
     assert.throws(() => database.exec("INSERT INTO notices VALUES (1, 'hours.low', '2026-11')"));
     database.prepare(`INSERT INTO webhooks (id, user_id, url, events, secret_cipher, created_at)
@@ -147,7 +150,7 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
     database.close();
     database = openDatabase(filename);
     assert.equal(database.prepare("SELECT count(*) AS n FROM runs").get()?.n, 1);
-    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 11);
+    assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, MIGRATIONS.length);
     assert.equal(database.prepare("SELECT count(*) AS n FROM phone_creations").get()?.n, 1);
     assert.equal(database.prepare("SELECT phase FROM phone_keeps").get()?.phase, "starting");
     database.exec("DELETE FROM users WHERE id = 1");

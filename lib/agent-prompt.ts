@@ -1,13 +1,56 @@
-export const AGENT_PROMPT = `Set me up with a free Android emulator using Emuly.
-Read and follow https://github.com/codewarnab/agent-skills/tree/main/android-emu
-(SKILL.md). It runs in my own GitHub Codespace on my included hours, so it costs nothing.
-Ask me before anything that needs my approval, like signing in to GitHub.
-When the phone is up, give me the link to watch it in my browser.
+// The agent reads this prompt and calls Emuly over HTTP (see issue #17).
+// Future idea, not planned now: a remote MCP server at /mcp with OAuth.
+// Server only: this reads the Markdown files in content/.
+// The prompt holds only key setup. Phone work lives in the emuly-playbook skill.
+import { AGENT_RUNBOOK_VERSION, SKILL_NAME, setupOsIds, setupOsUrl, setupShared, skillUrl } from "./agent-runbook";
 
-Running phones share my included hours. Choose a 30-minute or 4-hour idle timeout
-when creating a phone. Thinking without terminal or editor activity counts as idle
-to GitHub. The runner keeps the codespace awake only while actively driving the
-phone with tap, type, or install calls. Stopping keeps the phone.
+function prompt(baseUrl: string, keyLine: string) {
+  const base = baseUrl.replace(/\/$/, "");
+  const osLinks = setupOsIds().map(id => `  - ${id}: ${setupOsUrl(base, id)}`).join("\n");
+  return `Set me up with an Android phone using Emuly.
 
-To be notified instead of polling, ask me for a webhook URL and register it with
-POST /v1/webhooks. Polling is still an option.`;
+- Emuly base URL: ${base}
+- ${keyLine}
+- Prompt version: ${AGENT_RUNBOOK_VERSION}
+
+## 1. Get a key
+
+Fetch the setup commands for the OS you run on. If none matches, adapt the closest one.
+
+${osLinks}
+
+Then follow the key steps at the end of this prompt.
+
+## 2. Offer the ${SKILL_NAME} skill
+
+The \`${SKILL_NAME}\` skill tells you how to start, drive and stop Emuly phones.
+Ask me once: "Should I install the ${SKILL_NAME} skill so I can run Emuly phones in later sessions?"
+
+- **Yes, with npx** (needs Node.js): \`npx skills add ${base} -g -a <your agent id> -y\`.
+  Use your own agent id, for example \`claude-code\` or \`cursor\`.
+- **Yes, without npx:** read ${base}/.well-known/skills/index.json and download each file
+  in \`files\` from ${skillUrl(base, "<file>")} into your agent's user skills folder, keeping
+  the paths. Claude Code: \`~/.claude/skills/${SKILL_NAME}/\`. Cursor: \`~/.cursor/skills/${SKILL_NAME}/\`.
+  For another agent, use its documented skills folder.
+- **No:** do not install anything. Fetch ${skillUrl(base)} and follow it for this session only.
+
+Install nothing without my yes. After an install, read the installed \`SKILL.md\`.
+
+## 3. Do the task
+
+Follow the skill to choose or start a phone, then give me its browser link.
+
+---
+
+${setupShared(base)}`;
+}
+
+/** A fresh setup code is filled in when the user clicks Copy prompt. */
+export function buildAgentPrompt(baseUrl: string, setupCode: string) {
+  return prompt(baseUrl, `Setup code: ${setupCode} (works once, expires in 1 hour)`);
+}
+
+/** Signed-out users copy this. The setup steps start the RFC 8628 device flow instead. */
+export function buildDevicePrompt(baseUrl: string) {
+  return prompt(baseUrl, "Setup code: none. Start the device sign-in flow and give me the link to approve.");
+}

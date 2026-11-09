@@ -1,16 +1,22 @@
 import type { createWebhookService } from "./webhooks.ts";
 import { WebhookInputError } from "./webhook-security.ts";
 import { WebhookRateLimitError } from "./webhooks.ts";
+import { AGENT_WEBHOOK_MESSAGE, manageUrl } from "../auth/scope.ts";
 
-/** Session-authenticated API. Mutations reject browser cross-origin requests. */
+/** Session- or agent-authenticated API. Mutations reject browser cross-origin requests. */
 export function createWebhookApi({ user, service }: {
-  user: () => Promise<{ id: number } | null>; service: ReturnType<typeof createWebhookService>;
+  user: () => Promise<{ id: number; authKind?: "session" | "agent" } | null>; service: ReturnType<typeof createWebhookService>;
 }) {
   return async function handle(request: Request, id?: string, resource?: "test" | "deliveries", deliveryId?: string) {
     const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "private, no-store" } });
     const identity = await user();
     if (!identity) return json({ error: "unauthorized" }, 401);
     const method = request.method;
+    // An agent may register a notification target and read webhooks, but must not alter or remove them.
+    if (identity.authKind === "agent" && !(method === "GET" || (method === "POST" && !id))) {
+      return json({ error: "forbidden", message: AGENT_WEBHOOK_MESSAGE,
+        manage_url: manageUrl(`/app/settings/webhooks${id ? `#webhook-${encodeURIComponent(id)}` : ""}`) }, 403);
+    }
     if (method !== "GET") {
       const origin = request.headers.get("origin");
       if ((origin && origin !== new URL(request.url).origin) || request.headers.get("sec-fetch-site") === "cross-site") {
@@ -20,6 +26,7 @@ export function createWebhookApi({ user, service }: {
     try {
       if (method === "GET" && !id) return json(await service.list(identity.id));
       if (method === "GET" && id && resource === "deliveries") return json(await service.deliveries(identity.id, id));
+      if (method === "GET" && id && !resource) return json(await service.get(identity.id, id));
       if (method === "DELETE" && id && !resource) return json(await service.remove(identity.id, id));
       if (method === "POST" && id && resource === "test") {
         return new URL(request.url).searchParams.get("wait") === "1"

@@ -124,7 +124,7 @@ function Endpoint({ hook, initialDeliveries, pending, run, reveal }: { hook: Web
   const success = typeof result === "object" && result?.state === "ok";
   const status = hook.failing_since ? "failing" : hook.enabled ? "enabled" : "disabled";
   function closeMenu() { if (menu.current) menu.current.open = false; }
-  return <section className={s.webhookEndpoint} aria-label={`Webhook ${hook.url}`}>
+  return <section className={s.webhookEndpoint} id={`webhook-${hook.id}`} aria-label={`Webhook ${hook.url}`}>
     <header className={s.webhookHeader}>
       <span className={s.webhookDot} data-state={status} title={status} role="img" aria-label={status} />
       <h2 className={s.webhookUrl} title={hook.url}>{hook.url}</h2>

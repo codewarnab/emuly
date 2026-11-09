@@ -12,6 +12,7 @@ import { RateLimitError } from "../../lib/data/rate-limit";
 import { asyncDb } from "../../lib/data/async-db";
 import { saveAllowance, userSettings } from "../../lib/data/usage";
 import { clearAllowanceOverride } from "../../lib/data/settings";
+import { AGENT_DELETE_PHONE_MESSAGE, AGENT_SETTINGS_MESSAGE } from "../../lib/auth/scope";
 
 // `refused`: GitHub rejected a new codespace, often because of its own codespace limit.
 type MutationResult = { message: string; phoneId?: string; refused?: boolean };
@@ -19,6 +20,7 @@ type MutationResult = { message: string; phoneId?: string; refused?: boolean };
 export async function mutatePhone(_previous: MutationResult, form: FormData): Promise<MutationResult> {
   const user = await requireUser();
   const operation = form.get("operation");
+  if (user.authKind === "agent" && operation === "delete") return { message: AGENT_DELETE_PHONE_MESSAGE };
   let id: string | undefined;
   let message: string;
   let deleted = false;
@@ -77,6 +79,7 @@ export async function phoneCreationOptions() {
 
 export async function updateAllowance(_previous: MutationResult, form: FormData): Promise<MutationResult> {
   const user = await requireUser();
+  if (user.authKind === "agent") return { message: AGENT_SETTINGS_MESSAGE };
   const choice = form.get("allowance");
   if (choice === "auto") {
     await clearAllowanceOverride(asyncDb(), user.id);

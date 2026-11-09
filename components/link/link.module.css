@@ -1,0 +1,102 @@
+/* Same frame as the login page: text left, phone right, no card. */
+.page {
+  min-height: calc(100dvh - 88px); width: 100%; max-width: 1040px; margin: 0 auto; padding: 48px 32px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 64px;
+}
+.text { max-width: 420px; }
+.device { display: flex; justify-content: center; }
+
+.eyebrow {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 14px;
+  color: var(--dim); font-size: 13px; font-weight: 500;
+}
+.eyebrow::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.eyebrow[data-state="approved"]::before, .eyebrow[data-state="used"]::before,
+.eyebrow[data-state="deleted"]::before, .eyebrow[data-state="kept"]::before { background: var(--safe); }
+.eyebrow[data-state="denied"]::before { background: var(--danger); }
+.eyebrow[data-state="expired"]::before { background: var(--amber); }
+
+.title { font: 600 44px/1.05 var(--font-display), sans-serif; letter-spacing: -.05em; margin: 0 0 12px; }
+.sub { font-size: 16px; line-height: 1.5; color: var(--dim); margin: 0 0 28px; }
+
+.code { display: flex; align-items: center; gap: 10px; margin: 0 0 28px; }
+.group { display: flex; gap: 6px; }
+.cell {
+  display: grid; place-items: center; width: 42px; height: 54px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+  font: 500 26px var(--mono); color: var(--text);
+}
+.dash { color: var(--dim2); font: 400 22px var(--mono); }
+
+.scope { list-style: none; margin: 0 0 32px; padding: 0; display: grid; gap: 8px; font-size: 14px; color: var(--dim); }
+.scope li { display: flex; gap: 10px; align-items: baseline; }
+.scope li::before { width: 14px; flex: none; font-weight: 600; text-align: center; }
+.scope li[data-kind="can"]::before { content: "✓"; color: var(--safe); }
+.scope li[data-kind="cannot"]::before { content: "×"; color: var(--dim2); }
+
+.actions { display: flex; align-items: center; gap: 8px; }
+.actions form { display: contents; }
+
+.primary {
+  display: inline-flex; justify-content: center; align-items: center;
+  background: var(--text); color: var(--panel); border: 0; border-radius: 10px;
+  padding: 13px 26px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: opacity .15s ease, transform .15s ease;
+}
+.primary:hover { opacity: .9; }
+.primary:active { transform: scale(.98); }
+.quiet {
+  background: none; border: 0; border-radius: 10px; padding: 13px 16px;
+  color: var(--dim); font: inherit; font-size: 15px; font-weight: 500; cursor: pointer;
+}
+.quiet:hover { color: var(--text); }
+.primary:focus-visible, .quiet:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.primary:disabled, .quiet:disabled { opacity: .55; cursor: default; transform: none; }
+
+.details { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 18px; margin: 0 0 22px; font-size: 14px; }
+.details dt { color: var(--dim); }
+.details dd { margin: 0; color: var(--text); }
+
+.confirmForm { display: grid; gap: 10px; margin: 0 0 4px; }
+.fieldLabel { color: var(--dim); font-size: 14px; }
+.fieldLabel b { color: var(--text); font-weight: 600; }
+.confirmInput {
+  width: 100%; padding: 12px 14px; border: 1px solid var(--control-line); border-radius: 10px;
+  background: var(--panel); color: var(--text); font: inherit;
+}
+.confirmInput:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-color: var(--accent); }
+.deleteActions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.dangerButton {
+  display: inline-flex; justify-content: center; align-items: center;
+  background: var(--danger); color: var(--bg); border: 0; border-radius: 10px;
+  padding: 13px 26px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: opacity .15s ease, transform .15s ease;
+}
+.dangerButton:hover { opacity: .9; }
+.dangerButton:active { transform: scale(.98); }
+.dangerButton:disabled { opacity: .45; cursor: default; transform: none; }
+.dangerButton:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.foot { margin: 28px 0 0; color: var(--dim); font-size: 13px; }
+.foot strong { color: var(--text); font-weight: 500; }
+
+.form { display: flex; gap: 8px; }
+.input {
+  flex: 1; min-width: 0; padding: 12px 14px;
+  border: 1px solid var(--control-line); border-radius: 10px; background: var(--panel); color: var(--text);
+  font: 500 20px var(--mono); letter-spacing: .1em; text-transform: uppercase;
+}
+.input::placeholder { color: var(--dim2); }
+.input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-color: var(--accent); }
+.input[aria-invalid] { border-color: var(--danger); }
+.error { margin: 12px 0 0; color: var(--danger); font-size: 13px; }
+.srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+@media (max-width: 680px) {
+  .page { grid-template-columns: 1fr; min-height: calc(100dvh - 76px); padding: 40px 16px; }
+  .device { display: none; }
+  .title { font-size: 36px; }
+  .cell { width: 34px; height: 46px; font-size: 22px; }
+  .group { gap: 4px; }
+  .code { gap: 6px; }
+}
