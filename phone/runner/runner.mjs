@@ -64,11 +64,11 @@ const apps = await createApps({ root: join(ROOT, "data", "app-installs"), sdk: S
 const routes = {
   "GET /health": async () => ({ ok: true, version: 8, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard"], avd: "t", api_level: 36, booted: await booted() }),
 
-  "POST /boot": ({ mode, diagnosticOperation }) => {
+  "POST /boot": ({ diagnosticOperation }) => {
     return boot ??= exclusive(async () => {
       const start = Date.now();
       const operation = typeof diagnosticOperation === "string" && /^[a-f0-9]{32}$/.test(diagnosticOperation) ? diagnosticOperation : undefined;
-      await run("bash", [join(ROOT, "scripts", "boot.sh"), mode === "cold" ? "cold" : "resume"], { timeout: 600000,
+      await run("bash", [join(ROOT, "scripts", "boot.sh")], { timeout: 600000,
         env: { ...process.env, EMULY_DIAGNOSTICS: operation ? "1" : "0", PH_OPERATION_ID: operation ?? "disabled" } });
       apps.resume();
       return { booted: await booted(), seconds: Math.round((Date.now() - start) / 1000) };

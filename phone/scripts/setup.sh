@@ -67,11 +67,11 @@ sdkmanager --install "platform-tools" "emulator" "build-tools;36.0.0" "$IMAGE" >
 ph_end
 echo "SDK: $IMAGE at $SDK_DIR"
 
-# --- 4b. Android CLI (primary device/emulator manager for agents) ---
-# Verified 2026-10-30: boots headless KVM OK (no -feature -Vulkan hack needed),
-# cold boot ~100s; snapshot resume ~15s after a graceful `adb emu kill`
-# (stop.sh). `android emulator stop` kills qemu before the snapshot save
-# completes -> destroys it -> 63s+ cold boots. NEVER use it.
+# --- 4b. Android CLI (installed for interactive use; boot.sh does not use it) ---
+# Measured 2026-11-09 (issue #15): boot.sh boots with the raw emulator and
+# `-no-snapshot`. Do not go back to `android emulator start --cold`: it only
+# skips the snapshot load and still writes a 1.76 GB snapshot on stop, which
+# makes the next wake pay the slow load again.
 ph_begin android_cli
 disposition=already_present
 if [ ! -x "$HOME/.local/bin/android" ]; then
@@ -96,8 +96,7 @@ ph_end succeeded none "$disposition"
 
 echo
 echo "SETUP OK. Serial hint: emulator-5554 (boot.sh uses -port 5554)."
-echo "Next: boot  ->  bash boot.sh cold|resume"
-echo "State mgmt ->  bash state.sh export|import"
+echo "Next: boot  ->  bash boot.sh"
 
 # scrcpy wire protocol is versioned with this exact server binary.
 SCRCPY_SHA=8588238c9a5a00aa542906b6ec7e6d5541d9ffb9b5d0f6e1bc0e365e2303079e
