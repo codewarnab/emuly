@@ -5,6 +5,7 @@ import Link from "next/link";
 import { mutatePhone, phoneCreationOptions } from "@/app/actions/phones";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { InfoTip } from "@/components/ui/info-tip";
 import { IdleTimeoutField } from "@/components/settings/idle-timeout-field";
 import { usePhoneAction } from "@/components/phone/use-phone-action";
 import type { Usage } from "@/lib/data/usage";
@@ -40,7 +41,8 @@ export function RetryBoot({ id }: { id: string }) {
   </form>;
 }
 
-export function NewPhone({ usage }: { usage: Usage }) {
+// One phone is one codespace, so every extra phone is a new 4-core machine with its own disk.
+export function NewPhone({ usage, stopped = 0 }: { usage: Usage; stopped?: number }) {
   const running = usage.running.length > 0;
   const [options, setOptions] = useState<Awaited<ReturnType<typeof phoneCreationOptions>> | null>(null);
   const left = Math.max(0, usage.allowance_core_hours - usage.used_core_hours);
@@ -52,6 +54,8 @@ export function NewPhone({ usage }: { usage: Usage }) {
     setOptions(await phoneCreationOptions());
   }
   const [open, setOpen] = useState(false);
+  // The refusal hides once the user stops phones; a new create result shows again.
+  const [dismissed, setDismissed] = useState<object | null>(null);
   const [result, action, pending] = useActionState(mutatePhone, { message: "" });
   return <>
     <Button onClick={() => { void show(); }}>New phone</Button>
@@ -66,17 +70,29 @@ export function NewPhone({ usage }: { usage: Usage }) {
         <div className={s.specRow} aria-label="Machine">
           <span><b>4</b> cores</span><span><b>16</b> GB RAM</span><span><b>32</b> GB storage</span>
         </div>
+        {running && <p className={s.createHint}>Running phones share your hours, so each extra phone uses them faster.</p>}
+        {stopped > 0 && <p className={s.createHint}>
+          {stopped === 1 ? "Your stopped phone still uses" : `Your ${stopped} stopped phones still use`} GitHub storage. Delete the phones you do not need.
+        </p>}
         <IdleTimeoutField name="idleTimeoutMin" defaultValue={options.settings.default_idle_min ?? 30} />
         <div className={s.createFoot}>
-          <p className={s.createHint} title="Estimated from Emuly phones only. Other codespaces use the same hours. Stopped phones are kept for 30 days.">
+          <p className={s.createHint}>
             <strong>{(left / nextRate).toFixed(1)} h</strong> left{running ? ` with ${usage.running.length + 1} running` : " this month"}
+            {" "}<InfoTip label="How hours are estimated">
+              Estimated from Emuly phones only. Other codespaces use the same hours. Stopped phones are kept for 30 days.
+            </InfoTip>
           </p>
           <Button disabled={pending}>{pending ? "Creating…" : running ? "Start another" : "Create phone"}</Button>
         </div>
-        {result.message && <p role="status">{result.message}</p>}
-        {result.message && !result.phoneId && <p className={s.createHint}><a href="https://github.com/settings/billing/usage" target="_blank" rel="noreferrer">Check exact usage on GitHub</a>, then try again.</p>}
+        {result.message && dismissed !== result && <p role="status">{result.message}</p>}
+        {result.message && !result.phoneId && !(result.refused && running) && <p className={s.createHint}><a href="https://github.com/settings/billing/usage" target="_blank" rel="noreferrer">Check exact usage on GitHub</a>, then try again.</p>}
         {result.phoneId && <Link href={`/app/phones/${encodeURIComponent(result.phoneId)}`}>Open phone</Link>}
       </form>}
+      {/* Outside the create form: forms cannot be nested. */}
+      {options && !options.message && result.refused && running && dismissed !== result && <div className={s.createForm}>
+        <p className={s.createHint}>GitHub limits how many codespaces can run. Stop a phone, then try again.</p>
+        <StopAll count={usage.running.length} onSubmit={() => setDismissed(result)} />
+      </div>}
     </Dialog>}
   </>;
 }
@@ -141,10 +157,10 @@ export function PhoneRefresh() {
   return null;
 }
 
-export function StopAll({ count }: { count: number }) {
+export function StopAll({ count, onSubmit }: { count: number; onSubmit?: () => void }) {
   const [, action, pending] = usePhoneAction();
   if (!count) return null;
-  return <form action={action}><input type="hidden" name="operation" value="stopAll" />
+  return <form action={action} onSubmit={onSubmit}><input type="hidden" name="operation" value="stopAll" />
     <Button variant="ghost" disabled={pending}>{pending ? "Stopping..." : "Stop all running"}</Button>
   </form>;
 }
