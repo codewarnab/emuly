@@ -111,8 +111,11 @@ export async function createApps({ root, sdk, run, adb, exclusive, booted }) {
       "--ro-bind", sdk, "/sdk", "--ro-bind", file(record.id), "/input.apk"];
     // bwrap before 0.5 has no --clearenv, and some images still ship 0.4. Clearing the
     // environment through env -i keeps the parser isolated on every bwrap version.
+    // The JVM sizes GC and compiler threads by core count, and glibc reserves a 64 MB malloc
+    // arena per thread. On many-core hosts that exceeds --as=2G, so cap both.
     const environment = ["/usr/bin/env", "-i", `PATH=${javaHome}/bin:/usr/bin:/bin`, "HOME=/tmp", `JAVA_HOME=${javaHome}`,
-      "JAVA_TOOL_OPTIONS=-Xmx256m -XX:CompressedClassSpaceSize=64m -XX:ReservedCodeCacheSize=64m -Xss512k"];
+      "MALLOC_ARENA_MAX=2",
+      "JAVA_TOOL_OPTIONS=-Xmx256m -XX:CompressedClassSpaceSize=64m -XX:ReservedCodeCacheSize=64m -Xss512k -XX:+UseSerialGC -XX:ActiveProcessorCount=2 -XX:TieredStopAtLevel=1"];
     // Ubuntu x86_64 has a separate loader path; arm64 generally does not.
     try { await lstat("/lib64"); common.push("--ro-bind", "/lib64", "/lib64"); } catch {}
     // Java reads $JAVA_HOME/conf/security/java.security, which Debian links into /etc.
