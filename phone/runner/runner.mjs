@@ -3,11 +3,14 @@
 import ws from "./ws.cjs";
 import { startScrcpy } from "./scrcpy.mjs";
 import { createApps, CHUNK_SIZE } from "./apps.mjs";
-import { ADB_OUTPUT_MAX_BYTES, adbArguments, adbTimeout, isScreencap } from "./adb-protocol.mjs";
+import { ADB_DOWNLOAD_MAX_BYTES, ADB_FILES_MAX, ADB_OUTPUT_MAX_BYTES, ADB_UPLOAD_MAX_BYTES,
+  adbArguments, adbTimeout, isDownload, isScreencap } from "./adb-protocol.mjs";
 import { AppError } from "./apk-download.mjs";
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
-import { join, dirname } from "node:path";
+import { mkdtemp, open, readFile, readdir, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -65,22 +68,158 @@ function int(value) {
   return String(n);
 }
 
-async function readBody(req) {
+async function readBody(req, limit = 1_000_000) {
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 1_000_000) throw new HttpError(413, "body too large");
+    if (size > limit) throw new HttpError(413, "body too large");
     chunks.push(chunk);
   }
   if (!size) return {};
   try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); }
   catch { throw new HttpError(400, "invalid JSON"); }
 }
+
+function placeholderIndex(value) {
+  const match = /^@file(0|[1-9]\d*)$/.exec(value);
+  return match ? Number(match[1]) : null;
+}
+
+function fileExtension(name, install) {
+  if (install) return ".apk";
+  const match = /\.([A-Za-z0-9]{1,10})$/.exec(typeof name === "string" ? name : "");
+  return match ? `.${match[1]}` : ".bin";
+}
+
+function safeFilename(value, fallback) {
+  const name = basename(typeof value === "string" ? value : "").replace(/[^\w.-]/g, "_").slice(0, 120);
+  return name && name !== "." && name !== ".." ? name : fallback;
+}
+
+/** Reads exactly the declared bytes into runner-owned temp files. */
+async function streamFiles(req, directory, files, install) {
+  let buffered = Buffer.alloc(0);
+  let ended = false;
+  const iterator = req[Symbol.asyncIterator]();
+  async function read(count) {
+    while (buffered.length < count && !ended) {
+      const next = await iterator.next();
+      if (next.done) { ended = true; break; }
+      buffered = Buffer.concat([buffered, Buffer.from(next.value)]);
+    }
+    const part = buffered.subarray(0, count);
+    buffered = buffered.subarray(part.length);
+    return part;
+  }
+  const paths = [];
+  let total = 0;
+  for (let index = 0; index < files.length; index++) {
+    const path = join(directory, `file${index}${fileExtension(files[index].name, install)}`);
+    const handle = await open(path, "w", 0o600);
+    try {
+      let remaining = files[index].size;
+      while (remaining > 0) {
+        const part = await read(Math.min(remaining, 1024 * 1024));
+        if (!part.length) throw new HttpError(400, `Upload ended before file${index} was complete.`);
+        await handle.write(part);
+        remaining -= part.length;
+        total += part.length;
+        if (total > ADB_UPLOAD_MAX_BYTES) throw new HttpError(413, "Uploads are larger than 200 MB.");
+      }
+    } finally { await handle.close(); }
+    paths.push(path);
+  }
+  if ((await read(1)).length) throw new HttpError(413, "The upload has bytes that belong to no file.");
+  return paths;
+}
+
+/** New clients send raw bytes plus a small JSON header. Old JSON-only calls still work. */
+async function readAdbRequest(req) {
+  const header = req.headers["x-emuly-adb"];
+  if (typeof header === "string") {
+    if (req.headers["content-type"] !== "application/octet-stream") throw new HttpError(415, "Expected binary file content.");
+    let meta;
+    try { meta = JSON.parse(header); }
+    catch { throw new HttpError(400, "invalid adb file header"); }
+    const files = Array.isArray(meta?.files) ? meta.files : [];
+    if (files.length > ADB_FILES_MAX) throw new HttpError(400, `Attach at most ${ADB_FILES_MAX} files.`);
+    let declared = 0;
+    for (const file of files) {
+      if (!file || typeof file.name !== "string" || file.name.length > 255
+        || !Number.isSafeInteger(file.size) || file.size < 0) throw new HttpError(400, "invalid file part");
+      declared += file.size;
+      if (declared > ADB_UPLOAD_MAX_BYTES) throw new HttpError(413, "Uploads are larger than 200 MB.");
+    }
+    const args = adbArguments(meta.args, files.length);
+    const seconds = adbTimeout(meta.timeout_s, args);
+    const directory = await mkdtemp(join(tmpdir(), "emuly-adb-"));
+    try {
+      const paths = await streamFiles(req, directory, files, args[0] === "install" || args[0] === "install-multiple");
+      return { args, seconds, binary: meta.binary === true, directory, paths };
+    } catch (error) {
+      await rm(directory, { recursive: true, force: true }).catch(() => {});
+      throw error;
+    }
+  }
+  const body = await readBody(req, 64 * 1024);
+  if (body.files !== undefined) throw new HttpError(400, "Send files as multipart/form-data.");
+  const args = adbArguments(body.args);
+  return { args, seconds: adbTimeout(body.timeout_s, args), binary: body.binary === true, directory: undefined, paths: [] };
+}
+
+/** One file command or ordinary adb call. Temp files are removed in every path. */
+async function adbRoute(req) {
+  if (adbBusy) throw new HttpError(409, "Another adb command is running. Retry when it finishes.");
+  let request;
+  let directory;
+  adbBusy = true;
+  try {
+    request = await readAdbRequest(req);
+    directory = request.directory;
+    if (!directory && isDownload(request.args)) directory = await mkdtemp(join(tmpdir(), "emuly-adb-"));
+    if (!(await booted())) throw new HttpError(409, "Android is not ready. Start the phone first.");
+    const args = request.args.map(item => {
+      const file = placeholderIndex(item);
+      return file === null ? item : request.paths[file] ?? item;
+    });
+    if (isDownload(request.args)) {
+      if (!directory) throw new HttpError(500, "temp directory missing");
+      const bugreport = request.args[0] === "bugreport";
+      const target = bugreport ? join(directory, "bugreport.zip") : join(directory, `pull${fileExtension(args[1], false)}`);
+      const command = bugreport ? ["bugreport", target] : ["pull", args[1], target];
+      const result = await adbCapture(command, { timeout: request.seconds * 1000 + 2000, binary: false });
+      if (result.exitCode !== 0) throw new HttpError(502, result.stderr || `adb ${bugreport ? "bugreport" : "pull"} failed.`);
+      let path = target;
+      if (bugreport) {
+        try { await stat(path); }
+        catch {
+          const zip = (await readdir(directory)).find(name => name.endsWith(".zip"));
+          if (!zip) throw new HttpError(502, "adb did not write a bugreport zip.");
+          path = join(directory, zip);
+        }
+      }
+      const info = await stat(path);
+      if (info.size > ADB_DOWNLOAD_MAX_BYTES) throw new HttpError(413, "The downloaded file is larger than 100 MB.");
+      return { file: await readFile(path), filename: bugreport ? `bugreport-${SERIAL}.zip` : safeFilename(args[1], "device-file"),
+        type: "application/octet-stream" };
+    }
+    const result = await adbCapture(args, { timeout: request.seconds * 1000 + 2000, binary: request.binary || isScreencap(args) });
+    if ((request.binary || isScreencap(args)) && result.exitCode !== 0) {
+      throw new HttpError(502, result.stderr || "adb screenshot failed.");
+    }
+    return request.binary || isScreencap(args)
+      ? { png: result.stdout }
+      : { exit_code: result.exitCode, stdout: result.stdout, stderr: result.stderr };
+  } finally {
+    adbBusy = false;
+    if (directory) await rm(directory, { recursive: true, force: true }).catch(() => {});
+  }
+}
 const apps = await createApps({ root: join(ROOT, "data", "app-installs"), sdk: SDK, run, adb, exclusive, booted });
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 9, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough"], avd: "t", api_level: 36, booted: await booted() }),
+  "GET /health": async () => ({ ok: true, version: 10, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles"], avd: "t", api_level: 36, booted: await booted() }),
 
   "POST /boot": ({ diagnosticOperation }) => {
     return boot ??= exclusive(async () => {
@@ -132,20 +271,6 @@ const routes = {
   "GET /app-installs": () => apps.list(),
   "POST /app-installs": body => apps.create(body),
 
-  "POST /adb": async body => {
-    if (adbBusy) throw new HttpError(409, "Another adb command is running. Retry when it finishes.");
-    const args = adbArguments(body.args);
-    const seconds = adbTimeout(body.timeout_s);
-    const binary = body.binary === true || isScreencap(args);
-    // Take the slot before the first await so two requests cannot both pass the check.
-    adbBusy = true;
-    try {
-      if (!(await booted())) throw new HttpError(409, "Android is not ready. Start the phone first.");
-      const result = await adbCapture(args, { timeout: seconds * 1000 + 2000, binary });
-      if (binary && result.exitCode !== 0) throw new HttpError(502, result.stderr || "adb screenshot failed.");
-      return binary ? { png: result.stdout } : { exit_code: result.exitCode, stdout: result.stdout, stderr: result.stderr };
-    } finally { adbBusy = false; }
-  },
 };
 
 const server = createServer(async (req, res) => {
@@ -174,6 +299,20 @@ const server = createServer(async (req, res) => {
         return send(200, await apps.content(id, Buffer.concat(chunks), Number(req.headers["x-upload-offset"]), req.headers["x-chunk-sha256"]));
       }
       return send(405, { error: "Method not allowed." });
+    }
+    if (req.method === "POST" && path === "/adb") {
+      const result = await adbRoute(req);
+      if (result?.file) {
+        res.writeHead(200, { "content-type": result.type ?? "application/octet-stream",
+          "content-disposition": `attachment; filename="${result.filename}"`,
+          "content-length": String(result.file.length), "cache-control": "no-store" });
+        return res.end(result.file);
+      }
+      if (result?.png) {
+        res.writeHead(200, { "content-type": "image/png", "cache-control": "no-store" });
+        return res.end(result.png);
+      }
+      return send(200, result);
     }
     const handler = routes[`${req.method} ${path}`];
     if (!handler) return send(404, { error: "not found" });

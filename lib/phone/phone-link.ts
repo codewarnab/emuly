@@ -1,6 +1,6 @@
 import "server-only";
 import { measure } from "../diagnostics/diagnostics.ts";
-import { ADB_OUTPUT_MAX_BYTES } from "./phone-adb-contract.ts";
+import { ADB_DOWNLOAD_MAX_BYTES } from "./phone-adb-contract.ts";
 import type { phoneObservations } from "./phone-observation.ts";
 
 type Bridge = { url: string; close: () => void };
@@ -11,7 +11,7 @@ class RunnerResponseError extends Error {}
 export type RunnerPath = "/health" | "/boot" | "/stop" | "/screenshot" | "/tap" | "/key";
 export type AppsPath = "/apps" | "/apps/open" | "/app-installs" | `/app-installs/${string}`;
 export type AppsRequest = { method: "GET" | "POST" | "PUT"; json?: Record<string, unknown>; bytes?: Uint8Array; offset?: number; digest?: string; signal?: AbortSignal };
-export type AdbRequest = { args: string[]; timeout_s: number; binary?: boolean };
+export type AdbRequest = { args: string[]; timeout_s: number; binary?: boolean; files?: { name: string; bytes: Uint8Array }[] };
 
 /** One connection per owned phone. Only a read-only probe may fall back; never replay a mutation. */
 export function createEmulyLinks({ token, tunnel, keepAwake, observations, fetch: request = fetch, idleMs = 120_000 }: {
@@ -121,11 +121,18 @@ export function createEmulyLinks({ token, tunnel, keepAwake, observations, fetch
       const { entry, release } = acquire(phone);
       try {
         const connection = await entry.connection;
-        const headers = new Headers({ "content-type": "application/json" });
+        const files = input.files ?? [];
+        const headers = new Headers({ "content-type": files.length ? "application/octet-stream" : "application/json" });
         if (connection.forwarded) headers.set("X-Github-Token", await token(phone.userId));
-        const response = await request(`${connection.url}/adb`, { method: "POST", headers, body: JSON.stringify(input),
+        // The runner writes these bytes to its own temp directory; it never receives a path.
+        if (files.length) headers.set("X-Emuly-Adb", JSON.stringify({ args: input.args, timeout_s: input.timeout_s,
+          binary: input.binary === true, files: files.map(file => ({ name: file.name, size: file.bytes.length })) }));
+        const body = files.length ? Buffer.concat(files.map(file => Buffer.from(file.bytes))) : JSON.stringify(input);
+        const response = await request(`${connection.url}/adb`, { method: "POST", headers, body,
           redirect: "manual", cache: "no-store",
-          signal: AbortSignal.any([entry.abort.signal, AbortSignal.timeout(input.timeout_s * 1000 + 20_000)]) });
+          // A file upload shares the same deadline as the command it feeds.
+          signal: AbortSignal.any([entry.abort.signal, AbortSignal.timeout(input.timeout_s * 1000
+            + (input.files?.length ? 180_000 : 20_000))]) });
         const reader = response.body?.getReader();
         if (!reader) throw new Error("Empty adb response");
         const chunks: Uint8Array[] = []; let size = 0;
@@ -133,13 +140,16 @@ export function createEmulyLinks({ token, tunnel, keepAwake, observations, fetch
           for (;;) {
             const { done, value } = await reader.read(); if (done) break;
             size += value.length;
-            // JSON escaping can make the text body larger than the runner's output cap.
-            if (size > ADB_OUTPUT_MAX_BYTES * 4) { await reader.cancel(); throw new Error("adb response too large"); }
+            // JSON text can be larger than its decoded output; downloads have their own cap.
+            if (size > ADB_DOWNLOAD_MAX_BYTES + 1024 * 1024) { await reader.cancel(); throw new Error("adb response too large"); }
             chunks.push(value);
           }
         } finally { reader.releaseLock(); }
-        return new Response(Buffer.concat(chunks), { status: response.status,
-          headers: { "content-type": response.headers.get("content-type") ?? "application/json", "cache-control": "private, no-store" } });
+        const relayed = new Headers({ "content-type": response.headers.get("content-type") ?? "application/json",
+          "cache-control": "private, no-store" });
+        const disposition = response.headers.get("content-disposition");
+        if (disposition) relayed.set("content-disposition", disposition);
+        return new Response(Buffer.concat(chunks), { status: response.status, headers: relayed });
       } finally { release(); }
     },
     async stream(phone: Owner) {

@@ -1,5 +1,5 @@
 /** Static, versioned runbook served at /agent.md. It documents only routes that exist under app/v1. */
-export const AGENT_RUNBOOK_VERSION = "2026-11-09.5";
+export const AGENT_RUNBOOK_VERSION = "2026-11-09.6";
 
 export function agentRunbook(osId?: string | null, agentId?: string | null) {
   const supported = osId === "windows" && agentId === "claude-code";
@@ -259,11 +259,13 @@ adds the emulator serial itself. Never send a single shell string: send one arra
 per argument.
 
 Only these first arguments are accepted: \`shell\`, \`exec-out\`, \`logcat\`, \`get-state\`,
-\`get-serialno\`, \`get-devpath\`, \`uninstall\`. Everything else is rejected, including
-\`push\`, \`pull\`, \`install\`, \`sideload\`, \`backup\`, \`restore\`, \`bugreport\`, \`emu\`,
-\`sync\`, \`keygen\`, \`ppp\`, \`wait-for-*\`, global options such as \`-s\`, \`-H\`, \`-P\`, \`-L\`,
-and any option in the first position. adb runs on the runner host, so a file path in an
-adb command would touch the runner's filesystem, not the user's laptop.
+\`get-serialno\`, \`get-devpath\`, \`uninstall\`, \`install\`, \`install-multiple\`, \`push\`,
+\`pull\`, \`bugreport\`, \`emu\` and \`wait-for-device\`. Everything else is rejected with a
+message that names a replacement. The blocked list includes \`sideload\`, \`backup\`,
+\`restore\`, \`sync\`, \`keygen\`, \`ppp\`, \`forward\`, \`reverse\`, \`root\`, \`unroot\`, \`reboot\`,
+\`connect\`, \`disconnect\`, \`kill-server\`, \`start-server\`, \`tcpip\`, \`usb\`, and global
+options such as \`-s\`, \`-H\`, \`-P\`, \`-L\`. Never send a runner-side path: file commands
+upload bytes through the API, and the runner chooses its own temporary path.
 
 PowerShell wrapper (define it once, then call it with a JSON array):
 
@@ -288,6 +290,14 @@ EmulyAdb '["shell","dumpsys","battery"]'
 EmulyAdb '["logcat","-d","-t","200"]'
 EmulyAdb '["shell","am","start","-n","com.example.app/.MainActivity"]'
 EmulyAdb '["shell","pm","list","packages"]'
+EmulyAdb '["wait-for-device"]'
+EmulyAdb '["emu","geo","fix","-122.084","37.422"]'
+EmulyAdb '["emu","sms","send","15551234567","Your code is 123456"]'
+EmulyAdb '["emu","power","capacity","8"]'
+EmulyAdb '["emu","power","ac","off"]'
+EmulyAdb '["emu","network","speed","gprs"]'
+EmulyAdb '["emu","finger","touch","0"]'
+EmulyAdb '["emu","rotate"]'
 ~~~
 
 ~~~bash
@@ -299,6 +309,14 @@ emulyadb '["shell","dumpsys","battery"]'
 emulyadb '["logcat","-d","-t","200"]'
 emulyadb '["shell","am","start","-n","com.example.app/.MainActivity"]'
 emulyadb '["shell","pm","list","packages"]'
+emulyadb '["wait-for-device"]'
+emulyadb '["emu","geo","fix","-122.084","37.422"]'
+emulyadb '["emu","sms","send","15551234567","Your code is 123456"]'
+emulyadb '["emu","power","capacity","8"]'
+emulyadb '["emu","power","ac","off"]'
+emulyadb '["emu","network","speed","gprs"]'
+emulyadb '["emu","finger","touch","0"]'
+emulyadb '["emu","rotate"]'
 ~~~
 
 In \`input text\`, use \`%s\` for spaces. Escape shell metacharacters in the text, or avoid
@@ -306,17 +324,79 @@ them. \`shell\` commands run inside the user's emulator sandbox, so normal app a
 inspection commands work. The host-level adb server commands (\`connect\`, \`reboot\`,
 \`root\`, \`forward\`, and similar) are rejected by design.
 
-File transfer is not available on this endpoint. Use these instead:
+Read logs with \`["logcat","-d","-t","200"]\`. The \`-f\`, \`--file\`, \`-r\`, \`-n\` and
+\`--rotate-*\` options are rejected because they write or rotate files on the device.
 
-- **Install an APK:** \`POST /v1/phones/<id>/app-installs\` (the Apps upload endpoint
-  below). \`adb install\`, \`install-multiple\`, \`install-multi-package\` and \`sideload\` are
-  rejected.
-- **Read a file from the device:** \`["exec-out","cat","/sdcard/Download/notes.txt"]\`.
-  \`adb pull\` is rejected.
-- **Put text on the device:** \`["shell","echo","hello",">","/sdcard/Download/notes.txt"]\`.
-  \`adb push\` is rejected; for an APK, use the Apps upload endpoint.
-- **Read logs:** \`["logcat","-d","-t","200"]\`. The \`-f\`, \`--file\`, \`-r\`, \`-n\` and
-  \`--rotate-*\` options are rejected because they write or rotate files on the device.
+### Files, installs and downloads
+
+Send files as \`multipart/form-data\`. The \`args\` field is the same JSON array, and
+\`file0\`, \`file1\`, … are the uploads. In args, \`@file0\` stands for the first file.
+Always upload the bytes: never send a runner-side path. The runner picks a temporary
+path, uses it for one command, and deletes it in a \`finally\`.
+
+PowerShell helper (uses \`curl.exe\`, not the \`curl\` alias):
+
+~~~powershell
+function EmulyAdbFile([string]$json, [string[]]$files, [int]$timeout = 30) {
+  $call = @("-sS","-X","POST","$base/v1/phones/$id/adb","-H","Authorization: Bearer $key",
+    "-F","args=$json","-F","timeout_s=$timeout")
+  for ($i = 0; $i -lt $files.Count; $i++) { $call += @("-F", "file$i=@$($files[$i])") }
+  & curl.exe @call
+}
+~~~
+
+Git Bash helper:
+
+~~~bash
+emulyadbfile() {
+  local json="$1"; shift
+  local timeout="\${EMULY_ADB_TIMEOUT:-30}"
+  local call=(-sS -X POST "$base/v1/phones/$id/adb" -H "$auth" -F "args=$json" -F "timeout_s=$timeout")
+  local i=0
+  for file in "$@"; do call+=(-F "file$i=@$file"); i=$((i + 1)); done
+  curl.exe "\${call[@]}"
+}
+~~~
+
+Install an APK. The only install flags are \`-r\`, \`-t\`, \`-g\`, \`-d\` and \`--abi\`:
+
+~~~powershell
+EmulyAdbFile '["install","-r","@file0"]' @("C:\\Users\\me\\app.apk") 300
+EmulyAdbFile '["install-multiple","-r","@file0","@file1"]' @("C:\\Users\\me\\base.apk","C:\\Users\\me\\split.apk") 300
+~~~
+
+~~~bash
+EMULY_ADB_TIMEOUT=300 emulyadbfile '["install","-r","@file0"]' "/c/Users/me/app.apk"
+EMULY_ADB_TIMEOUT=300 emulyadbfile '["install-multiple","-r","@file0","@file1"]' "/c/Users/me/base.apk" "/c/Users/me/split.apk"
+~~~
+
+Push one file. The device path must be under \`/sdcard/\` or \`/data/local/tmp/\`, with no \`..\`:
+
+~~~powershell
+EmulyAdbFile '["push","@file0","/sdcard/Download/x.txt"]' @("C:\\Users\\me\\x.txt")
+~~~
+
+~~~bash
+emulyadbfile '["push","@file0","/sdcard/Download/x.txt"]' "/c/Users/me/x.txt"
+~~~
+
+Pull a device file into a laptop path, or download a bugreport. Both stream bytes with a
+\`Content-Disposition\` filename:
+
+~~~powershell
+curl.exe -sS -X POST "$base/v1/phones/$id/adb" -H "Authorization: Bearer $key" -F 'args=["pull","/sdcard/x.png"]' -o "C:\\Users\\me\\x.png"
+curl.exe -sS -X POST "$base/v1/phones/$id/adb" -H "Authorization: Bearer $key" -F 'args=["bugreport"]' -F 'timeout_s=300' -o "C:\\Users\\me\\bugreport.zip"
+~~~
+
+~~~bash
+curl.exe -sS -X POST "$base/v1/phones/$id/adb" -H "$auth" -F 'args=["pull","/sdcard/x.png"]' -o "/c/Users/me/x.png"
+curl.exe -sS -X POST "$base/v1/phones/$id/adb" -H "$auth" -F 'args=["bugreport"]' -F 'timeout_s=300' -o "/c/Users/me/bugreport.zip"
+~~~
+
+Limits: 200 MB total upload, 100 MB per pull or bugreport, and a 300-second timeout only
+for \`install\`, \`install-multiple\` and \`bugreport\`. Everything else keeps the 120-second
+cap. A \`@fileN\` that was not uploaded, or an uploaded file that args never references, is
+rejected before adb runs.
 
 Text replies are JSON:
 
@@ -325,10 +405,11 @@ Text replies are JSON:
 ~~~
 
 A non-zero \`exit_code\` is a command result, not an HTTP failure. Read \`stderr\` before
-retrying. The default timeout is 30 seconds and the maximum is 120 seconds. Add
-\`"timeout_s":60\` to a body when a long command needs it. Output is capped at 5 MB;
-narrow the command if it is larger. One adb call runs at a time per phone; a second one
-gets **409** and should be retried after the first finishes.
+retrying. The default timeout is 30 seconds. It is capped at 120 seconds, except
+\`install\`, \`install-multiple\` and \`bugreport\`, which allow up to 300. Add
+\`"timeout_s":60\` to a JSON body, or the \`timeout_s\` field to multipart. Normal JSON output
+is capped at 5 MB; narrow the command if it is larger. One adb call runs at a time per
+phone; a second one gets **409** and should be retried after the first finishes.
 
 The phone must be running with Android ready. Otherwise the route returns **409** with a
 message telling you to start it. A missing or stopped phone returns **404** or **409**;
@@ -347,9 +428,11 @@ curl.exe -sS -X POST "$base/v1/phones/$id/adb" -H "$auth" -H "content-type: appl
 
 Sending \`Accept: image/png\` also asks for raw bytes. Use it only with screenshot calls.
 
-### Install an APK with the Apps endpoint, not adb install
+### Install an APK with the Apps endpoint (alternative)
 
-The real upload endpoint is \`POST /v1/phones/<id>/app-installs\`. It has two sources.
+Uploaded APKs also work with \`install\` and \`install-multiple\` above. The Apps endpoint
+\`POST /v1/phones/<id>/app-installs\` is better for large files, direct URLs and install
+progress. It has two sources.
 
 A direct HTTPS URL is the easiest:
 
@@ -523,11 +606,78 @@ Invoke-RestMethod -Method Post -Uri "$base/v1/phones" -Headers $headers -Content
 curl.exe -sS -X POST "$base/v1/phones" -H "$auth" -H "content-type: application/json" --data '{"idle_timeout_min":30}'
 ~~~
 
-Deleting is reserved for the browser console: \`DELETE /v1/phones/<id>\` returns **403**
-for an agent key. Never try to delete around that rule.
+### Delete a phone
+
+Deleting is off by default. Try \`DELETE /v1/phones/<id>\` once. If the user turned on
+**Let agents delete phones without asking**, it deletes and returns \`settings_url\`. Say
+exactly:
+
+> I deleted <name>. To require approval again, turn off 'Let agents delete phones without asking' at <settings_url>.
+
+If it returns **403**, do not retry the DELETE. Create an approval request, show
+\`approve_url\` on one line, then poll. The approval page is session-only; the agent can
+poll but never approve. When the switch is off, mention once that it exists at
+**Settings › Agents**.
+
+~~~powershell
+try {
+  $deleted = Invoke-RestMethod -Method Delete -Uri "$base/v1/phones/$id" -Headers $headers
+  Write-Output "I deleted $($phone.name). To require approval again, turn off 'Let agents delete phones without asking' at $($deleted.settings_url)."
+} catch {
+  $status = $_.ErrorDetails.Message | ConvertFrom-Json
+  if ($status.error -ne "forbidden") { throw }
+  if ($status.manage_url) { Write-Output "The browser page is $($status.manage_url)." }
+  $request = Invoke-RestMethod -Method Post -Uri "$base/v1/phones/$id/delete-requests" -Headers $headers
+  Write-Output "Approve this deletion: $($request.approve_url)"
+  $deadline = (Get-Date).AddSeconds($request.expires_in)
+  while ((Get-Date) -lt $deadline) {
+    Start-Sleep -Seconds $request.interval
+    $result = Invoke-RestMethod -Uri "$base/v1/phones/$id/delete-requests/$($request.request_id)" -Headers $headers
+    if ($result.status -eq "done") { Write-Output "I deleted $($phone.name)."; break }
+    if ($result.status -eq "denied") { Write-Output "The user kept $($phone.name)."; break }
+    if ($result.status -eq "expired") { Write-Output "The request expired. Ask again if needed."; break }
+  }
+}
+~~~
+
+~~~bash
+deleted=$(curl.exe -sS -o /tmp/emuly-delete.json -w '%{http_code}' -X DELETE "$base/v1/phones/$id" -H "$auth")
+if [ "$deleted" = "200" ]; then
+  settings=$(sed -n 's/.*"settings_url":"\\([^"]*\\)".*/\\1/p' /tmp/emuly-delete.json)
+  printf 'I deleted %s. To require approval again, turn off '\\''Let agents delete phones without asking'\\'' at %s.\\n' "$name" "$settings"
+else
+  page=$(sed -n 's/.*"manage_url":"\\([^"]*\\)".*/\\1/p' /tmp/emuly-delete.json)
+  [ -z "$page" ] || printf 'The browser page is %s.\\n' "$page"
+  status=$(curl.exe -sS -X POST "$base/v1/phones/$id/delete-requests" -H "$auth")
+  request_id=$(printf '%s' "$status" | sed -n 's/.*"request_id":"\\([^"]*\\)".*/\\1/p')
+  approve=$(printf '%s' "$status" | sed -n 's/.*"approve_url":"\\([^"]*\\)".*/\\1/p')
+  interval=$(printf '%s' "$status" | sed -n 's/.*"interval":\\([0-9]*\\).*/\\1/p')
+  printf 'Approve this deletion: %s\\n' "$approve"
+  waited=0
+  while [ "$waited" -lt 600 ]; do
+    sleep "$interval"; waited=$((waited + interval))
+    result=$(curl.exe -sS -H "$auth" "$base/v1/phones/$id/delete-requests/$request_id")
+    state=$(printf '%s' "$result" | sed -n 's/.*"status":"\\([^"]*\\)".*/\\1/p')
+    if [ "$state" = "done" ]; then printf 'I deleted %s.\\n' "$name"; break; fi
+    if [ "$state" = "denied" ]; then printf 'The user kept %s.\\n' "$name"; break; fi
+    if [ "$state" = "expired" ]; then printf 'The request expired. Ask again if needed.\\n'; break; fi
+  done
+fi
+~~~
+
+The request and its approval link last 10 minutes. \`pending\` means keep polling,
+\`approved\` means the browser is deleting, \`done\` means the phone and its codespace are
+gone, \`denied\` means the user kept it, and \`expired\` means ask again. Never print the
+approval link as a shortened or hidden link.
 
 If a request fails with a network error, report the exact URL and the error text to the
 user. Do not retry more than twice without saying so.
+
+Any **403** body may include \`manage_url\`. Give the user that absolute link and say what
+to do on that page. Do not try to work around a 403, and never ask for a session cookie.
+
+Read settings with \`GET /v1/settings\` (no secrets) and one webhook with
+\`GET /v1/webhooks/<id>\` (never includes its signing secret). Both are read-only.
 
 Webhooks are optional. If the user wants push notifications instead of polling, register
 one endpoint. An agent key may create and list webhooks but cannot edit, test or delete them.

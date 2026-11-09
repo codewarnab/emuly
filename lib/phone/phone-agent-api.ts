@@ -3,7 +3,7 @@ import { crossOrigin } from "../auth/origin.ts";
 import { RateLimitError } from "../data/rate-limit.ts";
 import { GitHubError } from "../github/github.ts";
 import {
-  AdbError, adbArguments, adbResult, adbTimeout, isScreencap,
+  ADB_FILES_MAX, ADB_UPLOAD_MAX_BYTES, AdbError, adbArguments, adbResult, adbTimeout, isDownload, isScreencap,
 } from "./phone-adb-contract.ts";
 import { PhoneInputError, redact, type createPhoneService } from "./phone-mutations.ts";
 import type { Phone } from "./phones.ts";
@@ -39,13 +39,54 @@ async function readJson(request: Request, limit: number): Promise<Record<string,
   return value as Record<string, unknown>;
 }
 
+type UploadedFile = { name: string; bytes: Buffer };
+
+/** Multipart adb carries `args` plus file0, file1, … . The client never names a runner path. */
+async function readAdbMultipart(request: Request): Promise<{ args: unknown; timeout?: number; files: UploadedFile[] }> {
+  if (Number(request.headers.get("content-length")) > ADB_UPLOAD_MAX_BYTES + 2 * 1024 * 1024) {
+    bad(413, `Attach at most ${ADB_UPLOAD_MAX_BYTES / (1024 * 1024)} MB in total.`);
+  }
+  let form: FormData;
+  try { form = await request.formData(); }
+  catch { bad(400, "Send multipart/form-data with args and file0, file1, …"); }
+  const rawArgs = form.get("args");
+  if (typeof rawArgs !== "string") bad(400, "The args field must be a JSON array of strings.");
+  let args: unknown;
+  try { args = JSON.parse(rawArgs); }
+  catch { bad(400, "The args field must be valid JSON."); }
+  const rawTimeout = form.get("timeout_s");
+  let timeout: number | undefined;
+  if (rawTimeout !== null) {
+    if (typeof rawTimeout !== "string" || !/^\d+$/.test(rawTimeout)) bad(400, "timeout_s must be a whole number.");
+    timeout = Number(rawTimeout);
+  }
+  const files: UploadedFile[] = [];
+  let total = 0;
+  for (const [key, value] of form.entries()) {
+    if (key === "args" || key === "timeout_s") continue;
+    const match = /^file(0|[1-9]\d*)$/.exec(key);
+    if (!match || typeof value === "string" || typeof value.arrayBuffer !== "function") {
+      bad(400, "Attach files as file0, file1, … and nothing else.");
+    }
+    const index = Number(match[1]);
+    if (index !== files.length) bad(400, "Attach file0, file1, … without gaps.");
+    if (files.length >= ADB_FILES_MAX) bad(400, `Attach at most ${ADB_FILES_MAX} files.`);
+    const bytes = Buffer.from(await value.arrayBuffer());
+    total += bytes.length;
+    if (total > ADB_UPLOAD_MAX_BYTES) bad(413, `Attach at most ${ADB_UPLOAD_MAX_BYTES / (1024 * 1024)} MB in total.`);
+    files.push({ name: value.name || `file${index}`, bytes });
+  }
+  return { args, timeout, files };
+}
+
 /** The agent-facing phone routes: list/read plus lifecycle and adb. Both auth kinds may use them. */
 export function createPhoneAgentApi({ user, phones, phone, service, adb, baseUrl, log }: {
   user: () => Promise<Identity | null>;
   phones: (userId: number) => Promise<PhoneView[]>;
   phone: (userId: number, id: string) => Promise<PhoneView | undefined>;
   service: Pick<ReturnType<typeof createPhoneService>, "start" | "stop">;
-  adb: (userId: number, id: string, input: { args: string[]; timeout_s: number; binary?: boolean }) => Promise<Response>;
+  adb: (userId: number, id: string, input: { args: string[]; timeout_s: number; binary?: boolean;
+    files?: { name: string; bytes: Uint8Array }[] }) => Promise<Response>;
   baseUrl: () => string;
   log?: (call: AdbCall) => void | Promise<void>;
 }) {
@@ -107,12 +148,29 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, baseUrl
           return json({ error: "phone_not_ready",
             message: `The phone is ${stored.state} with Android ${stored.android_state}. Start it with POST /v1/phones/${id}/start, then retry when GET /v1/phones/${id} shows running and ready.` }, 409);
         }
-        const body = await readJson(request, 64 * 1024);
-        args = adbArguments(body.args);
-        const timeout_s = adbTimeout(body.timeout_s);
+        const multipart = request.headers.get("content-type")?.startsWith("multipart/form-data") === true;
+        let argsValue: unknown;
+        let timeoutValue: unknown;
+        let uploaded: UploadedFile[] = [];
+        if (multipart) {
+          const form = await readAdbMultipart(request);
+          argsValue = form.args;
+          timeoutValue = form.timeout;
+          uploaded = form.files;
+        } else {
+          const body = await readJson(request, 64 * 1024);
+          argsValue = body.args;
+          timeoutValue = body.timeout_s;
+        }
+        args = adbArguments(argsValue, uploaded.length);
+        const timeout_s = adbTimeout(timeoutValue, args);
         loggable = true;
-        const binary = request.headers.get("accept")?.includes("image/png") === true || isScreencap(args);
-        const response = await adb(identity.id, id, { args, timeout_s, binary });
+        const download = isDownload(args);
+        const binary = download || request.headers.get("accept")?.includes("image/png") === true || isScreencap(args);
+        const files = uploaded.length
+          ? uploaded.map(file => ({ name: file.name, bytes: file.bytes }))
+          : undefined;
+        const response = await adb(identity.id, id, { args, timeout_s, binary, ...(files ? { files } : {}) });
         if (!response.ok) {
           await record(identity, id, args, -1);
           let message = "adb could not run. Try again.";
@@ -133,8 +191,14 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, baseUrl
         if (binary) {
           const bytes = await response.arrayBuffer();
           await record(identity, id, args, 0);
-          return new Response(bytes, { headers: { "Content-Type": "image/png", "Cache-Control": "private, no-store",
-            "X-Content-Type-Options": "nosniff" } });
+          const headers: Record<string, string> = { "Content-Type": "image/png", "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff" };
+          if (download) {
+            headers["Content-Type"] = response.headers.get("content-type") ?? "application/octet-stream";
+            const disposition = response.headers.get("content-disposition");
+            if (disposition) headers["Content-Disposition"] = disposition;
+          }
+          return new Response(bytes, { headers });
         }
         let payload: unknown;
         try { payload = await response.json(); }

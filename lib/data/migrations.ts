@@ -262,4 +262,29 @@ export const MIGRATIONS = [
   CREATE UNIQUE INDEX IF NOT EXISTS agent_device_codes_pending_code
     ON agent_device_codes(user_code) WHERE status = 'pending';
   `,
+  `
+  ALTER TABLE user_settings ADD COLUMN agent_delete_phones INTEGER NOT NULL DEFAULT 0;
+
+  CREATE TABLE IF NOT EXISTS phone_delete_requests (
+    id           TEXT PRIMARY KEY,
+    token_hash   TEXT NOT NULL UNIQUE,  -- sha256 of the approval token, never the token itself
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    phone_id     TEXT NOT NULL,  -- kept after the phone is deleted so polling can report done
+    agent_key_id INTEGER REFERENCES agent_keys(id) ON DELETE SET NULL,
+    status       TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'denied', 'expired', 'done')),
+    created_at   TEXT NOT NULL,
+    expires_at   TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS phone_delete_requests_user ON phone_delete_requests(user_id, phone_id);
+  CREATE INDEX IF NOT EXISTS phone_delete_requests_pending ON phone_delete_requests(status, expires_at);
+
+  CREATE TABLE IF NOT EXISTS agent_phone_deletions (
+    id             INTEGER PRIMARY KEY,
+    user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    phone_name     TEXT NOT NULL,
+    agent_key_name TEXT NOT NULL,
+    deleted_at     TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS agent_phone_deletions_user ON agent_phone_deletions(user_id, deleted_at DESC);
+  `,
 ];

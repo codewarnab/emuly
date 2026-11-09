@@ -579,6 +579,8 @@
 .agentTable th, .agentTable td { padding: 10px 8px; border-bottom: 1px solid var(--control-line); white-space: nowrap; }
 .agentTable thead th { color: var(--dim); font-weight: 500; }
 .agentTable tbody th { font-weight: 500; }
+.agentDeletions { margin-top: 8px; }
+.agentDeletions h2 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
 .agentCaption { text-align: left; color: var(--dim); font-size: 13px; padding-bottom: 8px; }
 .agentState { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--panel2); color: var(--dim); }
 .agentState[data-state="active"] { color: var(--safe); background: var(--safe-soft); }
