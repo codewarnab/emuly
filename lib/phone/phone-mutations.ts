@@ -80,7 +80,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
       let booted = false;
       try {
         await diagnostics.scope(operationId, () => measure("android_boot", async () => {
-          const result = await runner(userId, id, "/boot", { mode: "resume", ...(operationId ? { diagnosticOperation: operationId } : {}) });
+          const result = await runner(userId, id, "/boot", operationId ? { diagnosticOperation: operationId } : {});
           if ((await result.json()).booted !== true) throw new Error("Android boot was not confirmed.");
         }));
         booted = true;
