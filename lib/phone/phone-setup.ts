@@ -41,7 +41,14 @@ export function setupScript(root = join(process.cwd(), "phone"), cursor = 0) {
   return `export PATH="/usr/local/share/nvm/current/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 mkdir -p "$HOME/emuly" && builtin cd "$HOME/emuly"
 ${diagnosticOperation() ? `if [ -f scripts/read-progress.py ]; then python3 scripts/read-progress.py ${diagnosticOperation()} ${Number.isSafeInteger(cursor) && cursor >= 0 ? cursor : 0}; fi` : ""}
-if curl -fsS http://127.0.0.1:8790/health 2>/dev/null | grep -q '"version":5'; then echo EMULY_READY; exit 0; fi
+if curl -fsS http://127.0.0.1:8790/health 2>/dev/null | grep -q '"version":6'; then echo EMULY_READY; exit 0; fi
+# A runner from an older build answers health but must be replaced before files are uploaded.
+if curl -fsS http://127.0.0.1:8790/health >/dev/null 2>&1; then
+  pkill -f "node runner/runner.mjs" 2>/dev/null || true
+  if [ -f .pid ]; then kill "$(cat .pid)" 2>/dev/null || true; fi
+  rm -f .pid
+  for i in $(seq 1 10); do curl -fsS http://127.0.0.1:8790/health >/dev/null 2>&1 || break; sleep 1; done
+fi
 if [ -f .failed ]; then rm -f .failed .pid; echo EMULY_FAILED; exit 1; fi
 if [ -f .pid ] && kill -0 "$(cat .pid)" 2>/dev/null; then echo EMULY_WORKING; exit 0; fi
 ${writes[0]}

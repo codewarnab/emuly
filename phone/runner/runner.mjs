@@ -62,7 +62,7 @@ async function readBody(req) {
 const apps = await createApps({ root: join(ROOT, "data", "app-installs"), sdk: SDK, run, adb, exclusive, booted });
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 5, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard"], avd: "t", api_level: 36, booted: await booted() }),
+  "GET /health": async () => ({ ok: true, version: 6, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard"], avd: "t", api_level: 36, booted: await booted() }),
 
   "POST /boot": ({ mode, diagnosticOperation }) => {
     return boot ??= exclusive(async () => {
