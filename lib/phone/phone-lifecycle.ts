@@ -67,6 +67,9 @@ export function decideRunChanges({ previous, codespace, state, source, open, now
 function phoneState(state: string) {
   if (state === "Shutdown") return "stopped";
   if (state === "Deleted") return "deleted";
+  // GitHub's API can report ShuttingDown for many minutes after its web page already shows
+  // the codespace as stopped, while it saves the disk. Trust the API: stay "stopping" until
+  // it reports Shutdown. A long "stopping" is not a poller fault.
   if (state === "ShuttingDown") return "stopping";
   if (["Available", "Starting", "Creating", "Provisioning", "Rebuilding", "Queued", "Awaiting"].includes(state)) return "booting";
   return "error";
