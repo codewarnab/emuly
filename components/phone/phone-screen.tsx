@@ -303,6 +303,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
 
 }
 
+/** Live count-up for the stage in progress, so a watcher can see the phone is still working. */
 export function AndroidElapsed({ started }: { started: string | null }) {
   const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
@@ -313,5 +314,5 @@ export function AndroidElapsed({ started }: { started: string | null }) {
   const startedAt = Date.parse(started ?? "");
   if (now === null || !Number.isFinite(startedAt)) return <p>Waiting for the screen to become ready.</p>;
   const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
-  return <p>Elapsed time: {Math.floor(seconds / 60)} min {seconds % 60} sec</p>;
+  return <p role="timer" aria-live="off">This step has run for {Math.floor(seconds / 60)} min {String(seconds % 60).padStart(2, "0")} sec</p>;
 }
