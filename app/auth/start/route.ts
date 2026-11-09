@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { randomId } from "../../../lib/auth/crypto";
 import { env } from "../../../lib/env";
 import { cookieName, cookieOptions } from "../../../lib/auth/auth-cookies";
+import { safeNext } from "../../../lib/auth/next-path";
 
 export async function GET(request: NextRequest) {
   const store = await cookies();
@@ -10,6 +11,8 @@ export async function GET(request: NextRequest) {
   store.set(cookieName("state"), state, cookieOptions(10 * 60));
   const billing = request.nextUrl.searchParams.get("billing") === "1";
   store.set(cookieName("billing"), billing ? "1" : "", cookieOptions(billing ? 10 * 60 : 0));
+  const next = safeNext(request.nextUrl.searchParams.get("next"));
+  store.set(cookieName("next"), next ?? "", cookieOptions(next ? 10 * 60 : 0));
   // Login asks for `codespace` only. That scope cannot read GitHub's billing usage, so the
   // quota strip counts only Emuly phone runs (see docs/BILLING-USAGE.md). `?billing=1` adds `user`,
   // but no UI links to it (decided 2026-11-09: `user` is too broad and is not confirmed to work).

@@ -53,6 +53,10 @@ export function createWebhookService({ database, encrypt, baseUrl, resolve, deli
     async list(userId: number) {
       return ((await database.execute({ sql: `SELECT ${columns} FROM webhooks WHERE user_id = ? ORDER BY created_at, id`, args: [userId] })).rows as unknown as StoredWebhook[]).map(publicHook);
     },
+    /** One endpoint's read-only details. The signing secret is never part of this shape. */
+    async get(userId: number, id: string) {
+      return publicHook(await owned(userId, id));
+    },
     async create(userId: number, value: unknown) {
       const body = input(value);
       const target = await webhookTarget(body.url, baseUrl, resolve);

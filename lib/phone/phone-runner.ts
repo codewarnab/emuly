@@ -2,12 +2,12 @@ import "server-only";
 import { asyncDb } from "../data/async-db.ts";
 import { getAccessToken } from "../github/github-token.ts";
 import { codespaceExec, openCodespacePort } from "../github/codespace-tunnel.ts";
-import { createEmulyLinks, type RunnerPath, type AppsPath, type AppsRequest } from "./phone-link.ts";
+import { createEmulyLinks, type RunnerPath, type AppsPath, type AppsRequest, type AdbRequest } from "./phone-link.ts";
 import { phoneObservations } from "./phone-observation.ts";
 
 const global = globalThis as unknown as { __emulyLinks?: ReturnType<typeof createEmulyLinks>; __emulyLinksVersion?: number };
 const links = () => {
-  if (global.__emulyLinksVersion !== 5) { global.__emulyLinks = undefined; global.__emulyLinksVersion = 5; }
+  if (global.__emulyLinksVersion !== 6) { global.__emulyLinks = undefined; global.__emulyLinksVersion = 6; }
   return global.__emulyLinks ??= createEmulyLinks({ token: getAccessToken, tunnel: openCodespacePort,
   observations: phoneObservations(asyncDb()),
   // Command completion is measured; provider idle-timer reset remains unverified.
@@ -28,6 +28,14 @@ export async function runnerApps(userId: number, id: string, path: AppsPath, opt
     AND EXISTS(SELECT 1 FROM users WHERE id = ? AND blocked = 0)`, args: [userId, id, userId] })).rows[0] as unknown as { codespace_name: string } | undefined;
   if (!row) throw new Error("Phone is not available");
   return links().apps({ userId, id, codespaceName: row.codespace_name }, path, options);
+}
+
+/** adb runs only on a phone that the runner already reports as running and ready. */
+export async function runnerAdb(userId: number, id: string, input: AdbRequest) {
+  const row = (await asyncDb().execute({ sql: `SELECT codespace_name FROM phones WHERE user_id = ? AND id = ? AND state = 'running' AND android_state = 'ready'
+    AND EXISTS(SELECT 1 FROM users WHERE id = ? AND blocked = 0)`, args: [userId, id, userId] })).rows[0] as unknown as { codespace_name: string } | undefined;
+  if (!row) throw new Error("Phone is not available");
+  return links().adb({ userId, id, codespaceName: row.codespace_name }, input);
 }
 
 export async function runnerStream(userId: number, id: string, sessionId: string) {

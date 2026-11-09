@@ -227,4 +227,64 @@ export const MIGRATIONS = [
   );`,
   // The backups feature was never built (no keep.sh, no writer). Drop its empty table.
   `DROP TABLE IF EXISTS backups;`,
+  `
+  CREATE TABLE IF NOT EXISTS agent_setup_codes (
+    code_hash  TEXT PRIMARY KEY,   -- sha256 of the one-time code, never the code itself
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at    TEXT
+  );
+  CREATE INDEX IF NOT EXISTS agent_setup_codes_user ON agent_setup_codes(user_id);
+
+  CREATE TABLE IF NOT EXISTS agent_keys (
+    id           INTEGER PRIMARY KEY,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL,
+    key_hash     TEXT NOT NULL UNIQUE, -- sha256 of the bearer key, never the key itself
+    created_at   TEXT NOT NULL,
+    last_used_at TEXT,
+    expires_at   TEXT NOT NULL,
+    revoked_at   TEXT
+  );
+  CREATE INDEX IF NOT EXISTS agent_keys_user ON agent_keys(user_id);
+  `,
+  `
+  CREATE TABLE IF NOT EXISTS agent_device_codes (
+    device_code_hash TEXT PRIMARY KEY,       -- sha256 of the long device code, never the code itself
+    user_code        TEXT NOT NULL,          -- short code the user types or approves
+    status           TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'denied', 'used')),
+    user_id          INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    created_at       TEXT NOT NULL,
+    expires_at       TEXT NOT NULL,
+    last_polled_at   TEXT
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS agent_device_codes_pending_code
+    ON agent_device_codes(user_code) WHERE status = 'pending';
+  `,
+  `
+  ALTER TABLE user_settings ADD COLUMN agent_delete_phones INTEGER NOT NULL DEFAULT 0;
+
+  CREATE TABLE IF NOT EXISTS phone_delete_requests (
+    id           TEXT PRIMARY KEY,
+    token_hash   TEXT NOT NULL UNIQUE,  -- sha256 of the approval token, never the token itself
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    phone_id     TEXT NOT NULL,  -- kept after the phone is deleted so polling can report done
+    agent_key_id INTEGER REFERENCES agent_keys(id) ON DELETE SET NULL,
+    status       TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'denied', 'expired', 'done')),
+    created_at   TEXT NOT NULL,
+    expires_at   TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS phone_delete_requests_user ON phone_delete_requests(user_id, phone_id);
+  CREATE INDEX IF NOT EXISTS phone_delete_requests_pending ON phone_delete_requests(status, expires_at);
+
+  CREATE TABLE IF NOT EXISTS agent_phone_deletions (
+    id             INTEGER PRIMARY KEY,
+    user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    phone_name     TEXT NOT NULL,
+    agent_key_name TEXT NOT NULL,
+    deleted_at     TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS agent_phone_deletions_user ON agent_phone_deletions(user_id, deleted_at DESC);
+  `,
 ];

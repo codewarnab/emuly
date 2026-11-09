@@ -278,7 +278,7 @@ for (const hosted of [false, true]) {
     } finally {
       try {
         if (ownsSchema) {
-          const names = MIGRATIONS.flatMap(sql => [...sql.matchAll(/CREATE TABLE (\w+)/g)].map(match => match[1]));
+          const names = MIGRATIONS.flatMap(sql => [...sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?(\w+)/g)].map(match => match[1]));
           await client.batch([...names.reverse().map(name => `DROP TABLE IF EXISTS "${name}"`), "DROP TABLE IF EXISTS schema_migrations"], "write");
         }
       } finally { client.close(); }

@@ -95,6 +95,10 @@ test("fan-out honors ownership and subscriptions, stores encrypted secrets, and 
     const disabled = await service.create(1, { url: "https://disabled.example", enabled: false });
     assert.notEqual(Buffer.from(f.database.prepare("SELECT secret_cipher FROM webhooks WHERE id = ?").get(all.id)!.secret_cipher as Uint8Array).toString(), all.secret);
     assert.equal("secret" in (await service.list(1))[0]!, false);
+    const detail = await service.get(1, all.id);
+    assert.equal("secret" in detail, false);
+    assert.equal(detail.id, all.id);
+    await assert.rejects(service.get(2, all.id));
     await service.emit({ userId: 1, type: "phone.stopped", createdAt: new Date(f.clock()).toISOString(), data: {
       phone: { id: "phone-aaaa", name: "owned-space", state: "stopped", machine: "4 vCPU", runner_secret: "private-runner" },
       reason: "idle_timeout", token: "private-token", secret: "private-secret", stream_url: "https://stream.invalid/?secret=private",

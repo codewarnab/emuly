@@ -4,7 +4,7 @@ import { transaction } from "./async-database.ts";
 
 /** Source must be an offline snapshot. Target must be migrated and empty. */
 export async function importDatabase(source: Client, target: Client) {
-  const tables = MIGRATIONS.flatMap(sql => [...sql.matchAll(/CREATE TABLE (\w+)/g)].map(match => match[1]!))
+  const tables = MIGRATIONS.flatMap(sql => [...sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?(\w+)/g)].map(match => match[1]!))
     .filter(name => !["coordination_leases", "stream_tickets", "app_admissions", "backups"].includes(name));
   const snapshot = new Map<string, Record<string, InValue>[]>();
   const read = await source.transaction("read");

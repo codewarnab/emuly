@@ -1,4 +1,5 @@
 import "server-only";
+import { crossOrigin } from "../auth/origin.ts";
 import { APK_CHUNK_BYTES, APK_MAX_BYTES, installFinished } from "./phone-apps-contract.ts";
 import type { AppsPath, AppsRequest } from "./phone-link.ts";
 import type { sharedAppAdmission } from "./app-admission.ts";
@@ -36,7 +37,7 @@ async function readBounded(request: Request, limit: number) {
 
 /** One authorization boundary for inventory, operations, binary upload and launch. */
 export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmission }: {
-  user: () => Promise<{ id: number } | null>;
+  user: () => Promise<{ id: number; authKind?: "session" | "agent" } | null>;
   phone: (userId: number, id: string) => Phone | undefined | Promise<Phone | undefined>;
   runner: (userId: number, id: string, path: AppsPath, options: AppsRequest) => Promise<Response>;
   upgrade?: (userId: number, id: string) => Promise<{ status: string }>;
@@ -53,8 +54,9 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmissi
       if (!stored) bad(404, "Phone not found.");
       if (stored.state !== "running" || stored.android_state !== "ready") bad(409, "Start the phone to use Apps.");
       if (request.method !== "GET") {
-        const origin = request.headers.get("origin");
-        if (origin !== new URL(request.url).origin || request.headers.get("sec-fetch-site") === "cross-site") bad(403, "Forbidden.");
+        // Non-browser clients such as an agent send no Origin. A cookie request without
+        // Origin, or any foreign Origin, is still rejected.
+        if (crossOrigin(request, identity.authKind)) bad(403, "Forbidden.");
       }
       const route = parts.join("/");
       if (route === "apps/update" && request.method === "POST" && upgrade) {
