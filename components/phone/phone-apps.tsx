@@ -285,6 +285,9 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
         <small>Apps you install above appear here.</small>
       </div>}
       {apps && apps.length > 0 && <ul className={s.list}>{apps.map(app => <li key={app.packageId}>
+        {/* A monogram, not the real icon: the runner does not send icons. Many apps use adaptive
+            icons (XML layers, not one image), so showing them needs an on-device renderer.
+            We can consider this in the future. */}
         <span className={s.appIcon} aria-hidden="true">{monogram(app.packageId)}</span>
         <div className={s.appMeta}>
           <strong>{app.packageId}</strong>
