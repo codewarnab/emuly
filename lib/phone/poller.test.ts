@@ -41,7 +41,9 @@ function fixture() {
       if (status) return Response.json({ message: "Synthetic refusal" }, { status });
       if (path.endsWith("/start")) { space.state = "Starting"; return Response.json(space); }
       assert.ok(path.endsWith("/stop"));
-      // Deliberately keep reporting Available until the test confirms shutdown.
+      // GitHub reports ShuttingDown until the test confirms shutdown. An Available reply after
+      // the stop grace now means an external restart (issue #15), so it must not stand in here.
+      space.state = "ShuttingDown";
       return new Response(null, { status: 202 });
     }
     return Response.json(space);

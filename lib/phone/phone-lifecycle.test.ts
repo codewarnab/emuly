@@ -1,6 +1,6 @@
 ﻿import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decideRunChanges } from "./phone-lifecycle.ts";
+import { decidePhoneTransition, decideRunChanges, STOP_GRACE_MS } from "./phone-lifecycle.ts";
 
 test("reconciled idle stops cannot close usage before its start or after the observation", () => {
   const started = "2026-11-07T01:00:00.000Z";
@@ -19,4 +19,17 @@ test("reconciled idle stops cannot close usage before its start or after the obs
     });
     assert.deepEqual(changes, { close: { id: 7, stoppedAt: expected }, create: undefined }, lastUsed);
   }
+});
+
+test("a phone leaves stopping after the stop grace when an external restart reports Available", () => {
+  const now = Date.parse("2026-11-07T12:00:00.000Z");
+  const previous = { state: "stopping", last_started_at: null, last_stopped_at: null, retention_at: null, retention_min: 43200 };
+  const stateFor = (codespace: string, stopRequestedAt: number | null) => decidePhoneTransition({
+    previous, codespace: { state: codespace }, androidState: "idle", setupAvailable: false, stopRequestedAt, now,
+  }).state;
+  assert.equal(STOP_GRACE_MS, 180_000);
+  assert.equal(stateFor("Available", now - 30_000), "stopping");
+  assert.equal(stateFor("Available", now - 10 * 60_000), "booting");
+  assert.equal(stateFor("Available", null), "booting");
+  assert.equal(stateFor("ShuttingDown", now - 60 * 60_000), "stopping");
 });

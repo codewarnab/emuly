@@ -20,14 +20,37 @@ export PATH="$HOME/.local/bin:$SDK_DIR/platform-tools:$SDK_DIR/emulator:$SDK_DIR
 LOG=/tmp/emulator.log
 PORT=5554
 
+# A cold boot starts every Google app at once on a cold disk, so some miss their
+# startup limits and Android shows "isn't responding" dialogs. They recover by
+# themselves; hide the dialogs so the first screen is usable (issue #15).
+hide_anr_dialogs() {
+  adb -s "emulator-$PORT" shell settings put global hide_error_dialogs 1 >/dev/null 2>&1 || true
+}
+
 # KVM access re-fix (resets on every codespace stop/start)
 [ -e /dev/kvm ] || { echo "FATAL: /dev/kvm missing"; exit 1; }
 sudo chgrp "$(id -gn)" /dev/kvm 2>/dev/null || true
 sudo chmod 660 /dev/kvm
 
-# Refuse to double-start (bracket trick so pkill via ssh can't kill itself)
+# Refuse to double-start (bracket trick so pkill via ssh can't kill itself).
+# issue #15 P3: a wake can reach here while setup's early boot still runs, so join
+# that boot instead of returning before Android is ready for POST /boot.
 if pgrep -f "qemu-system-x86_6[4]" >/dev/null 2>&1; then
   echo "ALREADY RUNNING. Attach with: adb connect localhost:$PORT"
+  adb start-server >/dev/null 2>&1 || true
+  joined=0
+  # Check first, so an already booted phone returns at once. No ph_begin here: the
+  # boot that owns qemu writes the boot progress records.
+  for i in $(seq 1 120); do
+    if [ "$(adb -s "emulator-$PORT" shell getprop sys.boot_completed 2>/dev/null | tr -d '[:space:]')" = "1" ]; then
+      joined=1; break
+    fi
+    pgrep -f "qemu-system-x86_6[4]" >/dev/null 2>&1 || { echo "EMULATOR DIED while joining. Last log:"; tail -20 "$LOG" 2>/dev/null || true; exit 1; }
+    sleep 5
+  done
+  [ "$joined" = 1 ] || { echo "TIMEOUT: emulator did not finish booting."; exit 1; }
+  hide_anr_dialogs
+  echo "BOOTED (joined): adb -s emulator-$PORT"
   exit 0
 fi
 
@@ -82,5 +105,6 @@ done
 [ "$booted" = 1 ] || { echo "TIMEOUT: no boot in 10 min. Last log:"; tail -20 "$LOG"; exit 1; }
 ph_end
 
+hide_anr_dialogs
 echo "BOOTED (cold): adb -s emulator-$PORT"
 adb -s "emulator-$PORT" shell getprop ro.build.version.release | sed 's/^/android=/'

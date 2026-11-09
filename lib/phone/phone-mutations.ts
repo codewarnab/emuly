@@ -25,8 +25,12 @@ export class PhoneInputError extends Error {}
 
 /** After this time with no matching Codespace on GitHub, an unconfirmed creation is treated as failed. */
 export const UNCONFIRMED_CREATION_EXPIRY_MS = 30 * 60_000;
+/** How often a pending start asks GitHub for the codespace state. */
+export const START_WATCH_MS = 5_000;
+/** A pending start stops watching after this long; the poller continues as before. */
+export const START_WATCH_DEADLINE_MS = 15 * 60_000;
 
-export function createPhoneService({ database, github, encrypt, clock = Date.now, maxPhones, setup, collectProgress, runner, disconnect, emit = (event, queries = database) => emitEvent(event, queries) }: {
+export function createPhoneService({ database, github, encrypt, clock = Date.now, maxPhones, setup, collectProgress, runner, disconnect, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), emit = (event, queries = database) => emitEvent(event, queries) }: {
   database: Client;
   /** Installs the emulator and runner in an Available codespace. Without it, phones stay booting. */
   /** Starts or checks phone setup. "working" means: ask again later. */
@@ -38,6 +42,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
   encrypt: (value: string) => Uint8Array;
   clock?: () => number;
   maxPhones?: number;
+  sleep?: (ms: number) => Promise<void>;
   emit?: EventEmitter;
 }) {
   if (maxPhones !== undefined && (!Number.isSafeInteger(maxPhones) || maxPhones < 1)) {
@@ -54,6 +59,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
   const iso = () => new Date(clock()).toISOString();
   const settingUp = new Set<string>();
   const setupRetryAt = new Map<string, number>();
+  const setupWorking = new Map<string, number>();
   const setupStarted = new Set<string>();
   const SETUP_RETRY_MS = 10 * 60_000;
   const SETUP_CHECK_MS = 20_000;
@@ -105,9 +111,15 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
     }
   }
 
-  const startSetup = (userId: number, id: string, codespaceName: string) => independentWork(() => withLease(database, `setup:${id}`, () => performSetup(userId, id, codespaceName)));
-  async function performSetup(userId: number, id: string, codespaceName: string) {
-    if (!setup || settingUp.has(id)) return;
+  const startSetup = (userId: number, id: string, codespaceName: string, chained = false) => independentWork(async () => {
+    const again = await withLease(database, `setup:${id}`, () => performSetup(userId, id, codespaceName, chained));
+    // The lease is released here, so the next check cannot overlap the previous one.
+    if (!again || busy.has(id)) return;
+    const stored = await phone(userId, id).catch(() => undefined);
+    if (stored?.state === "booting") background(startSetup(userId, id, codespaceName, true));
+  });
+  async function performSetup(userId: number, id: string, codespaceName: string, chained = false) {
+    if (!setup || settingUp.has(id)) return false;
     settingUp.add(id);
     try {
       const operationId = await diagnostics.current(userId, id);
@@ -116,7 +128,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
         const current = await phone(userId, id, queries);
         if (current.state !== "booting" || current.codespace_name !== codespaceName) return;
         const saved = (await queries.execute({ sql: "SELECT attempt, retry_at, failed FROM phone_setup_attempts WHERE phone_id = ?", args: [id] })).rows[0];
-        if (Math.max(Number(saved?.retry_at ?? 0), setupRetryAt.get(id) ?? 0) > clock()) return;
+        if (!chained && Math.max(Number(saved?.retry_at ?? 0), setupRetryAt.get(id) ?? 0) > clock()) return;
         const next = Number(saved?.attempt ?? 0) + 1;
         await queries.execute({ sql: `INSERT INTO phone_setup_attempts (phone_id, attempt, retry_at, operation_id, attempt_id) VALUES (?, ?, ?, ?, ?)
           ON CONFLICT(phone_id) DO UPDATE SET attempt = excluded.attempt, retry_at = excluded.retry_at,
@@ -127,7 +139,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
         }
         return next;
       });
-      if (attempt === undefined) return;
+      if (attempt === undefined) return false;
       setupStarted.add(id);
       let status: "ready" | "working" | "failed";
       try {
@@ -158,16 +170,56 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
         }
         return true;
       });
-      if (!committed) return;
+      if (!committed) return false;
       if (status === "ready") {
         setupStarted.delete(id);
         setupRetryAt.delete(id);
+        setupWorking.delete(id);
         background(startBoot(userId, id));
-      } else {
-        setupRetryAt.set(id, clock() + (status === "failed" ? SETUP_RETRY_MS : SETUP_CHECK_MS));
-        if (status === "failed") void diagnostics.mark(operationId, "retry_wait", { retryDelayMs: SETUP_RETRY_MS, errorCode: "unknown_failure", outcome: "failed" });
+        return false;
       }
+      setupRetryAt.set(id, clock() + (status === "failed" ? SETUP_RETRY_MS : SETUP_CHECK_MS));
+      if (status === "failed") {
+        setupWorking.delete(id);
+        void diagnostics.mark(operationId, "retry_wait", { retryDelayMs: SETUP_RETRY_MS, errorCode: "unknown_failure", outcome: "failed" });
+        return false;
+      }
+      const working = (setupWorking.get(id) ?? 0) + 1;
+      setupWorking.set(id, working);
+      return working < 12;
     } finally { settingUp.delete(id); }
+  }
+
+  const watchStart = (userId: number, id: string) => independentWork(async () => {
+    try {
+      await withLease(database, `watch:${id}`, () => pollStart(userId, id));
+    } catch { /* A busy lease or database failure is not fatal; the poller still reconciles. */ }
+  });
+  async function pollStart(userId: number, id: string) {
+    const deadline = clock() + START_WATCH_DEADLINE_MS;
+    let errors = 0;
+    while (clock() < deadline) {
+      await sleep(START_WATCH_MS);
+      if (clock() >= deadline) return;
+      if (busy.has(id)) continue;
+      let stored: StoredPhone;
+      try { stored = await phone(userId, id); } catch { return; }
+      if (stored.state !== "booting") return;
+      let reply: Codespace;
+      try {
+        reply = await github.getCodespace(userId, id);
+      } catch (error) {
+        // 403 and 429 mean GitHub refuses this watch; retrying cannot succeed soon.
+        if (error instanceof GitHubError && (error.status === 403 || error.status === 429)) return;
+        if (++errors >= 3) return;
+        continue;
+      }
+      errors = 0;
+      if (reply.state === "Available") {
+        await apply(userId, id, reply, "reconciled");
+        return;
+      }
+    }
   }
 
   async function event(userId: number, phoneId: string | null, kind: string, message: string, queries: DatabaseQueries = database) {
@@ -220,9 +272,13 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
     const isKeeping = await keeping(id, queries);
     const android = (await queries.execute({ sql: "SELECT android_state FROM phones WHERE id = ?", args: [id] })).rows[0];
     const failedSetup = (await queries.execute({ sql: "SELECT failed FROM phone_setup_attempts WHERE phone_id = ?", args: [id] })).rows[0]?.failed === 1;
+    const stopRow = (await queries.execute({ sql: `SELECT ts FROM events WHERE phone_id = ? AND kind = 'step'
+      AND message = 'stop accepted' ORDER BY ts DESC, id DESC LIMIT 1`, args: [id] })).rows[0];
+    const stopTs = stopRow ? Date.parse(String(stopRow.ts)) : NaN;
     const { state, detail, lastStarted, lastStopped, retention } = decidePhoneTransition({
       previous, codespace, androidState: String(android?.android_state ?? ""),
-      setupAvailable: Boolean(setup), setupFailure: failedSetup ? previous.state_detail ?? SETUP_FAILURE_DETAIL : undefined, now: clock(),
+      setupAvailable: Boolean(setup), setupFailure: failedSetup ? previous.state_detail ?? SETUP_FAILURE_DETAIL : undefined,
+      stopRequestedAt: Number.isFinite(stopTs) ? stopTs : null, now: clock(),
     });
     if (["stopped", "error"].includes(previous.state) && state === "booting") {
       await queries.execute({ sql: "UPDATE phones SET stop_reason = NULL WHERE id = ?", args: [id] });
@@ -258,7 +314,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
       }
       // Start setup only after the state and fan-out have committed.
       if (codespace.state === "Available" && state === "booting" && !isKeeping) background(startSetup(userId, id, codespace.name));
-      else if (state !== "booting") setupRetryAt.delete(id);
+      else if (state !== "booting") { setupRetryAt.delete(id); setupWorking.delete(id); }
     };
   }
 
@@ -282,6 +338,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
       if (operation === "stop") diagnosticOperation = await diagnostics.operation(userId, id, "stop");
       if (operation === "stop") diagnostics.mark(diagnosticOperation, "stop_intent", { initiator: automatic ? "hours_budget" : bulk ? "stop_all" : "owner" });
       const current = await github.getCodespace(userId, id);
+      let observed = current.state;
       if (operation === "start") {
         if (["Available", "Starting", "Creating", "Provisioning", "Rebuilding"].includes(current.state)) {
           await apply(userId, id, current);
@@ -290,7 +347,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
           await outgoing(userId, id, "phone.starting", { reason: "user" });
           diagnosticOperation = await diagnostics.operation(userId, id, "resume");
           const result = await diagnostics.scope(diagnosticOperation, () => measure("github_start", () => github.startCodespace(userId, id)));
-          if (result) await apply(userId, id, result);
+          if (result) { observed = result.state; await apply(userId, id, result); }
           await database.execute({ sql: "UPDATE phones SET last_started_at = ? WHERE user_id = ? AND id = ?", args: [iso(), userId, id] });
         }
       } else if (["Shutdown", "ShuttingDown"].includes(current.state)) {
@@ -322,6 +379,10 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
         disconnect?.(userId, id, stored.codespace_name);
       }
       await event(userId, id, "step", `${operation} accepted`);
+      if (operation === "start" && observed !== "Available") {
+        // GitHub has no webhook for codespace state; watch until setup can start.
+        if ((await phone(userId, id)).state === "booting") background(watchStart(userId, id));
+      }
       return id;
     } catch (error) {
       void diagnostics.finish(diagnosticOperation, "unknown");
