@@ -115,8 +115,12 @@ export async function createApps({ root, sdk, run, adb, exclusive, booted }) {
       "JAVA_TOOL_OPTIONS=-Xmx256m -XX:CompressedClassSpaceSize=64m -XX:ReservedCodeCacheSize=64m -Xss512k"];
     // Ubuntu x86_64 has a separate loader path; arm64 generally does not.
     try { await lstat("/lib64"); common.push("--ro-bind", "/lib64", "/lib64"); } catch {}
-    // JVM config binds are optional. A host without /etc/java-* still runs the parser.
-    try { for (const name of await readdir("/etc")) if (/^java-\d+-openjdk$/.test(name)) common.push("--ro-bind", `/etc/${name}`, `/etc/${name}`); } catch {}
+    // Java reads $JAVA_HOME/conf/security/java.security, which Debian links into /etc.
+    // Bind the real directory so the link resolves; a missing bind otherwise fails the parser.
+    try {
+      const security = (await run("readlink", ["-f", `${javaHome}/conf/security/java.security`])).trim().split("/").filter(Boolean);
+      if (security[0] === "etc") { const owner = `/${security.slice(0, 2).join("/")}`; common.push("--ro-bind", owner, owner); }
+    } catch {}
     // RLIMIT_NPROC counts every process for the host UID, including unrelated Codespace services.
     // Keep parser CPU/address-space limits without preventing namespace creation on a busy UID.
     const sandbox = (tool, args) => run("prlimit", ["--as=2147483648", "--cpu=60", "--", "bwrap", ...common, ...environment, tool, ...args], { timeout: 60_000 });
@@ -136,6 +140,9 @@ export async function createApps({ root, sdk, run, adb, exclusive, booted }) {
       await sandbox(`/sdk/build-tools/${tools.at(-1)}/apksigner`, ["verify", "/input.apk"]);
     } catch (error) {
       if (error instanceof AppError) throw error;
+      // Keep the user message stable; the runner log carries the parser's own reason.
+      const detail = String(error?.stderr || error?.stdout || error?.message || "").split("\n").map(line => line.trim()).find(Boolean);
+      console.error(`apk-inspect-failed: ${(detail ?? "no detail").slice(0, 300)}`);
       fail(400, "invalid_apk", "Choose a valid, signed standalone APK. The file could not be verified.");
     }
     if (!validPackage(summary[0]) || !/^\d+$/.test(summary[1] ?? "")) fail(400, "invalid_apk", "The APK has invalid package metadata.");
