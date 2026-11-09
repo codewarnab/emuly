@@ -51,17 +51,12 @@ async function TabPanel({ phoneId, search }: { phoneId: string; search: Promise<
           <UrlRow url={mockDetail.streamUrl} />
           <div className={s.subgrid}>
             <Mini title="This phone" rows={mockDetail.thisPhone} />
-            <Mini title="Last backup" rows={mockDetail.lastBackup} />
           </div>
         </>
       )}
 
       {tab === "apps" && (
         <LogFeed title={`Installed apps for ${phone.name}`} rows={[]} live={false} emptyMessage="No apps yet." />
-      )}
-
-      {tab === "backups" && (
-        <LogFeed title={`Backups for ${phone.name}`} rows={[]} live={false} emptyMessage="No backups yet." />
       )}
 
       {tab === "danger" && <DangerPanel phoneName={phone.name} />}
@@ -175,7 +170,7 @@ async function StoredPhone({ phone, user, search, syncError }: {
         <section role="tabpanel" className={s.tabPanel} id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} tabIndex={0}>
         {tab === "danger" ? <DangerPanel phoneName={phone.id} /> : tab === "apps" ? <PhoneApps key={phone.id} id={phone.id} ready={screenReady} /> :
           <LogFeed rows={tab === "log" ? events : []} live={false}
-            running={tab === "log" ? `Current status: ${status.title}` : undefined} emptyMessage={tab === "backups" ? "No backups yet." : "No activity yet."} />}
+            running={tab === "log" ? `Current status: ${status.title}` : undefined} emptyMessage="No activity yet." />}
         </section>
         <div className={s.subgrid}>
           <Mini title="Host codespace" rows={[...machineRows(phone.machine, phone.cores), ["Idle stop", idleLabel(phone.idle_timeout_min)]]} />

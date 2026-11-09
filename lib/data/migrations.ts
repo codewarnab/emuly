@@ -225,4 +225,6 @@ export const MIGRATIONS = [
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     operation_key TEXT NOT NULL, expires_at INTEGER NOT NULL
   );`,
+  // The backups feature was never built (no keep.sh, no writer). Drop its empty table.
+  `DROP TABLE IF EXISTS backups;`,
 ];

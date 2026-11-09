@@ -144,7 +144,6 @@ docs/
 - Capacity: 1 phone per codespace by default; more phones means more codespaces sharing
   the same monthly hours.
 - Stopping is safe: the codespace keeps the phone. Only deleting the codespace erases it.
-- Named backups (`keep.sh`) are opt-in; two generations kept by default.
 
 ## Keyboard
 

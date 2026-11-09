@@ -60,7 +60,7 @@ export function phoneCard(phone: Phone): PhoneRow {
       ["Status", status.title],
       ["Machine", "4-core · 16 GB"],
     ],
-    foot: { ghost: "Backups", primary: "Open phone" },
+    foot: { ghost: "Stop", primary: "Open phone" },
   };
 }
 

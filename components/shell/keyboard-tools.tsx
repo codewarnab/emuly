@@ -72,7 +72,7 @@ export function KeyboardTools({ phones }: { phones?: PhoneChoice[] }) {
       if (phone) router.push(`/app/phones/${encodeURIComponent(phone.id)}`);
       else notify("There is no phone in that slot yet. Copy the setup prompt to get one.");
     } else if (current) {
-      if (/^[1-4]$/.test(key)) tab(Number(key) - 1);
+      if (/^[1-3]$/.test(key)) tab(Number(key) - 1);
       if (key === "w" || key === "s") unavailable();
       if (key === "c") copyStream();
     }
@@ -85,7 +85,7 @@ export function KeyboardTools({ phones }: { phones?: PhoneChoice[] }) {
     ...(current ? [
       { id: "wake", label: "Wake current phone", hint: "w", run: unavailable, reason: CONTROL_REASON },
       { id: "stop", label: "Stop current phone", hint: "s", run: unavailable, reason: CONTROL_REASON },
-      ...PHONE_TABS.map((value, index) => ({ id: value, label: `Go to ${["Activity log", "Apps", "Backups", "Danger"][index]} tab`, hint: `${index + 1}`, run: () => tab(index) })),
+      ...PHONE_TABS.map((value, index) => ({ id: value, label: `Go to ${["Activity log", "Apps", "Danger"][index]} tab`, hint: `${index + 1}`, run: () => tab(index) })),
       { id: "stream", label: "Copy stream URL", hint: "c", run: copyStream, reason: current.stream ? undefined : "Available when the phone connects." },
       { id: "adb", label: "Copy adb address", hint: "", run: () => { if (current.adb) void copyText(current.adb, notify, "adb address copied"); }, reason: current.adb ? undefined : "Available when the phone connects." },
     ] : []),
@@ -126,7 +126,7 @@ export function KeyboardTools({ phones }: { phones?: PhoneChoice[] }) {
       {SETTINGS_TABS.map(item => <p key={item.key}><span>Go to Settings: {item.label}</span><kbd>{item.shortcut}</kbd></p>)}
       <h3>In Settings</h3><p><span>Settings tabs</span><kbd>{SETTINGS_TABS.map(item => item.key).join(" / ")}</kbd></p>
       <p><span>Focus Endpoint URL on Webhooks</span><kbd>{SETTINGS_KEYS.endpoint}</kbd></p>
-      <h3>On a phone</h3><p><span>Activity log / Apps / Backups / Danger tab</span><kbd>1 / 2 / 3 / 4</kbd></p><p><span>Wake / Stop (unavailable)</span><kbd>w / s</kbd></p><p><span>Copy stream URL</span><kbd>c</kbd></p></>}
+      <h3>On a phone</h3><p><span>Activity log / Apps / Danger tab</span><kbd>1 / 2 / 3</kbd></p><p><span>Wake / Stop (unavailable)</span><kbd>w / s</kbd></p><p><span>Copy stream URL</span><kbd>c</kbd></p></>}
       <p className={s.help}>Shortcuts pause while you type. Deleting a phone has no shortcut.</p>
     </div></Dialog>}
   </>;

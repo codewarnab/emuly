@@ -30,7 +30,6 @@ export function PhoneCardMenu({ id, codespace }: { id: string; codespace: string
     </button>
     {open && <div className={s.cardMenuList} role="menu">
       {!confirming ? <>
-        <Link role="menuitem" href={`/app/phones/${encodeURIComponent(id)}?tab=backups`}>Backups</Link>
         {codespace && <button role="menuitem" type="button" onClick={() => { void copyText(codespace, notify, "Codespace name copied"); setOpen(false); }}>Copy codespace name</button>}
         <button role="menuitem" type="button" className={s.cardMenuDanger} onClick={() => setConfirming(true)}>Delete…</button>
       </> : <form action={action} className={s.cardMenuConfirm}>

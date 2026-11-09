@@ -54,7 +54,7 @@ export const mockPhones: PhoneRow[] = [
       ["resume", "~15 s"],
       ["delete on", "Nov 12"],
     ],
-    foot: { ghost: "Backups", primary: "Wake →" },
+    foot: { ghost: "Wake", primary: "Wake →" },
   },
 ];
 
@@ -120,11 +120,5 @@ export const mockDetail = {
     ["Memory", "2.9 GB / 16 GB"],
     ["CPU", "180% / 400%"],
     ["adb", "localhost:15555"],
-  ] as Array<[string, string]>,
-  lastBackup: [
-    ["Generation", "gen-3"],
-    ["Size", "2.4 GB"],
-    ["Hash", "Verified"],
-    ["Kept", "2 generations"],
   ] as Array<[string, string]>,
 };
