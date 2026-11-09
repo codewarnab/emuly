@@ -12,7 +12,7 @@ GitHub plan. Never ask the user to pay Emuly, and never say that Emuly bills the
 
 1. Read the key from the `EMULY_KEY` user variable. If it is empty, stop and ask the user
    to click **Copy prompt** in the Emuly console. Key setup is not part of this skill.
-2. Use the Emuly base URL the user gave you. If you do not know it, ask.
+2. The Emuly base URL is `{{EMULY_BASE_URL}}`.
 3. Read the OS file and the agent file that match you (see References). Read the topic
    files only when the task needs them.
 

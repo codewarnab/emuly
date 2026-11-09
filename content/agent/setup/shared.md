@@ -18,7 +18,7 @@ Run `POST /v1/agent/device`. It returns `device_code`, `user_code`,
 `verification_uri_complete`, `expires_in` and `interval`. Show only the
 `verification_uri_complete` link, on one short line:
 
-> Approve this sign-in: https://your-emuly-host/link?code=WXYZ-2345
+> Approve this sign-in: {{EMULY_BASE_URL}}/link?code=WXYZ-2345
 
 Ask the user to open it and approve the code. Then poll
 `POST /v1/agent/device/token` with `{"device_code":"..."}` every `interval` seconds

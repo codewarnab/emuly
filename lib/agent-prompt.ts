@@ -42,7 +42,7 @@ Follow the skill to choose or start a phone, then give me its browser link.
 
 ---
 
-${setupShared()}`;
+${setupShared(base)}`;
 }
 
 /** A fresh setup code is filled in when the user clicks Copy prompt. */

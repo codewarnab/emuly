@@ -3,13 +3,13 @@
 Commands for each playbook topic. Each new shell must read the key first:
 
 ~~~powershell
-$base = "https://your-emuly-host"   # the Emuly base URL
+$base = "{{EMULY_BASE_URL}}"
 $key = [Environment]::GetEnvironmentVariable('EMULY_KEY','User')
 $headers = @{ Authorization = "Bearer $key" }
 ~~~
 
 ~~~bash
-base="https://your-emuly-host"
+base="{{EMULY_BASE_URL}}"
 key=$(powershell.exe -NoProfile -Command "[Environment]::GetEnvironmentVariable('EMULY_KEY','User')" | tr -d '')
 auth="Authorization: Bearer $key"
 ~~~

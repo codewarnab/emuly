@@ -12,15 +12,14 @@ The only optional install on Windows is from the signed `winget` source:
 The key lives in the Windows user environment variable `EMULY_KEY`. `setx` writes it, and
 the read below works at once, without a restart of your agent.
 
-Replace `<agent name>` with your agent name, for example `Claude Code`, and `your-emuly-host` with the
-base URL from the prompt.
+Replace `<agent name>` with your agent name, for example `Claude Code`.
 
 ## A1. Exchange a setup code
 
 PowerShell:
 
 ~~~powershell
-$base = "https://your-emuly-host"   # the base URL from the prompt
+$base = "{{EMULY_BASE_URL}}"
 $key = [Environment]::GetEnvironmentVariable('EMULY_KEY','User')
 if (-not $key) {
   $code = "emuly_sc_..."            # the setup code from the prompt
@@ -35,7 +34,7 @@ $headers = @{ Authorization = "Bearer $key" }
 Git Bash (also use `curl.exe`, not the `curl` alias):
 
 ~~~bash
-base="https://your-emuly-host"
+base="{{EMULY_BASE_URL}}"
 key=$(powershell.exe -NoProfile -Command "[Environment]::GetEnvironmentVariable('EMULY_KEY','User')" | tr -d '\r')
 if [ -z "$key" ]; then
   code="emuly_sc_..."
@@ -53,7 +52,7 @@ auth="Authorization: Bearer $key"
 PowerShell:
 
 ~~~powershell
-$base = "https://your-emuly-host"
+$base = "{{EMULY_BASE_URL}}"
 $key = [Environment]::GetEnvironmentVariable('EMULY_KEY','User')
 if (-not $key) {
   $start = Invoke-RestMethod -Method Post -Uri "$base/v1/agent/device"
@@ -83,7 +82,7 @@ $headers = @{ Authorization = "Bearer $key" }
 Git Bash (also use `curl.exe`, not the `curl` alias):
 
 ~~~bash
-base="https://your-emuly-host"
+base="{{EMULY_BASE_URL}}"
 key=$(powershell.exe -NoProfile -Command "[Environment]::GetEnvironmentVariable('EMULY_KEY','User')" | tr -d '\r')
 if [ -z "$key" ]; then
   start=$(curl.exe -sS -X POST "$base/v1/agent/device")
