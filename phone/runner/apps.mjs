@@ -107,17 +107,19 @@ export async function createApps({ root, sdk, run, adb, exclusive, booted }) {
     const javaHome = (await run("readlink", ["-f", "/usr/bin/java"])).trim().replace(/\/bin\/java$/, "");
     const common = ["--unshare-all", "--die-with-parent", "--new-session", "--cap-drop", "ALL",
       "--ro-bind", "/usr", "/usr", "--ro-bind", "/bin", "/bin", "--ro-bind", "/lib", "/lib", "--proc", "/proc", "--dev", "/dev",
-      "--tmpfs", "/tmp", "--clearenv", "--setenv", "PATH", `${javaHome}/bin:/usr/bin:/bin`, "--setenv", "HOME", "/tmp",
-      "--setenv", "JAVA_HOME", javaHome,
-      "--setenv", "JAVA_TOOL_OPTIONS", "-Xmx256m -XX:CompressedClassSpaceSize=64m -XX:ReservedCodeCacheSize=64m -Xss512k",
+      "--tmpfs", "/tmp",
       "--ro-bind", sdk, "/sdk", "--ro-bind", file(record.id), "/input.apk"];
+    // bwrap before 0.5 has no --clearenv, and some images still ship 0.4. Clearing the
+    // environment through env -i keeps the parser isolated on every bwrap version.
+    const environment = ["/usr/bin/env", "-i", `PATH=${javaHome}/bin:/usr/bin:/bin`, "HOME=/tmp", `JAVA_HOME=${javaHome}`,
+      "JAVA_TOOL_OPTIONS=-Xmx256m -XX:CompressedClassSpaceSize=64m -XX:ReservedCodeCacheSize=64m -Xss512k"];
     // Ubuntu x86_64 has a separate loader path; arm64 generally does not.
     try { await lstat("/lib64"); common.push("--ro-bind", "/lib64", "/lib64"); } catch {}
     // JVM config binds are optional. A host without /etc/java-* still runs the parser.
     try { for (const name of await readdir("/etc")) if (/^java-\d+-openjdk$/.test(name)) common.push("--ro-bind", `/etc/${name}`, `/etc/${name}`); } catch {}
     // RLIMIT_NPROC counts every process for the host UID, including unrelated Codespace services.
     // Keep parser CPU/address-space limits without preventing namespace creation on a busy UID.
-    const sandbox = (tool, args) => run("prlimit", ["--as=2147483648", "--cpu=60", "--", "bwrap", ...common, tool, ...args], { timeout: 60_000 });
+    const sandbox = (tool, args) => run("prlimit", ["--as=2147483648", "--cpu=60", "--", "bwrap", ...common, ...environment, tool, ...args], { timeout: 60_000 });
     const analyzer = "/sdk/cmdline-tools/latest/bin/apkanalyzer";
     let summary;
     try {
