@@ -50,7 +50,7 @@ async function Dashboard({ clock = Date.now }: { clock?: () => number }) {
       <main className={`${s.pagewrap} ${s.dashWrap}`} id="main-content" tabIndex={-1}>
       <div className={s.pagehead}>
         <h1>Your phones</h1>
-        {phones.length > 0 && <div className={s.acts}><StopAll count={usage.running.length} /><NewPhone usage={usage} /></div>}
+        {phones.length > 0 && <div className={s.acts}><StopAll count={usage.running.length} /><NewPhone usage={usage} stopped={phones.filter(phone => phone.state === "stopped").length} /></div>}
       </div>
       {syncError && <SyncNotice error={syncError} />}
       {warning && <p role="status" className={s.hoursBanner}>{warning}</p>}

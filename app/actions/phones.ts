@@ -13,7 +13,8 @@ import { asyncDb } from "../../lib/data/async-db";
 import { saveAllowance, userSettings } from "../../lib/data/usage";
 import { clearAllowanceOverride } from "../../lib/data/settings";
 
-type MutationResult = { message: string; phoneId?: string };
+// `refused`: GitHub rejected a new codespace, often because of its own codespace limit.
+type MutationResult = { message: string; phoneId?: string; refused?: boolean };
 
 export async function mutatePhone(_previous: MutationResult, form: FormData): Promise<MutationResult> {
   const user = await requireUser();
@@ -21,6 +22,7 @@ export async function mutatePhone(_previous: MutationResult, form: FormData): Pr
   let id: string | undefined;
   let message: string;
   let deleted = false;
+  let refused = false;
   try {
     if (operation === "stopAll") {
       const result = await phoneControl().stopAll(user.id);
@@ -52,13 +54,14 @@ export async function mutatePhone(_previous: MutationResult, form: FormData): Pr
     } else throw new PhoneInputError("Invalid phone action");
   } catch (error) {
     if (!(error instanceof GitHubError || error instanceof PhoneInputError || error instanceof RateLimitError)) console.error("phone action failed", operation, error);
+    refused = operation === "create" && error instanceof GitHubError;
     message = error instanceof GitHubError || error instanceof PhoneInputError || error instanceof RateLimitError
       ? redact(error.message) : "The request could not be confirmed. Refresh to check the phone before trying again.";
   }
   revalidatePath("/app");
   if (deleted) redirect("/app");
   if (id) revalidatePath(`/app/phones/${encodeURIComponent(id)}`);
-  return { message, phoneId: id };
+  return { message, phoneId: id, refused };
 }
 
 export async function phoneCreationOptions() {
