@@ -9,6 +9,7 @@ import { createSettingsApi } from "../data/settings-api.ts";
 import { createWebhookApi } from "../webhooks/webhook-api.ts";
 import type { createWebhookService } from "../webhooks/webhooks.ts";
 import { resolveUser } from "./identity.ts";
+import { agentKeyCommands } from "./agent.ts";
 
 const NOW = Date.parse("2026-11-09T12:00:00Z");
 
@@ -112,4 +113,14 @@ test("agent keys are blocked from settings and from changing or deleting webhook
   } finally {
     client.close();
   }
+});
+
+test("key commands store the key in the EMULY_KEY user variable and refuse unsafe keys", () => {
+  const key = `${AGENT_KEY_PREFIX}${"a".repeat(43)}`;
+  assert.deepEqual(agentKeyCommands(key), {
+    save: `setx EMULY_KEY "${key}"`,
+    read: "[Environment]::GetEnvironmentVariable('EMULY_KEY','User')",
+    clear: 'setx EMULY_KEY ""',
+  });
+  assert.throws(() => agentKeyCommands(`${AGENT_KEY_PREFIX}a" & calc`));
 });

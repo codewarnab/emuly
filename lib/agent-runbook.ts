@@ -1,5 +1,5 @@
 /** Static, versioned runbook served at /agent.md. It documents only routes that exist under app/v1. */
-export const AGENT_RUNBOOK_VERSION = "2026-11-09.3";
+export const AGENT_RUNBOOK_VERSION = "2026-11-09.4";
 
 export function agentRunbook(osId?: string | null, agentId?: string | null) {
   const supported = osId === "windows" && agentId === "claude-code";
@@ -48,53 +48,50 @@ Three ways to drive the phone exist. Use the first one by default.
 ## A. Get a key from the setup code
 
 The prompt contains a setup code such as \`emuly_sc_...\`. It works once and expires in
-one hour. Exchange it for a 90-day key. The response is the only time the raw key is shown.
+one hour. Exchange it for a 90-day key. Emuly saves nothing on the laptop for you: the
+response gives a \`save\` command that stores the key in the Windows user environment
+variable \`EMULY_KEY\`. Run it once. Never print the key in the chat.
+
+First check for a saved key. If one exists, skip the exchange.
 
 PowerShell:
 
 ~~~powershell
 $base = "https://your-emuly-host"   # the base URL from the prompt
-$code = "emuly_sc_..."              # the setup code from the prompt
-$body = @{ code = $code; name = "Claude Code on $env:COMPUTERNAME" } | ConvertTo-Json
-$result = Invoke-RestMethod -Method Post -Uri "$base/v1/agent/token" -ContentType "application/json" -Body $body
-$dir = Join-Path $env:USERPROFILE ".emuly"
-New-Item -ItemType Directory -Force -Path $dir | Out-Null
-Set-Content -NoNewline -Path (Join-Path $dir "key") -Value $result.key
+$key = [Environment]::GetEnvironmentVariable('EMULY_KEY','User')
+if (-not $key) {
+  $code = "emuly_sc_..."            # the setup code from the prompt
+  $body = @{ code = $code; name = "Claude Code on $env:COMPUTERNAME" } | ConvertTo-Json
+  $result = Invoke-RestMethod -Method Post -Uri "$base/v1/agent/token" -ContentType "application/json" -Body $body
+  cmd /c $result.save | Out-Null    # setx EMULY_KEY "..."
+  $key = $result.key
+}
+$headers = @{ Authorization = "Bearer $key" }
 ~~~
 
 Git Bash (also use \`curl.exe\`, not the \`curl\` alias):
 
 ~~~bash
 base="https://your-emuly-host"
-code="emuly_sc_..."
-body="{\\"code\\":\\"$code\\",\\"name\\":\\"Claude Code on $HOSTNAME\\"}"
-response=$(curl.exe -sS -X POST "$base/v1/agent/token" -H "content-type: application/json" --data "$body")
-key=$(printf '%s' "$response" | sed -n 's/.*"key":"\\([^"]*\\)".*/\\1/p')
-mkdir -p "$HOME/.emuly" && chmod 700 "$HOME/.emuly"
-printf '%s' "$key" > "$HOME/.emuly/key" && chmod 600 "$HOME/.emuly/key"
-unset key response body
-~~~
-
-On every later request, reuse the saved key first. Never exchange a second setup code
-unless the user clicks **Copy prompt** again in the console.
-
-~~~powershell
-$base = "https://your-emuly-host"
-$key = (Get-Content -Raw (Join-Path $env:USERPROFILE ".emuly\key")).Trim()
-$headers = @{ Authorization = "Bearer $key" }
-~~~
-
-~~~bash
-base="https://your-emuly-host"
-key=$(cat "$HOME/.emuly/key")
+key=$(powershell.exe -NoProfile -Command "[Environment]::GetEnvironmentVariable('EMULY_KEY','User')" | tr -d '\\r')
+if [ -z "$key" ]; then
+  code="emuly_sc_..."
+  response=$(curl.exe -sS -X POST "$base/v1/agent/token" -H "content-type: application/json" \\
+    --data "{\\"code\\":\\"$code\\",\\"name\\":\\"Claude Code on $HOSTNAME\\"}")
+  key=$(printf '%s' "$response" | sed -n 's/.*"key":"\\([^"]*\\)".*/\\1/p')
+  setx EMULY_KEY "$key" > /dev/null
+  unset response
+fi
 auth="Authorization: Bearer $key"
 ~~~
 
+The read works at once, without a restart of Claude Code. Each new shell repeats the read
+line; it is the only setup a later session needs. Never exchange a second setup code
+unless the user clicks **Copy prompt** again in the console.
+
 If a request that uses the saved key returns **401**, the key is expired or revoked:
 
-1. Delete the saved key.
-   PowerShell: \`Remove-Item (Join-Path $env:USERPROFILE ".emuly\key") -Force\`
-   Git Bash: \`rm -f "$HOME/.emuly/key"\`
+1. Clear the saved key: \`setx EMULY_KEY ""\` (the \`clear\` command from the exchange).
 2. Ask the user to click **Copy prompt** in the Emuly console and send you the new code.
 3. Exchange the new code once. Do not reuse the old code.
 
