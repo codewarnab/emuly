@@ -16,6 +16,10 @@ export type SetupResult = { state: SetupStatus | "failed"; cursor: number; progr
 const RUN = `#!/usr/bin/env bash
 builtin cd "$HOME/emuly"
 source scripts/progress.sh
+# issue #15 P3: warm the emulator while setup runs; POST /boot joins the boot.
+if [ -d "$HOME/.android/avd/t.avd" ] && [ -x /opt/android-sdk/emulator/emulator ]; then
+  nohup setsid bash scripts/boot.sh cold > early-boot.log 2>&1 < /dev/null &
+fi
 if bash scripts/setup.sh && bash scripts/start-runner.sh; then
   ph_begin runner_health
   for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8790/health >/dev/null 2>&1 && { ph_end; exit 0; }; sleep 1; done
@@ -50,7 +54,18 @@ if curl -fsS http://127.0.0.1:8790/health >/dev/null 2>&1; then
   for i in $(seq 1 10); do curl -fsS http://127.0.0.1:8790/health >/dev/null 2>&1 || break; sleep 1; done
 fi
 if [ -f .failed ]; then rm -f .failed .pid; echo EMULY_FAILED; exit 1; fi
-if [ -f .pid ] && kill -0 "$(cat .pid)" 2>/dev/null; then echo EMULY_WORKING; exit 0; fi
+# Wait up to 75 s, below the 90 s tunnel timeout, so this call can report readiness.
+emuly_wait() {
+  [ -f .pid ] && kill -0 "$(cat .pid)" 2>/dev/null || return 0
+  for i in $(seq 1 75); do
+    if [ -f .failed ]; then rm -f .failed .pid; echo EMULY_FAILED; exit 1; fi
+    if curl -fsS http://127.0.0.1:8790/health 2>/dev/null | grep -q '"version":8'; then echo EMULY_READY; exit 0; fi
+    kill -0 "$(cat .pid)" 2>/dev/null || return 0
+    sleep 1
+  done
+  echo EMULY_WORKING; exit 0
+}
+emuly_wait
 ${writes[0]}
 export EMULY_DIAGNOSTICS=${diagnosticOperation() ? "1" : "0"}
 export PH_OPERATION_ID=${diagnosticOperation() ?? "disabled"}
@@ -64,6 +79,7 @@ ph_begin setup_launch
 nohup setsid bash -c 'bash run.sh 2>&1 | python3 scripts/bounded-log.py "$HOME/emuly/setup.log"' >/dev/null 2>&1 < /dev/null &
 echo $! > .pid
 ph_end
+emuly_wait
 echo EMULY_WORKING
 `;
 }
