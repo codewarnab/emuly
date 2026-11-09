@@ -7,7 +7,7 @@ import { Brand } from "@/components/shell/topbar";
 import { CopyButton } from "@/components/ui/copy-button";
 import { KeyboardTools } from "@/components/shell/keyboard-tools";
 import { HeroPhone } from "@/components/marketing/hero-phone";
-import { AGENT_PROMPT } from "../../lib/agent-prompt";
+import { AGENT_PROMPT } from "../../lib/agent-prompt-text";
 import s from "./landing.module.css";
 
 export const metadata: Metadata = {
@@ -26,7 +26,7 @@ const AGENTS = [
 export default function LandingPage() {
   return <div className={s.root}>
     <KeyboardTools />
-    <nav className={s.nav} aria-label="Main"><Brand /><div><ThemeToggle /><Suspense fallback={<Link href="/login">Sign in</Link>}><NavAuth /></Suspense></div></nav>
+    <nav className={s.nav} aria-label="Main"><Brand /><div><Link href="/docs">Docs</Link><ThemeToggle /><Suspense fallback={<Link href="/login">Sign in</Link>}><NavAuth /></Suspense></div></nav>
     <main id="main-content" tabIndex={-1} className={s.wrap}>
       <section className={s.hero}>
         <div>

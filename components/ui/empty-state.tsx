@@ -1,5 +1,5 @@
 import { CopyButton } from "@/components/ui/copy-button";
-import { AGENT_PROMPT } from "@/lib/agent-prompt";
+import { AGENT_PROMPT } from "@/lib/agent-prompt-text";
 import s from "@/components/console.module.css";
 
 export function EmptyState({ title, sub }: { title: string; sub: string }) {

@@ -1,10 +1,7 @@
-import type { NextRequest } from "next/server";
-import { agentRunbook } from "../../lib/agent-runbook";
+import { buildDevicePrompt } from "../../lib/agent-prompt";
+import { env } from "../../lib/env";
 
-/** Static runbook that a coding agent fetches and follows. */
-export function GET(request: NextRequest) {
-  const params = request.nextUrl.searchParams;
-  return new Response(agentRunbook(params.get("os"), params.get("agent")), {
-    headers: { "content-type": "text/markdown; charset=utf-8" },
-  });
+/** Old prompts linked here. It now returns the same text a signed-out Copy prompt gives. */
+export function GET() {
+  return new Response(buildDevicePrompt(env.baseUrl), { headers: { "content-type": "text/markdown; charset=utf-8" } });
 }
