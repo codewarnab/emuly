@@ -21,7 +21,7 @@ stateDiagram-v2
 
 ```mermaid
 flowchart LR
-    A[Agent] --> C[phonelink rig CLI]
+    A[Agent] --> C[emuly rig CLI]
     C --> V[Writable AVD layer]
     V --> S[Local checkpoint storage]
     C --> S
@@ -80,8 +80,8 @@ sequenceDiagram
 Two layers. The **relay** runs on our host and holds no Android data. The **rig** runs inside the user's codespace, next to the emulator, and owns every file that a save touches.
 
 ```
-phonelink/                       repo, published from our host
-├── bin/phonelink                one entry command, bash, no build step
+emuly/                       repo, published from our host
+├── bin/emuly                one entry command, bash, no build step
 ├── lib/                         the rig: runs inside the codespace
 │   ├── cli.sh                   argument parsing, JSON output, exit codes
 │   ├── phone.sh                 create, start, stop, status, keep on/off
@@ -107,11 +107,11 @@ phonelink/                       repo, published from our host
 └── site/                        landing page, published to here.now
 ```
 
-The rig installs into the codespace at `~/.phonelink/`, so it survives a stop and never needs a system path:
+The rig installs into the codespace at `~/.emuly/`, so it survives a stop and never needs a system path:
 
 ```
-~/.phonelink/
-├── bin/phonelink                copy of the repo bin, on PATH for the agent
+~/.emuly/
+├── bin/emuly                copy of the repo bin, on PATH for the agent
 ├── lib/                         copy of the repo lib
 ├── state.json                   phone registry, keep flags, last save times
 ├── lock                         one slot-wide writer lock
@@ -128,7 +128,7 @@ Rules for this layout:
 1. `bin/` and `lib/` are copied, never symlinked. A codespace must run the version it was installed with.
 2. `generations/` is append-only. Only `manifest.json` decides which generation is current.
 3. `staging/` and `working/` are always safe to delete. Cleanup never touches `generations/`.
-4. Nothing outside `~/.phonelink/` holds phone state. The relay database holds only phone id, owner, and codespace binding.
+4. Nothing outside `~/.emuly/` holds phone state. The relay database holds only phone id, owner, and codespace binding.
 
 Where the existing rig scripts go. The current scripts in `~/.agents/skills/android-emu/scripts/` are the seed of `lib/`, not a separate system:
 
@@ -145,7 +145,7 @@ The skill keeps working during the move. `skill/skill.md` names the new commands
 
 ## Phases
 
-1. **One-day vertical slice.** On one existing codespace, create one writable AVD and manually opt it in. Implement save, immutable checkpoint copy, resume, and a guest marker probe. Record every command result and elapsed time. Test install, file, and app-data survival; kill during save; compare resume against 20 seconds. This is a feasibility slice, not a production guarantee. Confirm actual emulator flags, checkpoint file completeness, and shutdown behavior on the pinned version. Files: `bin/phonelink`, `lib/cli.sh`, `lib/avd.sh`, `lib/snapshot.sh`, `scripts/dev/trial-save-resume.sh`.
+1. **One-day vertical slice.** On one existing codespace, create one writable AVD and manually opt it in. Implement save, immutable checkpoint copy, resume, and a guest marker probe. Record every command result and elapsed time. Test install, file, and app-data survival; kill during save; compare resume against 20 seconds. This is a feasibility slice, not a production guarantee. Confirm actual emulator flags, checkpoint file completeness, and shutdown behavior on the pinned version. Files: `bin/emuly`, `lib/cli.sh`, `lib/avd.sh`, `lib/snapshot.sh`, `scripts/dev/trial-save-resume.sh`.
 2. **Atomic saves and disk admission.** Add generation directories, a manifest, checksums, locking, staging, and recovery from interrupted publication. Test process termination at each boundary, ENOSPC during copy, two concurrent saves, and recovery of the previous generation. Files: `lib/manifest.sh`, `lib/space.sh`, `lib/snapshot.sh`, `lib/phone.sh status`, `tests/unit/`.
 3. **Lifecycle and isolation.** Add per-phone keep, wipe, resume, and disable controls. Test two phones with only one kept, concurrent control exclusion, unsaved-write discard, and changed disk capacity. Test deliberate image corruption and emulator/system image mismatch. Files: `lib/phone.sh`, `lib/avd.sh`, `tests/integration/lifecycle.sh`.
 4. **Relay and account integration.** Add authenticated lifecycle APIs, outbound reconnection, operation IDs, and missing-codespace status. Test relay disconnects, duplicate requests, authorization boundaries, token revocation, and a deleted codespace. Do not exercise destructive account actions against a real account without a disposable fixture. Files: `relay/`, `lib/relay.sh`, `lib/gh.sh`, `skill/skill.md`.
@@ -195,7 +195,7 @@ On mismatch, failed hash, failed load, or failed probe, preserve the checkpoint 
 
 ## API and control
 
-All commands return JSON with phone ID, operation ID, state, last saved time, dirty flag, and structured error. Commands are idempotent when supplied the same operation ID. `phonelink phone create` defaults to wipe; `phonelink phone keep ID --on` opts in; `phonelink phone save ID` saves and stops; `phonelink phone resume ID` resumes; `phonelink phone status ID` reports state, capacity, and warnings; `phonelink phone stop ID --discard` discards session writes; `phonelink phone keep ID --off` deletes kept state after explicit confirmation. `phonelink phone recover ID --generation GEN` selects an existing generation. `phonelink phone delete ID` requires explicit confirmation before deleting kept state.
+All commands return JSON with phone ID, operation ID, state, last saved time, dirty flag, and structured error. Commands are idempotent when supplied the same operation ID. `emuly phone create` defaults to wipe; `emuly phone keep ID --on` opts in; `emuly phone save ID` saves and stops; `emuly phone resume ID` resumes; `emuly phone status ID` reports state, capacity, and warnings; `emuly phone stop ID --discard` discards session writes; `emuly phone keep ID --off` deletes kept state after explicit confirmation. `emuly phone recover ID --generation GEN` selects an existing generation. `emuly phone delete ID` requires explicit confirmation before deleting kept state.
 
 Relay endpoints: `POST /v1/phones`, `GET /v1/phones/{id}`, `PATCH /v1/phones/{id}` for keep preference, `POST /v1/phones/{id}/save`, `POST /v1/phones/{id}/resume`, `POST /v1/phones/{id}/stop`, `POST /v1/phones/{id}/recover`, and `DELETE /v1/phones/{id}`. Long operations return an operation ID; `GET /v1/operations/{id}` reports progress. The authenticated outbound rig connection carries commands and status; the existing stream channel carries video. Enforce phone ownership and one controller. Never expose adb or GitHub tokens through the viewer.
 

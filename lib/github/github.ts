@@ -1,5 +1,5 @@
 /*
- * One GitHub account per phonelink user — on purpose.
+ * One GitHub account per Emuly user — on purpose.
  *
  * Linking several GitHub accounts to pool their free Codespaces hours would mean one
  * person holding several free accounts, which GitHub's Terms of Service do not allow
@@ -78,7 +78,7 @@ export function createGitHubClient({ database, accessToken, fetch: fetcher = fet
       method,
       headers: {
         Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "phonelink-local",
+        "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "emuly-local",
         ...(body === undefined ? {} : { "Content-Type": "application/json" }),
       },
       body: body === undefined ? undefined : JSON.stringify(body),

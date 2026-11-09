@@ -7,7 +7,7 @@ const KEY_ID = 1;
 function key(id: number, tokenKey: string): Buffer {
   if (id !== KEY_ID) throw new Error(`Unknown token key id ${id}`);
   const k = Buffer.from(tokenKey, "base64");
-  if (k.length !== 32) throw new Error("PHONELINK_TOKEN_KEY must be 32 bytes, base64");
+  if (k.length !== 32) throw new Error("EMULY_TOKEN_KEY must be 32 bytes, base64");
   return k;
 }
 

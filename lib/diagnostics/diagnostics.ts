@@ -16,13 +16,13 @@ function nextSequence(operationId: string) {
   return value;
 }
 export const diagnosticHealth = { writeFailures: 0, invalidRecords: 0, droppedRecords: 0, collectorFailures: 0 };
-const release = () => /^[a-f0-9]{7,40}$/.test(process.env.PHONELINK_RELEASE ?? "") ? process.env.PHONELINK_RELEASE! : "unknown";
+const release = () => /^[a-f0-9]{7,40}$/.test(process.env.EMULY_RELEASE ?? "") ? process.env.EMULY_RELEASE! : "unknown";
 export type Diagnostics = ReturnType<typeof createDiagnostics>;
 
 /** Failure-isolated, bounded private store. No activity events, logs, or webhooks. */
 function diagnosticQueries(database: DatabaseQueries, starts: Map<string, number>, flushed: typeof diagnosticHealth) {
-  const allowed = (phoneId?: string) => process.env.PHONELINK_DIAGNOSTICS === "1"
-    && (!phoneId || !process.env.PHONELINK_DIAGNOSTICS_PHONE || phoneId === process.env.PHONELINK_DIAGNOSTICS_PHONE);
+  const allowed = (phoneId?: string) => process.env.EMULY_DIAGNOSTICS === "1"
+    && (!phoneId || !process.env.EMULY_DIAGNOSTICS_PHONE || phoneId === process.env.EMULY_DIAGNOSTICS_PHONE);
 
   async function operation(ownerId: number, phoneId: string, kind: OperationKind, fresh = false): Promise<string | undefined> {
     if (!allowed(phoneId)) return;
@@ -210,7 +210,7 @@ export function createDiagnostics(database: Client) {
   type Queries = ReturnType<typeof diagnosticQueries>;
   function run<K extends keyof Queries>(method: K, args: Parameters<Queries[K]>): Promise<Awaited<ReturnType<Queries[K]>>> {
     const fallback = (["write", "mark", "active", "sameRun"].includes(method) ? false : method === "cursor" ? 0 : undefined) as Awaited<ReturnType<Queries[K]>>;
-    if (process.env.PHONELINK_DIAGNOSTICS !== "1") return Promise.resolve(fallback);
+    if (process.env.EMULY_DIAGNOSTICS !== "1") return Promise.resolve(fallback);
     const task = (pending.get(database) ?? Promise.resolve()).then(async () => {
       const previousFlush = { ...flushed };
       try {

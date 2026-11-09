@@ -21,4 +21,4 @@ await app.prepare();
 const handle = app.getRequestHandler();
 const server = createServer((req, res) => handle(req, res));
 attachPhoneStreams(server, app.getUpgradeHandler());
-server.listen(port, hostname, () => console.log(`phonelink: http://${hostname}:${port}`));
+server.listen(port, hostname, () => console.log(`emuly: http://${hostname}:${port}`));

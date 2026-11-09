@@ -54,13 +54,13 @@ export function PhonePreview({ id, ready, children }: { id?: string; ready?: boo
     const visibility = () => { if (document.hidden) controller?.abort(); else void refresh(); };
     document.addEventListener("visibilitychange", visibility);
     const changed = () => { void refresh(); };
-    window.addEventListener("phonelink:changed", changed);
+    window.addEventListener("emuly:changed", changed);
     return () => {
       disposed = true;
       controller?.abort();
       observer.disconnect();
       document.removeEventListener("visibilitychange", visibility);
-      window.removeEventListener("phonelink:changed", changed);
+      window.removeEventListener("emuly:changed", changed);
       URL.revokeObjectURL(current);
     };
   }, [id, ready]);

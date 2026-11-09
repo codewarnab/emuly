@@ -4,15 +4,15 @@ PH_PRODUCER="${PH_PRODUCER:-setup}"
 PH_RUN=$(tr -d '-' < /proc/sys/kernel/random/uuid)
 PH_SEQUENCE=0
 PH_STEP=""
-PH_DIR="$HOME/phonelink/.progress/${PH_OPERATION_ID:-disabled}"
+PH_DIR="$HOME/emuly/.progress/${PH_OPERATION_ID:-disabled}"
 ph_time() { date -u +%Y-%m-%dT%H:%M:%S.000Z; }
 ph_ms() { awk '{printf "%.0f", $1 * 1000}' /proc/uptime; }
 ph_write() {
-  [ "${PHONELINK_DIAGNOSTICS:-0}" = 1 ] || return 0
+  [ "${EMULY_DIAGNOSTICS:-0}" = 1 ] || return 0
   [[ "${PH_OPERATION_ID:-}" =~ ^[a-f0-9]{32}$ ]] || return 0
   (
     umask 077
-    [ ! -L "$HOME/phonelink" ] && [ ! -L "$HOME/phonelink/.progress" ] && [ ! -L "$PH_DIR" ] || exit 0
+    [ ! -L "$HOME/emuly" ] && [ ! -L "$HOME/emuly/.progress" ] && [ ! -L "$PH_DIR" ] || exit 0
     mkdir -p "$PH_DIR"
     [ ! -L "$PH_DIR/records" ] && [ ! -L "$PH_DIR/lock" ] || exit 0
     exec 9>"$PH_DIR/lock"

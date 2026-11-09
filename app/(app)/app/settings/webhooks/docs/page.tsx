@@ -10,7 +10,7 @@ function verify(secret, rawBody, header) {
   return timingSafeEqual(expected, Buffer.from(m[2], "hex"));
 }
 // rawBody is the original Buffer, before JSON parsing.
-// verify(process.env.WEBHOOK_SECRET, rawBody, req.headers["phonelink-signature"])
+// verify(process.env.WEBHOOK_SECRET, rawBody, req.headers["emuly-signature"])
 `;
 const python = `import hashlib, hmac, re, time
 def verify(secret, raw_body, header):
@@ -21,7 +21,7 @@ def verify(secret, raw_body, header):
     expected = hmac.new(secret.encode(), message, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, m[2])
 # raw_body is the original bytes, before JSON parsing.
-# verify(os.environ["WEBHOOK_SECRET"], raw_body, headers["phonelink-signature"])
+# verify(os.environ["WEBHOOK_SECRET"], raw_body, headers["emuly-signature"])
 `;
 
 export default function WebhookDocs() {
@@ -31,7 +31,7 @@ export default function WebhookDocs() {
     <p>Register an HTTPS endpoint in Settings → Webhooks. Copy the signing secret when it appears. Store it privately.</p>
     <p>Each JSON event has <code>id</code>, <code>type</code>, <code>version: 1</code>, <code>created_at</code> and <code>data</code>.
       Phone data contains only its ID, Codespace name, state and machine. Payloads exclude credentials and stream URLs.</p>
-    <p>Headers: <code>phonelink-signature: t=&lt;unix&gt;,v1=&lt;hex HMAC-SHA256&gt;</code>, <code>phonelink-event</code> and <code>phonelink-delivery</code>.
+    <p>Headers: <code>emuly-signature: t=&lt;unix&gt;,v1=&lt;hex HMAC-SHA256&gt;</code>, <code>emuly-event</code> and <code>emuly-delivery</code>.
       The signature covers the timestamp, a dot, and the exact request body. Never verify re-encoded JSON.</p>
     <h2>Verify in Node</h2><pre><code>{node}</code></pre>
     <h2>Verify in Python</h2><pre><code>{python}</code></pre>
@@ -43,9 +43,9 @@ export default function WebhookDocs() {
     <p>Endpoints disable after three days of only failures. The console shows a notice. Fix the receiver and choose Re-enable.
       Rolling a secret immediately replaces it, including for queued deliveries.</p>
     <p>Only public HTTPS addresses are allowed. Every send checks all DNS answers and pins a checked address.
-      Redirects fail. HTTP localhost works only when PHONELINK_BASE_URL itself uses localhost.</p>
+      Redirects fail. HTTP localhost works only when EMULY_BASE_URL itself uses localhost.</p>
     <h2>API</h2>
-    <p>The API uses your phonelink session. Browser mutations must come from the same origin. Responses are never cached.</p>
+    <p>The API uses your Emuly session. Browser mutations must come from the same origin. Responses are never cached.</p>
     <pre><code>{`GET /v1/webhooks
 POST /v1/webhooks { "url": "https://example.com/hook", "events": "*" }
 PATCH /v1/webhooks/{id} { "url": "https://example.com/new", "events": ["phone.stopped"], "enabled": true }

@@ -19,8 +19,8 @@ function createPhoneObservations(database: Client) {
   const viewing = new Map<string, Window>();
   const attempts = new Map<string, BrowserAttempt>();
   const opening = new Map<string, Promise<Window>>();
-  const enabled = (phone: Owner) => process.env.PHONELINK_DIAGNOSTICS === "1"
-    && (!process.env.PHONELINK_DIAGNOSTICS_PHONE || process.env.PHONELINK_DIAGNOSTICS_PHONE === phone.id);
+  const enabled = (phone: Owner) => process.env.EMULY_DIAGNOSTICS === "1"
+    && (!process.env.EMULY_DIAGNOSTICS_PHONE || process.env.EMULY_DIAGNOSTICS_PHONE === phone.id);
   function window(phone: Owner): Promise<Window> {
     const key = `${phone.userId}:${phone.id}`;
     const existing = opening.get(key);

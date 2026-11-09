@@ -64,7 +64,7 @@ For unexpected shutdowns, also answer:
 1. Was the phone page open, was its screen connected, and did the server receive phone input recently?
 2. Was keep-awake expected, and when did its last attempt start and finish?
 3. Did attempts fail, time out, overlap, or stop during reconnection or an application restart?
-4. Did PhoneLink request the stop, or did it first observe the stop from GitHub?
+4. Did Emuly request the stop, or did it first observe the stop from GitHub?
 5. Does evidence confirm an idle timeout, merely suggest one, or leave the cause unknown?
 
 ## 4. Data contract and privacy boundary
@@ -206,7 +206,7 @@ First frame is unavailable when no owner opens the screen. Exclude that case fro
 ### Keep-awake and unexpected shutdown diagnostics
 
 Keep these records private under the same access and retention rules.
-Observability does not change when PhoneLink keeps a phone awake.
+Observability does not change when Emuly keeps a phone awake.
 Any keep-awake behavior change requires separate implementation review and provider verification.
 
 **Presence and phone use**
@@ -237,7 +237,7 @@ Expose dropped-record counts and missing coverage in operator reports.
 
 Persist application stop intent before the provider request, with operation ID and fixed initiator code.
 Initiators distinguish owner action, stop-all, hours-budget policy, and other supported application policies.
-Record request outcome separately. A failed or uncertain request does not prove that PhoneLink caused a later stop.
+Record request outcome separately. A failed or uncertain request does not prove that Emuly caused a later stop.
 Link stop evidence to the current phone run. Never reuse a previous run's `stop_reason`.
 
 At the first observed provider stop, preserve the preceding observation window before connections disappear.

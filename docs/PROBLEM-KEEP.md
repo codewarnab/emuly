@@ -4,7 +4,7 @@ Status: design input, 2026-11-05.
 
 ## 1. What the product promises
 
-phonelink gives an agent a real Android phone inside the user's own GitHub
+Emuly gives an agent a real Android phone inside the user's own GitHub
 Codespace. Today the phone is disposable. The container disk survives a
 codespace stop, but the Android image itself starts from a clean AVD, and the
 agent has to boot it, configure it, and install the app again on every visit.

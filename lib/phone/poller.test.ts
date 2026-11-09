@@ -16,7 +16,7 @@ import { hoursWarning, unreadAutoStops, acknowledgeAutoStops } from "../shared/h
 import type { OutgoingEvent } from "../data/events.ts";
 
 function fixture() {
-  const directory = mkdtempSync(join(tmpdir(), "phonelink-poller-"));
+  const directory = mkdtempSync(join(tmpdir(), "emuly-poller-"));
   const database = openDatabase(join(directory, "test.db"));
   const asyncDatabase = createClient({ url: pathToFileURL(join(directory, "test.db")).href });
   let time = Date.parse("2026-11-07T00:00:00Z");

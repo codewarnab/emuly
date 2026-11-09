@@ -8,7 +8,7 @@ export function Brand() {
   return (
     <Link href="/" className={s.brand}>
       <span className={s.dot} />
-      phonelink
+      Emuly
     </Link>
   );
 }

@@ -21,7 +21,7 @@ export function phoneControl() {
     setup: createPhoneSetup({ token: userId => getAccessToken(userId) }),
     collectProgress: createPhoneSetup({ token: userId => getAccessToken(userId) }).collect,
     runner: runnerRequest, disconnect: closeRunner,
-    maxPhones: process.env.PHONELINK_MAX_PHONES ? Number(process.env.PHONELINK_MAX_PHONES) : undefined,
+    maxPhones: process.env.EMULY_MAX_PHONES ? Number(process.env.EMULY_MAX_PHONES) : undefined,
   });
 }
 
@@ -37,7 +37,7 @@ export async function syncPhoneState(userId: number): Promise<SyncError | null> 
 }
 
 // Phones run in a codespace of this repository, with .devcontainer/phone/devcontainer.json.
-// phonelink installs the emulator and runner over the codespace tunnel after GitHub reports
+// emuly installs the emulator and runner over the codespace tunnel after GitHub reports
 // the codespace Available. The repository is private for now: a user must be a collaborator
 // to create a phone. github/codespaces-blank does not work here, because the github org
 // blocks OAuth apps that it has not approved.
@@ -47,12 +47,12 @@ const PHONE_TEMPLATE = {
 };
 
 export function templateRepository() {
-  const custom = Boolean(process.env.PHONELINK_TEMPLATE_REPO);
-  const repository = custom ? process.env.PHONELINK_TEMPLATE_REPO! : PHONE_TEMPLATE.repository;
-  const repositoryId = custom ? Number(process.env.PHONELINK_TEMPLATE_REPOSITORY_ID) : PHONE_TEMPLATE.repositoryId;
-  const devcontainerPath = custom ? process.env.PHONELINK_DEVCONTAINER_PATH || undefined : PHONE_TEMPLATE.devcontainerPath;
+  const custom = Boolean(process.env.EMULY_TEMPLATE_REPO);
+  const repository = custom ? process.env.EMULY_TEMPLATE_REPO! : PHONE_TEMPLATE.repository;
+  const repositoryId = custom ? Number(process.env.EMULY_TEMPLATE_REPOSITORY_ID) : PHONE_TEMPLATE.repositoryId;
+  const devcontainerPath = custom ? process.env.EMULY_DEVCONTAINER_PATH || undefined : PHONE_TEMPLATE.devcontainerPath;
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository) || !Number.isSafeInteger(repositoryId) || repositoryId <= 0) {
-    throw new PhoneInputError("PHONELINK_TEMPLATE_REPO needs a matching PHONELINK_TEMPLATE_REPOSITORY_ID. Unset both to use codewarnab/phonelink.");
+    throw new PhoneInputError("EMULY_TEMPLATE_REPO needs a matching EMULY_TEMPLATE_REPOSITORY_ID. Unset both to use codewarnab/phonelink.");
   }
   return { repository, repositoryId, devcontainerPath };
 }

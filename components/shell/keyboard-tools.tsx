@@ -18,7 +18,7 @@ type Command = { id: string; label: string; hint: string; run: () => void; reaso
 export function CommandHint() {
   const [mac, setMac] = useState(false);
   useEffect(() => setMac(/Mac|iPhone|iPad/.test(navigator.platform)), []);
-  return <button className={s.hint} aria-label="Open command menu" onClick={() => window.dispatchEvent(new Event("phonelink-command"))}>{mac ? "⌘K" : "Ctrl K"}</button>;
+  return <button className={s.hint} aria-label="Open command menu" onClick={() => window.dispatchEvent(new Event("emuly-command"))}>{mac ? "⌘K" : "Ctrl K"}</button>;
 }
 export function KeyboardTools({ phones }: { phones?: PhoneChoice[] }) {
   const router = useRouter();
@@ -45,8 +45,8 @@ export function KeyboardTools({ phones }: { phones?: PhoneChoice[] }) {
   }, [notify]);
   useEffect(() => {
     const open = () => setSheet(value => value === "commands" ? null : "commands");
-    window.addEventListener("phonelink-command", open);
-    return () => window.removeEventListener("phonelink-command", open);
+    window.addEventListener("emuly-command", open);
+    return () => window.removeEventListener("emuly-command", open);
   }, []);
   useEffect(() => {
     if (sheet !== "commands" || !onSettings) return;
@@ -102,7 +102,7 @@ export function KeyboardTools({ phones }: { phones?: PhoneChoice[] }) {
         run: () => settings.save("autoKeep", !settings.values.autoKeep), reason: settings.pending ? "Saving…" : undefined });
       for (const hook of webhooks.filter(hook => hook.enabled)) commands.push({ id: `test-${hook.id}`,
         label: `Send test to ${hook.url}`, hint: SETTINGS_KEYS.test, run: () => {
-          window.dispatchEvent(new CustomEvent("phonelink-test-webhook", { detail: hook.id }));
+          window.dispatchEvent(new CustomEvent("emuly-test-webhook", { detail: hook.id }));
           if (pathname !== "/app/settings/webhooks") {
             void fetch(`/v1/webhooks/${encodeURIComponent(hook.id)}/test?wait=1`, { method: "POST" })
               .then(async response => {

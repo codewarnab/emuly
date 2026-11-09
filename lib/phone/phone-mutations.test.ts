@@ -25,7 +25,7 @@ const space = (name: string, state = "Shutdown"): Codespace => ({ id: 41, name, 
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
 function fixture(fetcher: typeof fetch) {
-  const directory = mkdtempSync(join(tmpdir(), "phonelink-m0-"));
+  const directory = mkdtempSync(join(tmpdir(), "emuly-m0-"));
   const database = openDatabase(join(directory, "test.db"));
   const asyncDatabase = createClient({ url: pathToFileURL(join(directory, "test.db")).href });
   for (const id of [1, 2]) database.prepare(`INSERT INTO users
@@ -56,7 +56,7 @@ test("GitHub lists only database-owned identifiers across pages and refuses fore
   const f = fixture(async (url, init) => {
     calls.push(String(url));
     assert.equal(new Headers(init?.headers).get("Authorization"), "Bearer synthetic-1");
-    if (String(url).endsWith("page=1")) return Response.json({ codespaces: [space("foreign"), space("phonelink-unregistered")] },
+    if (String(url).endsWith("page=1")) return Response.json({ codespaces: [space("foreign"), space("emuly-unregistered")] },
       { headers: { link: '<https://api.github.com/user/codespaces?per_page=100&page=2>; rel="next"' } });
     if (String(url).endsWith("page=2")) return Response.json({ codespaces: [space("automatic-spoon-owned")] });
     assert.equal(String(url), "https://api.github.com/user/codespaces/automatic-spoon-owned");

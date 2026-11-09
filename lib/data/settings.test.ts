@@ -11,7 +11,7 @@ import { choosePlan, chosenPlan, clearAllowanceOverride, userSettings, updateSet
 import { createSettingsApi } from "./settings-api.ts";
 
 test("settings default to Free, 30-minute idle and auto-stop off; partial updates persist without touching another user", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "phonelink-settings-"));
+  const directory = mkdtempSync(join(tmpdir(), "emuly-settings-"));
   const filename = join(directory, "test.db");
   openDatabase(filename).close();
   let database = createClient({ url: pathToFileURL(filename).href });
@@ -74,7 +74,7 @@ test("settings default to Free, 30-minute idle and auto-stop off; partial update
 });
 
 test("onboarding plan choice sets the allowance and replaces a manual override", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "phonelink-plan-"));
+  const directory = mkdtempSync(join(tmpdir(), "emuly-plan-"));
   const filename = join(directory, "test.db");
   openDatabase(filename).close();
   const database = createClient({ url: pathToFileURL(filename).href });
@@ -96,7 +96,7 @@ test("onboarding plan choice sets the allowance and replaces a manual override",
   }
 });
 test("Hours field saves validate runtime input and preserve other controls and users", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "phonelink-hours-field-"));
+  const directory = mkdtempSync(join(tmpdir(), "emuly-hours-field-"));
   const filename = join(directory, "test.db");
   openDatabase(filename).close();
   const database = createClient({ url: pathToFileURL(filename).href });

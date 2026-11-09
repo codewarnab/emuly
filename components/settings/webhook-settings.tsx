@@ -118,8 +118,8 @@ function Endpoint({ hook, initialDeliveries, pending, run, reveal }: { hook: Web
   sendRef.current = () => { void test(); };
   useEffect(() => {
     const listener = (event: Event) => { if ((event as CustomEvent).detail === hook.id) sendRef.current(); };
-    window.addEventListener("phonelink-test-webhook", listener);
-    return () => window.removeEventListener("phonelink-test-webhook", listener);
+    window.addEventListener("emuly-test-webhook", listener);
+    return () => window.removeEventListener("emuly-test-webhook", listener);
   }, [hook.id]);
   const success = typeof result === "object" && result?.state === "ok";
   const status = hook.failing_since ? "failing" : hook.enabled ? "enabled" : "disabled";

@@ -34,7 +34,7 @@ export async function webhookTarget(value: unknown, baseUrl: string, resolve: Re
   const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
   const local = new URL(baseUrl).hostname === "localhost" && host === "localhost";
   if (url.protocol !== "https:" && !(local && url.protocol === "http:")) {
-    throw new WebhookInputError("Use HTTPS. HTTP localhost requires phonelink itself to use localhost.");
+    throw new WebhookInputError("Use HTTPS. HTTP localhost requires Emuly itself to use localhost.");
   }
   let addresses: WebhookTarget["addresses"];
   try { addresses = isIP(host) ? [{ address: host, family: isIP(host) }] : await resolve(host); }

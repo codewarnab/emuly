@@ -1,8 +1,10 @@
-# phonelink
+# Emuly
+
+The GitHub repository rename is pending. The repository remains `codewarnab/phonelink`.
 
 Run an Android emulator in the cloud, for free.
 
-phonelink runs a real Android emulator inside the user's own GitHub Codespace, on the
+Emuly runs a real Android emulator inside the user's own GitHub Codespace, on the
 Codespaces hours their GitHub plan already includes (about 30 h/month on Free, 45 h/month
 on Pro, at 4 cores). Nothing is billed by us. The main way in is agent-native: the user
 copies one prompt into their coding agent (Claude Code, Codex, Cursor, T3 Code, OpenCode),
@@ -21,6 +23,16 @@ Watching and touching the phone in the browser is a bonus, not the headline.
 
 Local only for now: no deployment, no public URL.
 
+## Upgrading an existing installation
+
+Rename existing product-prefixed environment keys to `EMULY_`, preserving all values, including OAuth credentials.
+Preserve the token encryption key too.
+Set `EMULY_DB` to the existing SQLite path to retain data; the new default is `.data/emuly.db`.
+Cookie names now use `emuly_`, so users must sign in again. Browser theme and phone-view preferences reset.
+Webhook receivers must accept `emuly-signature`, `emuly-event`, and `emuly-delivery`.
+Stop and restart existing Codespaces to install the runner under `~/emuly`; previous runner records are not moved automatically.
+Scheduler operators must update their service names and configuration paths using [the deployment guide](deploy/vm/README.md).
+
 ## Run it locally
 
 Needs Node 26 and pnpm.
@@ -36,15 +48,15 @@ pnpm dev                     # http://localhost:4321
 
 | Key | What |
 |---|---|
-| `PHONELINK_BASE_URL` | `http://localhost:4321` (use `localhost`, not `127.0.0.1`, or the OAuth state cookie is lost) |
-| `PHONELINK_GITHUB_CLIENT_ID` / `PHONELINK_GITHUB_CLIENT_SECRET` | GitHub OAuth App, callback `http://localhost:4321/auth/callback`, expiring user tokens on, device flow off |
-| `PHONELINK_TOKEN_KEY` | 32 random bytes, base64 (`openssl rand -base64 32`), encrypts tokens at rest |
-| `PHONELINK_DB` | SQLite path, e.g. `.data/phonelink.db` |
-| `PHONELINK_MAX_TUNNELS` | relay guard, e.g. `6` (used from Phase 5) |
-| `PHONELINK_MAX_PHONES` | Optional operator safety cap across all users for local tests (positive integer). Unset by default: no phonelink cap. GitHub still applies its own codespace limits. |
-| `PHONELINK_TEMPLATE_REPO` | Optional. Leave unset to use this repository, `codewarnab/phonelink`, with `.devcontainer/phone/devcontainer.json`. It is private for now, so each user must be a collaborator to create a phone. phonelink installs the emulator and runner from `phone/` over the codespace tunnel (`lib/codespace-tunnel.ts`); the server needs no `gh` |
-| `PHONELINK_TEMPLATE_REPOSITORY_ID` | Required only with `PHONELINK_TEMPLATE_REPO`: the numeric GitHub repository ID of that repository. Do not use a repository in the `github` org: it blocks OAuth apps |
-| `PHONELINK_DEVCONTAINER_PATH` | Optional. Used only with `PHONELINK_TEMPLATE_REPO`; sent only when set |
+| `EMULY_BASE_URL` | `http://localhost:4321` (use `localhost`, not `127.0.0.1`, or the OAuth state cookie is lost) |
+| `EMULY_GITHUB_CLIENT_ID` / `EMULY_GITHUB_CLIENT_SECRET` | GitHub OAuth App, callback `http://localhost:4321/auth/callback`, expiring user tokens on, device flow off |
+| `EMULY_TOKEN_KEY` | 32 random bytes, base64 (`openssl rand -base64 32`), encrypts tokens at rest |
+| `EMULY_DB` | SQLite path, e.g. `.data/emuly.db` |
+| `EMULY_MAX_TUNNELS` | relay guard, e.g. `6` (used from Phase 5) |
+| `EMULY_MAX_PHONES` | Optional operator safety cap across all users for local tests (positive integer). Unset by default: no Emuly cap. GitHub still applies its own codespace limits. |
+| `EMULY_TEMPLATE_REPO` | Optional. Leave unset to use this repository, `codewarnab/phonelink`, with `.devcontainer/phone/devcontainer.json`. It is private for now, so each user must be a collaborator to create a phone. Emuly installs the emulator and runner from `phone/` over the codespace tunnel (`lib/codespace-tunnel.ts`); the server needs no `gh` |
+| `EMULY_TEMPLATE_REPOSITORY_ID` | Required only with `EMULY_TEMPLATE_REPO`: the numeric GitHub repository ID of that repository. Do not use a repository in the `github` org: it blocks OAuth apps |
+| `EMULY_DEVCONTAINER_PATH` | Optional. Used only with `EMULY_TEMPLATE_REPO`; sent only when set |
 
 M0 adds the New phone dialog and Wake/Stop actions, with ownership checks and recorded activity.
 Creation uses 30-minute or 4-hour idle timeouts and 30-day retention. There is no product phone count limit.
@@ -56,7 +68,7 @@ The console shows remaining phone hours and storage from GitHub billing, when ac
 Free includes 120 core-hours and 15 GB-month; Pro includes 180 core-hours and 20 GB-month.
 The app reads the plan automatically. Existing saved allowances remain overrides.
 Open **Override** to change the allowance or restore the automatic plan allowance.
-Billing reports are cached per user for ten minutes. The countdown adds live phonelink usage.
+Billing reports are cached per user for ten minutes. The countdown adds live Emuly usage.
 Without billing access, the console labels usage **Estimate** and keeps login available.
 **Connect billing for exact numbers** requests the optional OAuth `user` scope.
 A refusal keeps the current session and estimate. The billing endpoint can still reject access.

@@ -85,7 +85,7 @@ export function createBillingClient({ accessToken, fetch: fetcher = fetch, clock
       const token = await accessToken(user.id);
       const request = (path: string) => githubFetch(`https://api.github.com${path}`, { headers: {
         Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2026-03-10", "User-Agent": "phonelink",
+        "X-GitHub-Api-Version": "2026-03-10", "User-Agent": "emuly",
       } }, fetcher);
       const profile = await request("/user");
       if (profile.ok) {

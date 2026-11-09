@@ -26,7 +26,7 @@ def trigger():
     try:
         connection.request("GET", "/api/cron", headers={
             "Authorization": "Bearer " + secret,
-            "User-Agent": "PhoneLink-Scheduler/1",
+            "User-Agent": "Emuly-Scheduler/1",
         })
         status = connection.getresponse().status
         # Do not read or execute the response body. Redirects fail closed.

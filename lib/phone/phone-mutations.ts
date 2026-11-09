@@ -41,7 +41,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
   emit?: EventEmitter;
 }) {
   if (maxPhones !== undefined && (!Number.isSafeInteger(maxPhones) || maxPhones < 1)) {
-    throw new Error("PHONELINK_MAX_PHONES must be a positive integer or unset");
+    throw new Error("EMULY_MAX_PHONES must be a positive integer or unset");
   }
   const busy = new Set<string>();
   const background = (work: Promise<unknown>) => {
@@ -57,7 +57,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
   const setupStarted = new Set<string>();
   const SETUP_RETRY_MS = 10 * 60_000;
   const SETUP_CHECK_MS = 20_000;
-  const SETUP_FAILURE_DETAIL = "Phone setup failed. phonelink tries again in about 10 minutes.";
+  const SETUP_FAILURE_DETAIL = "Phone setup failed. Emuly tries again in about 10 minutes.";
   const booting = new Set<string>();
 
   const startBoot = (userId: number, id: string) => independentWork(() => withLease(database, `boot:${id}`, () => performBoot(userId, id)));
@@ -262,7 +262,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
     };
   }
 
-  async function apply(userId: number, id: string, codespace: Codespace, source = "phonelink") {
+  async function apply(userId: number, id: string, codespace: Codespace, source = "emuly") {
     const afterCommit = await transaction(database, queries => applyStored(userId, id, codespace, source, queries));
     afterCommit();
   }
@@ -470,7 +470,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
       void diagnostics.finish(operationId, "succeeded");
       const previous = await transaction(database, async queries => {
         const previous = await phone(userId, id, queries);
-        await trackRun(previous, { id: 0, name: previous.codespace_name, state: "Deleted" }, "deleted", "phonelink", queries);
+        await trackRun(previous, { id: 0, name: previous.codespace_name, state: "Deleted" }, "deleted", "emuly", queries);
         await queries.execute({ sql: "UPDATE phones SET state = 'deleted', state_detail = NULL WHERE user_id = ? AND id = ?", args: [userId, id] });
         await event(userId, id, "step", "delete accepted", queries);
         return previous;
@@ -517,7 +517,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
         if (maxPhones !== undefined) {
           const count = (await queries.execute({ sql: `SELECT count(*) AS n FROM phones WHERE user_id = ? AND state != 'deleted'
             AND (state != 'error' OR codespace_name NOT LIKE 'pending:%')`, args: [userId] })).rows[0]!.n as number;
-          if (count >= maxPhones) throw new PhoneInputError("You reached the local operator's phone safety cap (PHONELINK_MAX_PHONES).");
+          if (count >= maxPhones) throw new PhoneInputError("You reached the local operator's phone safety cap (EMULY_MAX_PHONES).");
         }
         await queries.execute({ sql: `INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state,
           created_at, runner_secret, idle_timeout_min, retention_min) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, 43200)`, args: [id, userId, `pending:${id}`, input.repository, input.machine ?? "Choosing machine", iso(), encrypt(randomBytes(32).toString("base64url")), input.idleTimeoutMin] });
@@ -542,7 +542,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
           idle_timeout_minutes: input.idleTimeoutMin, retention_period_minutes: 43200,
         })));
         await database.execute({ sql: "UPDATE phones SET last_started_at = ? WHERE user_id = ? AND id = ?", args: [iso(), userId, id] });
-        await confirmCreation(userId, id, result, "phonelink");
+        await confirmCreation(userId, id, result, "emuly");
         await event(userId, id, "step", "Phone created");
         return id;
       } catch (error) {

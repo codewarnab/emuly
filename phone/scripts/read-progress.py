@@ -6,7 +6,7 @@ import sys
 import re
 
 def read():
-    root = os.path.join(os.path.expanduser("~"), "phonelink")
+    root = os.path.join(os.path.expanduser("~"), "emuly")
     if not re.fullmatch(r"[a-f0-9]{32}", sys.argv[1]):
         raise ValueError("invalid operation")
     parent = os.path.join(root, ".progress")
@@ -66,6 +66,6 @@ def read():
         os.close(fd)
 
 try:
-    print("PHONELINK_PROGRESS=" + json.dumps(read(), separators=(",", ":")))
+    print("EMULY_PROGRESS=" + json.dumps(read(), separators=(",", ":")))
 except (OSError, ValueError, TypeError):
-    print("PHONELINK_PROGRESS_UNAVAILABLE")
+    print("EMULY_PROGRESS_UNAVAILABLE")

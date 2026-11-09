@@ -1,10 +1,10 @@
-// The codespace that each phonelink phone runs in.
-// phonelink creates it with devcontainer_path=.devcontainer/phone/devcontainer.json, then
+// The codespace that each emuly phone runs in.
+// emuly creates it with devcontainer_path=.devcontainer/phone/devcontainer.json, then
 // installs Android and starts the runner over the codespace tunnel (lib/phone-setup.ts,
 // files from phone/). So this file has no lifecycle commands: the server is the one place
 // that runs setup, and it always sends the scripts that match its own version.
 {
-  "name": "phonelink phone",
+  "name": "Emuly phone",
   // GitHub's default codespace image. Hosts keep it cached, so the codespace starts fast,
   // and it already has Node for the runner.
   "image": "mcr.microsoft.com/devcontainers/universal:2",

@@ -14,7 +14,7 @@ export type SetupResult = { state: SetupStatus | "failed"; cursor: number; progr
 
 /** Runs in the codespace in the background, so no connection stays open while Android installs. */
 const RUN = `#!/usr/bin/env bash
-builtin cd "$HOME/phonelink"
+builtin cd "$HOME/emuly"
 source scripts/progress.sh
 if bash scripts/setup.sh && bash scripts/start-runner.sh; then
   ph_begin runner_health
@@ -25,8 +25,8 @@ touch .failed
 `;
 
 /**
- * One short check-or-start step. It prints PHONELINK_READY when the runner answers,
- * PHONELINK_WORKING while setup runs (and starts setup when nothing runs), and
+ * One short check-or-start step. It prints EMULY_READY when the runner answers,
+ * EMULY_WORKING while setup runs (and starts setup when nothing runs), and
  * exits 1 with a fixed failure marker after a failed run, allowing a later retry.
  */
 export function setupScript(root = join(process.cwd(), "phone"), cursor = 0) {
@@ -34,18 +34,18 @@ export function setupScript(root = join(process.cwd(), "phone"), cursor = 0) {
   const files: [string, string][] = [...FILES.map(file => [file, Buffer.from(readFileSync(join(root, file), "utf8").replace(/\r\n/g, "\n")).toString("base64")] as [string, string]),
     ["runner/ws.cjs", readFileSync(join(process.cwd(), "node_modules/next/dist/compiled/ws/index.js")).toString("base64")],
     ["runner/ws.LICENSE", readFileSync(join(process.cwd(), "node_modules/next/dist/compiled/ws/LICENSE")).toString("base64")],
-    ["run.sh", Buffer.from(RUN.replace('builtin cd', `export PHONELINK_DIAGNOSTICS=${diagnosticOperation() ? "1" : "0"}\nexport PH_OPERATION_ID=${diagnosticOperation() ?? "disabled"}\nbuiltin cd`)).toString("base64")]];
+    ["run.sh", Buffer.from(RUN.replace('builtin cd', `export EMULY_DIAGNOSTICS=${diagnosticOperation() ? "1" : "0"}\nexport PH_OPERATION_ID=${diagnosticOperation() ?? "disabled"}\nbuiltin cd`)).toString("base64")]];
   const writes = files.map(([file, body]) => `mkdir -p "$(dirname "${file}")"\necho '${body}' | base64 -d > "${file}"`);
   // A plain shell, not a login shell: the image's rvm profile fails under bash and kills the run.
   // Node comes from the image's nvm, which the profile would add to PATH.
   return `export PATH="/usr/local/share/nvm/current/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
-mkdir -p "$HOME/phonelink" && builtin cd "$HOME/phonelink"
+mkdir -p "$HOME/emuly" && builtin cd "$HOME/emuly"
 ${diagnosticOperation() ? `if [ -f scripts/read-progress.py ]; then python3 scripts/read-progress.py ${diagnosticOperation()} ${Number.isSafeInteger(cursor) && cursor >= 0 ? cursor : 0}; fi` : ""}
-if curl -fsS http://127.0.0.1:8790/health 2>/dev/null | grep -q '"version":5'; then echo PHONELINK_READY; exit 0; fi
-if [ -f .failed ]; then rm -f .failed .pid; echo PHONELINK_FAILED; exit 1; fi
-if [ -f .pid ] && kill -0 "$(cat .pid)" 2>/dev/null; then echo PHONELINK_WORKING; exit 0; fi
+if curl -fsS http://127.0.0.1:8790/health 2>/dev/null | grep -q '"version":5'; then echo EMULY_READY; exit 0; fi
+if [ -f .failed ]; then rm -f .failed .pid; echo EMULY_FAILED; exit 1; fi
+if [ -f .pid ] && kill -0 "$(cat .pid)" 2>/dev/null; then echo EMULY_WORKING; exit 0; fi
 ${writes[0]}
-export PHONELINK_DIAGNOSTICS=${diagnosticOperation() ? "1" : "0"}
+export EMULY_DIAGNOSTICS=${diagnosticOperation() ? "1" : "0"}
 export PH_OPERATION_ID=${diagnosticOperation() ?? "disabled"}
 source scripts/progress.sh
 ph_begin setup_upload
@@ -54,10 +54,10 @@ ph_end
 chmod +x scripts/*.sh run.sh
 [ ! -f setup.log ] || mv -f setup.log setup.log.previous
 ph_begin setup_launch
-nohup setsid bash -c 'bash run.sh 2>&1 | python3 scripts/bounded-log.py "$HOME/phonelink/setup.log"' >/dev/null 2>&1 < /dev/null &
+nohup setsid bash -c 'bash run.sh 2>&1 | python3 scripts/bounded-log.py "$HOME/emuly/setup.log"' >/dev/null 2>&1 < /dev/null &
 echo $! > .pid
 ph_end
-echo PHONELINK_WORKING
+echo EMULY_WORKING
 `;
 }
 
@@ -67,10 +67,10 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
   exec?: typeof codespaceExec;
 }) {
   async function ingest(output: string): Promise<Omit<SetupResult, "state">> {
-    const progress = output.split("\n").find(line => line.startsWith("PHONELINK_PROGRESS="));
+    const progress = output.split("\n").find(line => line.startsWith("EMULY_PROGRESS="));
     if (progress) {
       try {
-        const batch = JSON.parse(progress.slice("PHONELINK_PROGRESS=".length));
+        const batch = JSON.parse(progress.slice("EMULY_PROGRESS=".length));
         await collectProgress(batch);
         if (batch && Number.isSafeInteger(batch.cursor) && batch.cursor >= 0 && batch.cursor <= 1048576
           && Array.isArray(batch.records) && batch.records.length <= 32) return {
@@ -86,11 +86,11 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
   }
   async function collect(userId: number, codespaceName: string) {
     const operationId = diagnosticOperation();
-    if (!operationId || process.env.PHONELINK_DIAGNOSTICS !== "1") return;
+    if (!operationId || process.env.EMULY_DIAGNOSTICS !== "1") return;
     try {
       const secret = await token(userId);
       const result = await exec({ token: secret, codespaceName, command: "bash --noprofile --norc -s",
-        stdin: `python3 "$HOME/phonelink/scripts/read-progress.py" ${operationId} ${(await progressCursor())}\n`, timeoutMs: 90000, outputLimit: 32768 });
+        stdin: `python3 "$HOME/emuly/scripts/read-progress.py" ${operationId} ${(await progressCursor())}\n`, timeoutMs: 90000, outputLimit: 32768 });
       await ingest(result.output);
     } catch { diagnosticHealth.collectorFailures++; }
   }
@@ -100,12 +100,12 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
     try {
       result = await exec({ token: secret, codespaceName, command: "bash --noprofile --norc -s", stdin: setupScript(undefined, await progressCursor()), timeoutMs: 90_000, outputLimit: 32768 });
     } catch (error) {
-      throw new PhoneSetupError("Could not reach the codespace. PhoneLink will retry setup.");
+      throw new PhoneSetupError("Could not reach the codespace. Emuly will retry setup.");
     }
     const output = result.output.replaceAll(secret, "[redacted]");
     const progress = await ingest(output);
-    if (result.code === 0 && output.includes("PHONELINK_READY")) return { state: "ready", ...progress };
-    if (result.code === 0 && output.includes("PHONELINK_WORKING")) return { state: "working", ...progress };
+    if (result.code === 0 && output.includes("EMULY_READY")) return { state: "ready", ...progress };
+    if (result.code === 0 && output.includes("EMULY_WORKING")) return { state: "working", ...progress };
     return { state: "failed", ...progress };
   }, { collect });
 }

@@ -7,7 +7,7 @@ import { dirname, join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 test("setup packages an Apps runner that loads with plain Node outside the repository", async () => {
-  const root = await mkdtemp(join(tmpdir(), "phonelink-package-"));
+  const root = await mkdtemp(join(tmpdir(), "emuly-package-"));
   try {
     // Decode the actual upload payload without executing its shell commands.
     // The setup dependency uses TypeScript parameter properties, so this process needs transformation.

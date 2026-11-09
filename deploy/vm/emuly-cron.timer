@@ -1,11 +1,11 @@
 [Unit]
-Description=Trigger PhoneLink reconciliation every minute
+Description=Trigger Emuly reconciliation every minute
 
 [Timer]
 OnBootSec=60s
 OnUnitActiveSec=60s
 AccuracySec=1s
-Unit=phonelink-cron.service
+Unit=emuly-cron.service
 
 [Install]
 WantedBy=timers.target

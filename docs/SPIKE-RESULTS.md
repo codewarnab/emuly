@@ -35,7 +35,7 @@ GitHub **auto-generates** the codespace identifier (`automatic-spoon-xqjpvpxxv9j
 The POST body's `name` field only sets the *display name*; the identifier cannot be
 controlled. Implications:
 
-1. The `phones-*` / `phonelink-*` prefix cannot be enforced on the GitHub identifier. The
+1. The `phones-*` / `emuly-*` prefix cannot be enforced on the GitHub identifier. The
    safety invariant in `lib/github.ts` keeps its DB rule: a codespace is touchable only if
    its identifier is in our `phones` table *for that user*. Prefix matching is removed as a
    filter; display names we create will still be labeled `phone-….`

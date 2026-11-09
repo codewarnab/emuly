@@ -79,7 +79,7 @@ async function PhoneContent({
   const user = await requireUser();
   const { id } = await params;
   let phone = (await findPhone(user.id, id));
-  const mock = process.env.PHONELINK_MOCK === "1" && id === "phone-7f2a";
+  const mock = process.env.EMULY_MOCK === "1" && id === "phone-7f2a";
   if (!phone && !mock) notFound();
   if (!mock && phone) {
     const syncError = await syncPhoneState(user.id);

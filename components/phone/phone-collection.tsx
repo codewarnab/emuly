@@ -11,7 +11,7 @@ import s from "@/components/console.module.css";
 type Item = { card: PhoneRow; state: string; codespace: string | null; lastUsed: string | null; retention: Retention | null };
 export function PhoneCollection({ phones, userId }: { phones: Item[]; userId: number }) {
   const [choice, setChoice] = useState<"grid" | "list" | null>(null);
-  const key = `phonelink-phone-view-${userId}`;
+  const key = `emuly-phone-view-${userId}`;
   useEffect(() => {
     try {
       const value = localStorage.getItem(key);

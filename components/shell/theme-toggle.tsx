@@ -4,7 +4,7 @@ import { useSyncExternalStore } from "react";
 import s from "@/components/console.module.css";
 
 export type Theme = "light" | "dark" | "system";
-const key = "phonelink-theme";
+const key = "emuly-theme";
 let transientTheme: Theme = "system";
 function preference(): Theme {
   try { const value = localStorage.getItem(key); return value === "light" || value === "dark" || value === "system" ? value : transientTheme; }
@@ -12,8 +12,8 @@ function preference(): Theme {
 }
 function subscribe(callback: () => void) {
   window.addEventListener("storage", callback);
-  window.addEventListener("phonelink-theme", callback);
-  return () => { window.removeEventListener("storage", callback); window.removeEventListener("phonelink-theme", callback); };
+  window.addEventListener("emuly-theme", callback);
+  return () => { window.removeEventListener("storage", callback); window.removeEventListener("emuly-theme", callback); };
 }
 function resolved(): "light" | "dark" {
   return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
@@ -54,7 +54,7 @@ export function setTheme(choice: Theme) {
   transientTheme = choice;
   try { localStorage.setItem(key, choice); } catch { /* Choice still applies for this page. */ }
   document.documentElement.dataset.theme = choice === "system" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : choice;
-  window.dispatchEvent(new Event("phonelink-theme"));
+  window.dispatchEvent(new Event("emuly-theme"));
 }
 export function cycleTheme(): Theme {
   return toggleTheme(document.querySelector<HTMLElement>("[aria-label='Toggle dark mode']") ?? undefined);

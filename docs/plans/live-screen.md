@@ -7,8 +7,8 @@ See [the implementation report](live-screen-report.md) for delivered work, check
 
 - Setup works. The runner in the codespace answers on `127.0.0.1:8790`.
 - The runner already has `POST /boot`, `GET /screenshot`, `POST /tap`, `POST /swipe` and `POST /text` (`phone/runner/runner.mjs`).
-- phonelink never calls `/boot`, so Android stays off. The stage shows "Waiting for the screen".
-- phonelink reaches the codespace only through `codespaceExec` (`lib/codespace-tunnel.ts`). Each call opens a new tunnel and takes 20–40 s. That is good for setup, but too slow for a screen.
+- Emuly never calls `/boot`, so Android stays off. The stage shows "Waiting for the screen".
+- Emuly reaches the codespace only through `codespaceExec` (`lib/codespace-tunnel.ts`). Each call opens a new tunnel and takes 20–40 s. That is good for setup, but too slow for a screen.
 
 ## 2. What T3 Code does
 
@@ -39,12 +39,12 @@ We copy this design, but we use scrcpy for the encoder. scrcpy runs on the emula
 
 A live screen needs a connection that stays open. There are two ways:
 
-1. **Keep one tunnel open for each phone that someone watches.** The server already has the tunnel code. A new `PhoneLink` keeps the tunnel and the SSH session open, and forwards port 8790. It closes after 2 minutes with no viewers.
+1. **Keep one tunnel open for each phone that someone watches.** The server already has the tunnel code. A new `Emuly` keeps the tunnel and the SSH session open, and forwards port 8790. It closes after 2 minutes with no viewers.
 2. **Use the codespace's forwarded-port URL** (`https://<codespace>-8790.app.github.dev`). The port stays private, and the server sends the owner's token in the `X-Github-Token` header. This is simpler, but we must test that a GitHub App user token works there.
 
 **Decision:** test option 2 first in a short spike, because it is less code. If it fails, use option 1.
 
-In both options, the browser never talks to the codespace. It talks to phonelink, and phonelink adds the token. The token never goes to the browser.
+In both options, the browser never talks to the codespace. It talks to Emuly, and Emuly adds the token. The token never goes to the browser.
 
 ## 5. Phases
 
@@ -55,7 +55,7 @@ In both options, the browser never talks to the codespace. It talks to phonelink
 - **Done when:** we know the connection path, and it gives a round trip under 300 ms.
 
 ### Phase 1. Boot Android automatically (1 day)
-- After "Phone ready", phonelink calls `POST /boot` with `resume`.
+- After "Phone ready", Emuly calls `POST /boot` with `resume`.
 - New events in the log: "Android starting" and then "Android ready (took 98 s)".
 - The stage shows "Starting Android…" with the elapsed minutes. The first boot takes about 100 s, and a resume takes about 15 s.
 - If the boot fails, the stage shows the reason and a **Retry boot** button. This is also the "retry one step" that you asked for.
@@ -72,7 +72,7 @@ In both options, the browser never talks to the codespace. It talks to phonelink
 ### Phase 3. Live stream with scrcpy (2–3 days)
 - Setup also installs `scrcpy-server` (one jar file, pinned version with its sha256).
 - The runner gets `GET /stream` (WebSocket). It starts scrcpy with `video_codec=h264`, `max_size=1080`, `max_fps=30`, and sends each frame with a small header (keyframe flag, time).
-- phonelink proxies the WebSocket. It checks the user's session and a ticket that is good for 60 s.
+- Emuly proxies the WebSocket. It checks the user's session and a ticket that is good for 60 s.
 - The browser decodes with WebCodecs and draws on a `<canvas>`. Library: `@yume-chan/scrcpy` with `@yume-chan/scrcpy-decoder-webcodecs`.
 - The stream pauses when the tab is hidden, and it starts again with a fresh keyframe.
 - If the stream drops, the client tries again after 1 s, 2 s, then 5 s, and shows the last screenshot during that time.
@@ -87,7 +87,7 @@ In both options, the browser never talks to the codespace. It talks to phonelink
 ### Phase 5. Polish (1 day)
 - A small badge shows the frames per second and the delay.
 - A quality setting: Auto, Sharp (1080p) or Saver (720p, 15 fps).
-- When the phone stops, phonelink keeps the last frame. The stage shows it dimmed with "Resting".
+- When the phone stops, Emuly keeps the last frame. The stage shows it dimmed with "Resting".
 - **Done when:** the stage never shows an empty box.
 
 ## 6. UX states of the stage
