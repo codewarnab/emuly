@@ -8,7 +8,6 @@ import { copyText, useToast } from "@/components/ui/ui-provider";
 import { cycleTheme, setTheme, type Theme } from "@/components/shell/theme-toggle";
 import { useShortcuts } from "@/components/shell/use-shortcuts";
 import { Dialog } from "@/components/ui/dialog";
-import { buildDevicePrompt } from "@/lib/agent-prompt";
 import s from "@/components/interaction.module.css";
 
 export const CONTROL_REASON = "Phone controls are not connected yet.";
@@ -43,8 +42,8 @@ export function KeyboardTools({ phones }: { phones?: PhoneChoice[] }) {
       const response = await fetch("/v1/agent/setup-code", { method: "POST", cache: "no-store" });
       const body = await response.json();
       if (response.status === 401) {
-        const baseUrl = typeof body.base_url === "string" ? body.base_url : window.location.origin;
-        await copyText(buildDevicePrompt(baseUrl), notify,
+        if (typeof body.prompt !== "string") throw new Error("Could not make the sign-in prompt.");
+        await copyText(body.prompt, notify,
           "Prompt copied. Your agent will give you a sign-in link");
         return;
       }

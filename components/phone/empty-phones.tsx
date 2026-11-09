@@ -1,6 +1,6 @@
 import { CopyButton } from "@/components/ui/copy-button";
 import { NewPhone } from "@/components/phone/phone-mutations";
-import { AGENT_PROMPT } from "@/lib/agent-prompt";
+import { AGENT_PROMPT } from "@/lib/agent-prompt-text";
 import type { Usage } from "@/lib/data/usage";
 import s from "@/components/console.module.css";
 

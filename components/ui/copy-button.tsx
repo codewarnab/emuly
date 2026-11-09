@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import s from "@/components/interaction.module.css";
 import { Button } from "@/components/ui/button";
 import { copyText, useToast } from "@/components/ui/ui-provider";
-import { buildDevicePrompt } from "@/lib/agent-prompt";
 
 const DEVICE_COPY_TOAST = "Prompt copied. Your agent will give you a sign-in link";
 
@@ -11,8 +10,8 @@ async function freshPrompt() {
   const response = await fetch("/v1/agent/setup-code", { method: "POST", cache: "no-store" });
   const body = await response.json().catch(() => ({}));
   if (response.status === 401) {
-    const baseUrl = typeof body.base_url === "string" ? body.base_url : window.location.origin;
-    return { prompt: buildDevicePrompt(baseUrl), device: true };
+    if (typeof body.prompt !== "string") throw new Error("Could not make the sign-in prompt. Try again.");
+    return { prompt: body.prompt as string, device: true };
   }
   if (!response.ok) throw new Error(body.message ?? "Could not make a setup code. Try again.");
   return { prompt: body.prompt as string, device: false };
