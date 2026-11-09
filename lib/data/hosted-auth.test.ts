@@ -25,10 +25,10 @@ import { importDatabase } from "./import-database.ts";
 // The older auth-storage test owns interoperability with existing native SQLite data.
 for (const hosted of [false, true]) {
   test(`async database contracts (${hosted ? "hosted Turso" : "local libSQL"})`, {
-    skip: hosted && !process.env.PHONELINK_TEST_DATABASE_URL_FILE,
+    skip: hosted && !process.env.EMULY_TEST_DATABASE_URL_FILE,
   }, async () => {
-    const url = hosted ? (await readFile(process.env.PHONELINK_TEST_DATABASE_URL_FILE!, "utf8")).trim() : "file::memory:";
-    const authToken = hosted ? (await readFile(process.env.PHONELINK_TEST_DATABASE_TOKEN_FILE!, "utf8")).trim() : undefined;
+    const url = hosted ? (await readFile(process.env.EMULY_TEST_DATABASE_URL_FILE!, "utf8")).trim() : "file::memory:";
+    const authToken = hosted ? (await readFile(process.env.EMULY_TEST_DATABASE_TOKEN_FILE!, "utf8")).trim() : undefined;
     const client = createClient({ url, authToken });
     let ownsSchema = false;
     try {
@@ -79,7 +79,7 @@ for (const hosted of [false, true]) {
       const redeemed = await Promise.all([0, 1].map(() => takeSharedStreamTicket(client, streamTicket, "synthetic-phone", "https://fixture.example", "fixture-cookie")));
       assert.equal(redeemed.filter(Boolean).length, 1, "a shared ticket can only be redeemed once");
       const key = randomBytes(32).toString("base64");
-      const baseUrl = "https://phonelink.example";
+      const baseUrl = "https://emuly.example";
       const resolve = async () => [{ address: "93.184.216.34", family: 4 }];
       let sends = 0;
       const deliver = createWebhookOutbox({ database: client, baseUrl, resolve,
@@ -97,8 +97,8 @@ for (const hosted of [false, true]) {
       await assert.rejects(hooks.remove(2, hook.id), /not found/);
       await hooks.remove(1, hook.id);
 
-      const previousDiagnostics = process.env.PHONELINK_DIAGNOSTICS;
-      process.env.PHONELINK_DIAGNOSTICS = "1";
+      const previousDiagnostics = process.env.EMULY_DIAGNOSTICS;
+      process.env.EMULY_DIAGNOSTICS = "1";
       try {
         const diagnostics = createDiagnostics(client);
         const operation = await diagnostics.operation(1, "synthetic-phone", "create");
@@ -119,8 +119,8 @@ for (const hosted of [false, true]) {
         assert.equal(await diagnostics.cursor(operation), 200);
         assert.equal(Number((await client.execute("SELECT sum(samples) AS n FROM diagnostic_daily")).rows[0].n), 1);
       } finally {
-        if (previousDiagnostics === undefined) delete process.env.PHONELINK_DIAGNOSTICS;
-        else process.env.PHONELINK_DIAGNOSTICS = previousDiagnostics;
+        if (previousDiagnostics === undefined) delete process.env.EMULY_DIAGNOSTICS;
+        else process.env.EMULY_DIAGNOSTICS = previousDiagnostics;
       }
       await client.execute(`INSERT INTO runs (phone_id, cores, started_at, source) VALUES ('synthetic-phone', 4, '2026-11-01T00:00:00.000Z', 'synthetic')`);
       const clock = () => Date.parse("2026-11-01T02:00:00.000Z");
@@ -193,10 +193,10 @@ for (const hosted of [false, true]) {
       assert.equal((await saveStreamQuality(client, 2, "invalid")).ok, false);
       assert.equal(await streamQuality(client, 2), "sharp");
       assert.equal(await streamQuality(client, 1), "auto");
-      const previousClientId = process.env.PHONELINK_GITHUB_CLIENT_ID;
-      const previousClientSecret = process.env.PHONELINK_GITHUB_CLIENT_SECRET;
-      process.env.PHONELINK_GITHUB_CLIENT_ID = "synthetic-client";
-      process.env.PHONELINK_GITHUB_CLIENT_SECRET = "synthetic-secret";
+      const previousClientId = process.env.EMULY_GITHUB_CLIENT_ID;
+      const previousClientSecret = process.env.EMULY_GITHUB_CLIENT_SECRET;
+      process.env.EMULY_GITHUB_CLIENT_ID = "synthetic-client";
+      process.env.EMULY_GITHUB_CLIENT_SECRET = "synthetic-secret";
       try {
         const now = Date.parse("2026-11-08T00:00:00.000Z");
         await client.execute({ sql: "UPDATE users SET token_cipher = ?, token_expires_at = ?, refresh_cipher = ?, refresh_expires_at = ? WHERE id = 2",
@@ -226,10 +226,10 @@ for (const hosted of [false, true]) {
         assert.equal((await readSession(client, otherSession.value))?.userId, 1);
         await deleteSession(client, otherSession.value);
       } finally {
-        if (previousClientId === undefined) delete process.env.PHONELINK_GITHUB_CLIENT_ID;
-        else process.env.PHONELINK_GITHUB_CLIENT_ID = previousClientId;
-        if (previousClientSecret === undefined) delete process.env.PHONELINK_GITHUB_CLIENT_SECRET;
-        else process.env.PHONELINK_GITHUB_CLIENT_SECRET = previousClientSecret;
+        if (previousClientId === undefined) delete process.env.EMULY_GITHUB_CLIENT_ID;
+        else process.env.EMULY_GITHUB_CLIENT_ID = previousClientId;
+        if (previousClientSecret === undefined) delete process.env.EMULY_GITHUB_CLIENT_SECRET;
+        else process.env.EMULY_GITHUB_CLIENT_SECRET = previousClientSecret;
       }
       const original = await insertSession(client, 1);
       await migrateHosted(client);

@@ -18,7 +18,7 @@ export async function readAccountUsage(user: { id: number; login: string }, cloc
   const saved = (await database.execute({ sql: "SELECT plan_name, allowance_override FROM billing_settings WHERE user_id = ?", args: [user.id] })).rows[0];
   const plan = typeof saved?.plan_name === "string" ? saved.plan_name : null;
   const estimate = await readUsage(database, user.id, clock);
-  // GitHub lags. Add only the live phonelink time accrued since this cached report.
+  // GitHub lags. Add only the live Emuly time accrued since this cached report.
   const atReport = await readUsage(database, user.id, () => billing.checkedAt);
   return {
     ...estimate,

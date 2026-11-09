@@ -1,4 +1,4 @@
-# phonelink — design conversation, 2026-11-05
+# Emuly — design conversation, 2026-11-05
 
 Condensed record of the session that produced this project. Numbers are real, measured or
 quoted from vendor docs on that date. Evidence issue:
@@ -85,7 +85,7 @@ Flow:
 2. Token `gho_...` with one scope. Verify: `x-oauth-scopes: codespace` on `GET /user`.
 3. Backend runs with `GH_TOKEN`: `POST /user/codespaces` (blank template,
    `standardLinux32gb`) → wait `Available` → `gh codespace ssh` → run `install.sh`.
-4. Return `https://{id}.phonelink.dev`.
+4. Return `https://{id}.emuly.dev`.
 
 Storage: encrypt at rest, enable expiring user tokens, add revoke via
 `DELETE /applications/{client_id}/token`. Leak blast radius: create/delete codespaces only.

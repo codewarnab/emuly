@@ -18,7 +18,7 @@ import type { OutgoingEvent } from "./events.ts";
 
 const DAY = 86_400_000;
 function fixture() {
-  const directory = mkdtempSync(join(tmpdir(), "phonelink-retention-"));
+  const directory = mkdtempSync(join(tmpdir(), "emuly-retention-"));
   const filename = join(directory, "test.db");
   let database = openDatabase(filename);
   const asyncDatabase = createClient({ url: pathToFileURL(filename).href });

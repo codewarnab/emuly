@@ -270,7 +270,7 @@ Error responses never contain shell commands, filesystem paths, full URLs, or ra
 
 ## 7. Persistence, concurrency, and recovery
 
-The runner stores private operation records under `~/phonelink/data/app-installs/`.
+The runner stores private operation records under `~/emuly/data/app-installs/`.
 Use generated directories with restrictive permissions, exclusive file creation, and atomic metadata replacement.
 Guard against symlinks and traversal at every file boundary.
 Only delete verified paths beneath the operation root.

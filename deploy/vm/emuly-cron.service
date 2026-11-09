@@ -1,14 +1,14 @@
 [Unit]
-Description=PhoneLink outbound scheduler
+Description=Emuly outbound scheduler
 Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=oneshot
 DynamicUser=yes
-LoadCredential=endpoint:/etc/phonelink-scheduler/endpoint
-LoadCredential=secret:/etc/phonelink-scheduler/secret
-ExecStart=/usr/bin/python3 -I /usr/local/lib/phonelink-scheduler/trigger.py
+LoadCredential=endpoint:/etc/emuly-scheduler/endpoint
+LoadCredential=secret:/etc/emuly-scheduler/secret
+ExecStart=/usr/bin/python3 -I /usr/local/lib/emuly-scheduler/trigger.py
 TimeoutStartSec=295
 UMask=0077
 NoNewPrivileges=yes

@@ -10,7 +10,7 @@ test("billing countdown adds live phone time once, clamps other usage, and falls
   const atReport = estimateUsage(runs, 120, () => Date.parse("2026-11-01T01:00:00Z"));
   const live = estimateUsage(runs, 120, () => Date.parse("2026-11-01T02:00:00Z"));
   assert.deepEqual(reconcileUsage(live, atReport, 20), {
-    reported_core_hours: 20, phonelink_core_hours: 8, other_core_hours: 12, hours_left_at_current_rate: 24,
+    reported_core_hours: 20, emuly_core_hours: 8, other_core_hours: 12, hours_left_at_current_rate: 24,
   });
   assert.equal(reconcileUsage(live, atReport, 1).other_core_hours, 0);
   assert.equal(reconcileUsage(live, atReport, 1).hours_left_at_current_rate, 28);

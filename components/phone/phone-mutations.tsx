@@ -68,7 +68,7 @@ export function NewPhone({ usage }: { usage: Usage }) {
         </div>
         <IdleTimeoutField name="idleTimeoutMin" defaultValue={options.settings.default_idle_min ?? 30} />
         <div className={s.createFoot}>
-          <p className={s.createHint} title="Estimated from phonelink phones only. Other codespaces use the same hours. Stopped phones are kept for 30 days.">
+          <p className={s.createHint} title="Estimated from Emuly phones only. Other codespaces use the same hours. Stopped phones are kept for 30 days.">
             <strong>{(left / nextRate).toFixed(1)} h</strong> left{running ? ` with ${usage.running.length + 1} running` : " this month"}
           </p>
           <Button disabled={pending}>{pending ? "Creating…" : running ? "Start another" : "Create phone"}</Button>
@@ -120,7 +120,7 @@ export function PhoneRefresh() {
       stream = new EventSource("/app/events");
       stream.onmessage = () => {
         healthy = true;
-        if (received) { refresh(); window.dispatchEvent(new Event("phonelink:changed")); }
+        if (received) { refresh(); window.dispatchEvent(new Event("emuly:changed")); }
         received = true;
       };
       stream.onerror = () => { healthy = false; };

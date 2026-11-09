@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createPhoneAppsApi } from "./phone-apps-api.ts";
 
-const request = (method: string, body?: string, origin = "https://phonelink.test") => new Request("https://phonelink.test/v1/phones/one/apps", {
+const request = (method: string, body?: string, origin = "https://emuly.test") => new Request("https://emuly.test/v1/phones/one/apps", {
   method, headers: { origin, "content-type": "application/json" }, ...(body ? { body } : {}),
 });
 test("Apps rejects unauthenticated, foreign-owner, stopped and cross-origin requests before runner access", async () => {
@@ -21,7 +21,7 @@ test("Apps rejects oversized streaming chunks even without Content-Length", asyn
   const api = createPhoneAppsApi({ user: async () => ({ id: 8 }), phone: () => ({ state: "running", android_state: "ready" }),
     runner: async () => { reached = true; return Response.json({}); } });
   const body = new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(4 * 1024 * 1024 + 1)); controller.close(); } });
-  const input = new Request("https://phonelink.test/upload", { method: "PUT", headers: { origin: "https://phonelink.test", "content-type": "application/octet-stream", "x-upload-offset": "0", "x-chunk-sha256": "0".repeat(64) }, body, duplex: "half" } as RequestInit);
+  const input = new Request("https://emuly.test/upload", { method: "PUT", headers: { origin: "https://emuly.test", "content-type": "application/octet-stream", "x-upload-offset": "0", "x-chunk-sha256": "0".repeat(64) }, body, duplex: "half" } as RequestInit);
   const response = await api(input, "one", ["app-installs", "11111111-1111-1111-1111-111111111111", "content"]);
   assert.equal(response.status, 413); assert.equal(reached, false);
 });

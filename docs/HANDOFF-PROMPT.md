@@ -1,4 +1,4 @@
-# Handoff brief — build the phonelink console
+# Handoff brief — build the Emuly console
 
 Copy the prompt at the bottom of this file, or open this folder and say:
 "Read `docs/HANDOFF-PROMPT.md` and start at Step 1."
@@ -10,7 +10,7 @@ UNKNOWN. Do not guess an UNKNOWN value.
 
 ## 1. The job
 
-Build the phonelink console: a Next.js app where a person signs in with their own GitHub
+Build the Emuly console: a Next.js app where a person signs in with their own GitHub
 account and drives an Android phone that runs in their own Codespace.
 
 The landing page already exists and is finished. Do not restyle it. The work is the console
@@ -23,7 +23,7 @@ brief adds the facts that the plan assumes.
 
 ## 2. Where everything is
 
-Project root: `/home/ubuntu/code/phonelink`
+Project root: `/home/ubuntu/code/emuly`
 
 ```
 app/
@@ -76,7 +76,7 @@ Read `docs/DESIGN.md` and `components/console.module.css` for the live visual sy
 6. **One OAuth scope: `codespace`.** Never request `repo`, `user`, `admin:org`, or billing.
    If a feature needs more, stop and ask.
 7. **The token can reach every codespace the user owns.** The app may only touch codespaces
-   whose name starts with `phonelink-` **and** which exist in the `phones` table for that
+   whose name starts with `emuly-` **and** which exist in the `phones` table for that
    user. Enforce this in one module, and test it.
 8. **Do not change the landing page copy or layout.** Its accuracy is the product's trust
    story. A pixel diff must stay clean.
@@ -108,10 +108,10 @@ keeps the phone". Label the hours meter "estimated". Boot numbers are ranges.
 
 ## 6. Open question — do not guess
 
-**Template repo name.** The plan assumes `codewarnab/phonelink-template` (public, holds the
+**Template repo name.** The plan assumes `codewarnab/emuly-template` (public, holds the
 devcontainer and the runner). This is UNKNOWN and unconfirmed. Ask the user before creating
 anything that depends on it. Until then read it from
-`PHONELINK_TEMPLATE_REPO` and fail loudly if unset.
+`EMULY_TEMPLATE_REPO` and fail loudly if unset.
 
 Everything else needed for Phase 1 and Phase 2 does not depend on it.
 
@@ -158,15 +158,15 @@ others without asking, unless a gate fails.
 `.env.local`, gitignored, mode 600. Never paste values into chat.
 
 ```
-PHONELINK_BASE_URL=http://localhost:4321
-PHONELINK_GITHUB_CLIENT_ID=
-PHONELINK_GITHUB_CLIENT_SECRET=
-PHONELINK_TOKEN_KEY=      # openssl rand -base64 32
-PHONELINK_DB=.data/phonelink.db
-PHONELINK_TEMPLATE_REPO=
+EMULY_BASE_URL=http://localhost:4321
+EMULY_GITHUB_CLIENT_ID=
+EMULY_GITHUB_CLIENT_SECRET=
+EMULY_TOKEN_KEY=      # openssl rand -base64 32
+EMULY_DB=.data/emuly.db
+EMULY_TEMPLATE_REPO=
 # Optional operator cap across all users for local tests; unset by default.
-# PHONELINK_MAX_PHONES=10
-PHONELINK_MAX_TUNNELS=6
+# EMULY_MAX_PHONES=10
+EMULY_MAX_TUNNELS=6
 ```
 
 OAuth App callback URL to register: `http://localhost:4321/auth/callback`.
@@ -176,7 +176,7 @@ OAuth App callback URL to register: `http://localhost:4321/auth/callback`.
 ## The prompt to paste
 
 ```
-You are building the phonelink console in /home/ubuntu/code/phonelink.
+You are building the Emuly console in /home/ubuntu/code/emuly.
 
 First, read these files in this order, fully:
 1. docs/HANDOFF-PROMPT.md   (the brief, rules, and facts)
@@ -193,13 +193,13 @@ Hard constraints, in priority order:
 - Never delete a codespace or AVD without explicit confirmation from me, for that
   specific item. Stopping is always fine, and stopping must never wipe the phone.
 - One OAuth scope only: codespace. Never ask for repo.
-- Only touch codespaces named phonelink-* that exist in our own database for that user.
+- Only touch codespaces named emuly-* that exist in our own database for that user.
 - Do not change the landing page. It is finished and verified.
 - Free forever. One plan. No paid tier, no waitlist, no "coming soon".
 - Never print or commit secrets. Use .env.local.
 
 Do not guess these, ask me:
-- The template repo name (PHONELINK_TEMPLATE_REPO).
+- The template repo name (EMULY_TEMPLATE_REPO).
 - Anything that would delete data.
 - Anything that spends meaningful Codespaces money beyond a few test codespaces.
 

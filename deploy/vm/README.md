@@ -1,6 +1,6 @@
 # Outbound-only scheduler
 
-This host sends an authenticated HTTPS request. All PhoneLink jobs run on Vercel.
+This host sends an authenticated HTTPS request. All Emuly jobs run on Vercel.
 It needs Python 3, systemd with `LoadCredential` support, DNS and outbound HTTPS.
 No inbound ports, reverse tunnel, SSH integration, repository checkout, database
 credentials or GitHub credentials are needed on this host.
@@ -11,7 +11,7 @@ All paths below are generic installation paths, not details of any owner's host.
 Keep actual addresses, usernames, IPs, keys and configuration outside Git.
 Do not paste private configuration or journal output into public issues.
 
-Create `/etc/phonelink-scheduler` as root with mode `0700`. Place two root-owned
+Create `/etc/emuly-scheduler` as root with mode `0700`. Place two root-owned
 files with mode `0600` inside it, using a private provisioning channel:
 
 - `endpoint`: the app's exact `https://<deployment-domain>/api/cron` URL.
@@ -28,14 +28,14 @@ Review these generic templates before installing. Copy only these three files;
 do not clone the app or copy its `.env` onto the host.
 
 ```sh
-sudo install -d -o root -g root -m 0755 /usr/local/lib/phonelink-scheduler
-sudo install -o root -g root -m 0644 trigger.py /usr/local/lib/phonelink-scheduler/trigger.py
-sudo install -o root -g root -m 0644 phonelink-cron.service phonelink-cron.timer /etc/systemd/system/
-sudo systemd-analyze verify /etc/systemd/system/phonelink-cron.service /etc/systemd/system/phonelink-cron.timer
+sudo install -d -o root -g root -m 0755 /usr/local/lib/emuly-scheduler
+sudo install -o root -g root -m 0644 trigger.py /usr/local/lib/emuly-scheduler/trigger.py
+sudo install -o root -g root -m 0644 emuly-cron.service emuly-cron.timer /etc/systemd/system/
+sudo systemd-analyze verify /etc/systemd/system/emuly-cron.service /etc/systemd/system/emuly-cron.timer
 sudo systemctl daemon-reload
-sudo systemctl start phonelink-cron.service
-sudo journalctl -u phonelink-cron.service -n 10 --no-pager
-sudo systemctl enable --now phonelink-cron.timer
+sudo systemctl start emuly-cron.service
+sudo journalctl -u emuly-cron.service -n 10 --no-pager
+sudo systemctl enable --now emuly-cron.timer
 ```
 
 The first manual run should complete before enabling the timer. HTTP 409 means
@@ -59,8 +59,8 @@ Verify the deployed endpoint, then pause the timer for ten minutes. Resume it
 and confirm budget, retention and webhook work catches up. Monitor failures
 privately. A stopped timer pauses these checks; it does not stop user actions.
 
-Disable with `sudo systemctl disable --now phonelink-cron.timer`. Stop an active
-request with `sudo systemctl stop phonelink-cron.service`. Rotate both copies of
+Disable with `sudo systemctl disable --now emuly-cron.timer`. Stop an active
+request with `sudo systemctl stop emuly-cron.service`. Rotate both copies of
 the secret if exposed. No firewall changes are needed to undo this installation.
 
 ## Security boundary and limits

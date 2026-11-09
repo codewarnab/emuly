@@ -46,8 +46,8 @@ export function createWebhookOutbox({ database, decrypt, baseUrl, resolve, send 
         const hook = (await database.execute({ sql: "SELECT secret_cipher, enabled, url FROM webhooks WHERE id = ?", args: [row.webhook_id] })).rows[0];
         if (!hook?.enabled || hook.url !== row.url) { canceled = true; return 0; }
         return send(target, row.body, {
-          "content-type": "application/json", "phonelink-event": row.type, "phonelink-delivery": row.id,
-          "phonelink-signature": signWebhook(decrypt(new Uint8Array(hook.secret_cipher as ArrayBuffer)), row.body, Math.floor(clock() / 1000)),
+          "content-type": "application/json", "emuly-event": row.type, "emuly-delivery": row.id,
+          "emuly-signature": signWebhook(decrypt(new Uint8Array(hook.secret_cipher as ArrayBuffer)), row.body, Math.floor(clock() / 1000)),
         }, signal);
       })()]);
     } catch { /* No provider text or URL enters the log. A missing status means network failure. */ }

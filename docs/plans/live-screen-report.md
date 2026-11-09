@@ -42,7 +42,7 @@ Implemented through Phase 5. Prior local checks are recorded below. Real Codespa
 - This design requires a long-running Node process. Connection pools and background boots do not fit short-lived serverless handlers.
 - A boot can take several minutes. `/stop` waits behind boot in the runner. A stop timeout preserves the running Codespace and asks the user to retry.
 - A failed runner stop prevents stopping a running phone, preserving the chance to save its snapshot. During setup, runner failure permits Codespace shutdown and logs that no snapshot was saved.
-- When GitHub stops a Codespace outside phonelink, snapshot saving cannot be guaranteed.
+- When GitHub stops a Codespace outside Emuly, snapshot saving cannot be guaranteed.
 - The forwarded-port and Dev Tunnel paths remain private. Do not expose runner port 8790 publicly; the browser receives neither GitHub tokens nor tunnel credentials.
 - Setup recognizes runner protocol version 3 and refreshes older runners before boot. Existing installed phones require setup reconciliation or Retry setup before streaming.
 - HTTP screenshot polling remains the fallback when video is unavailable. Smooth video and full input still require real Codespace and browser acceptance checks.

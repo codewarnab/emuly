@@ -19,11 +19,11 @@ async function fixture() {
     VALUES (1, 1, 'synthetic-private-login', X'00', '', '${ts}', '${ts}'), (2, 2, 'other', X'00', '', '${ts}', '${ts}');
     INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state, created_at, runner_secret)
     VALUES ('phone-aaaa', 1, 'synthetic-private-codespace', 'private/repo', 'machine', 'running', '${ts}', X'00');`);
-  const previous = process.env.PHONELINK_DIAGNOSTICS, target = process.env.PHONELINK_DIAGNOSTICS_PHONE;
-  process.env.PHONELINK_DIAGNOSTICS = "1"; delete process.env.PHONELINK_DIAGNOSTICS_PHONE;
+  const previous = process.env.EMULY_DIAGNOSTICS, target = process.env.EMULY_DIAGNOSTICS_PHONE;
+  process.env.EMULY_DIAGNOSTICS = "1"; delete process.env.EMULY_DIAGNOSTICS_PHONE;
   return { database, store: createDiagnostics(database), close() {
-    if (previous === undefined) delete process.env.PHONELINK_DIAGNOSTICS; else process.env.PHONELINK_DIAGNOSTICS = previous;
-    if (target === undefined) delete process.env.PHONELINK_DIAGNOSTICS_PHONE; else process.env.PHONELINK_DIAGNOSTICS_PHONE = target;
+    if (previous === undefined) delete process.env.EMULY_DIAGNOSTICS; else process.env.EMULY_DIAGNOSTICS = previous;
+    if (target === undefined) delete process.env.EMULY_DIAGNOSTICS_PHONE; else process.env.EMULY_DIAGNOSTICS_PHONE = target;
     database.close();
   } };
 }
@@ -66,7 +66,7 @@ test("measurement executes work once, survives unavailable telemetry storage, an
     await f.database.executeMultiple("DROP TABLE diagnostic_steps");
     assert.equal(await f.store.scope(op, () => measure("github_create", async () => { calls++; return 42; })), 42);
     assert.equal(calls, 1);
-    process.env.PHONELINK_DIAGNOSTICS = "0";
+    process.env.EMULY_DIAGNOSTICS = "0";
     assert.equal(await f.store.operation(1, "phone-aaaa", "resume"), undefined);
     assert.equal(await f.store.write(op, record), false);
     assert.equal((await f.database.execute({ sql: "SELECT count(*) AS n FROM diagnostic_operations", args: [] })).rows[0]?.n, 1);

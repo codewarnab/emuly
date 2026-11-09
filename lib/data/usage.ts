@@ -14,7 +14,7 @@ export function reconcileUsage(estimate: Usage, atReport: Usage, reported: numbe
   const rate = estimate.running.reduce((sum, phone) => sum + phone.cores, 0);
   return {
     reported_core_hours: reported ?? estimate.used_core_hours,
-    phonelink_core_hours: estimate.used_core_hours,
+    emuly_core_hours: estimate.used_core_hours,
     other_core_hours: reported === null ? 0 : Math.max(0, reported - estimate.used_core_hours),
     hours_left_at_current_rate: rate ? Math.max(0, estimate.allowance_core_hours - liveUsed) / rate : null,
   };

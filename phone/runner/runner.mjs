@@ -1,4 +1,4 @@
-// phonelink runner: a small HTTP API around adb and the emulator scripts.
+// emuly runner: a small HTTP API around adb and the emulator scripts.
 // Listens on 127.0.0.1:8790. The dashboard reaches it over `gh codespace ssh -L`.
 import ws from "./ws.cjs";
 import { startScrcpy } from "./scrcpy.mjs";
@@ -69,7 +69,7 @@ const routes = {
       const start = Date.now();
       const operation = typeof diagnosticOperation === "string" && /^[a-f0-9]{32}$/.test(diagnosticOperation) ? diagnosticOperation : undefined;
       await run("bash", [join(ROOT, "scripts", "boot.sh"), mode === "cold" ? "cold" : "resume"], { timeout: 600000,
-        env: { ...process.env, PHONELINK_DIAGNOSTICS: operation ? "1" : "0", PH_OPERATION_ID: operation ?? "disabled" } });
+        env: { ...process.env, EMULY_DIAGNOSTICS: operation ? "1" : "0", PH_OPERATION_ID: operation ?? "disabled" } });
       apps.resume();
       return { booted: await booted(), seconds: Math.round((Date.now() - start) / 1000) };
     }).finally(() => { boot = undefined; });

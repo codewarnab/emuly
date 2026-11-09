@@ -31,13 +31,13 @@ type TunnelProperties = {
 export async function openCodespacePort(token: string, codespaceName: string, signal: AbortSignal) {
   if (!/^[\w-]{1,100}$/.test(codespaceName)) throw new CodespaceTunnelError("Invalid codespace name");
   const res = await measure("metadata_fetch", () => fetch(`https://api.github.com/user/codespaces/${codespaceName}?internal=true&refresh=true`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "phonelink" }, signal,
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "emuly" }, signal,
   }));
   if (!res.ok) throw new CodespaceTunnelError(`GitHub returned ${res.status} for the codespace connection.`);
   const body = await res.json() as { connection?: { tunnelProperties?: TunnelProperties } };
   const tp = body.connection?.tunnelProperties;
   if (!tp) throw new CodespaceTunnelError("The codespace has no connection yet.");
-  const manager = new TunnelManagementHttpClient("phonelink", API_VERSION, undefined, tp.serviceUri);
+  const manager = new TunnelManagementHttpClient("emuly", API_VERSION, undefined, tp.serviceUri);
   const accessTokens = { connect: tp.connectAccessToken, "manage:ports": tp.managePortsAccessToken };
   const tunnel = await measure("tunnel_lookup", () => manager.getTunnel({ ...tp, accessTokens } as Tunnel, { includePorts: true }));
   if (!tunnel) throw new CodespaceTunnelError("The codespace tunnel was not found.");
@@ -96,7 +96,7 @@ export async function codespaceExec({ token, codespaceName, command, stdin, pty 
 }): Promise<{ code: number; output: string }> {
   if (!/^[\w-]{1,100}$/.test(codespaceName)) throw new CodespaceTunnelError("Invalid codespace name");
   const res = await measure("metadata_fetch", () => fetch(`${api}/user/codespaces/${codespaceName}?internal=true&refresh=true`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "phonelink" },
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "emuly" },
   }));
   if (!res.ok) throw new CodespaceTunnelError(`GitHub returned ${res.status} for the codespace connection.`);
   const body = await res.json() as { state?: string; connection?: { tunnelProperties?: TunnelProperties } };
@@ -104,7 +104,7 @@ export async function codespaceExec({ token, codespaceName, command, stdin, pty 
   if (!tp) throw new CodespaceTunnelError(`The codespace has no connection yet (state: ${body.state ?? "unknown"}).`);
 
   const accessTokens = { connect: tp.connectAccessToken, "manage:ports": tp.managePortsAccessToken };
-  const manager = new TunnelManagementHttpClient("phonelink", API_VERSION, undefined, tp.serviceUri);
+  const manager = new TunnelManagementHttpClient("emuly", API_VERSION, undefined, tp.serviceUri);
   const options = { includePorts: true };
   const tunnel = await measure("tunnel_lookup", () => manager.getTunnel({ tunnelId: tp.tunnelId, clusterId: tp.clusterId, domain: tp.domain, accessTokens } as Tunnel, options));
   if (!tunnel) throw new CodespaceTunnelError("The codespace tunnel was not found.");

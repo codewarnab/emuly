@@ -21,15 +21,15 @@ Their next setup check records the current result explicitly.
 Set these server settings for one owned disposable test phone:
 
 ```dotenv
-PHONELINK_DIAGNOSTICS=1
-PHONELINK_DIAGNOSTICS_PHONE=phone-0123456789abcdef
-PHONELINK_RELEASE=0123456
+EMULY_DIAGNOSTICS=1
+EMULY_DIAGNOSTICS_PHONE=phone-0123456789abcdef
+EMULY_RELEASE=0123456
 ```
 
-`PHONELINK_RELEASE` accepts a lowercase Git revision with 7–40 hexadecimal characters.
+`EMULY_RELEASE` accepts a lowercase Git revision with 7–40 hexadecimal characters.
 Invalid or absent revisions become `unknown`.
 Unset the phone filter only after reviewing acceptance evidence and collection cost.
-Setting `PHONELINK_DIAGNOSTICS=0` stops central diagnostic writes and browser attempt issuance.
+Setting `EMULY_DIAGNOSTICS=0` stops central diagnostic writes and browser attempt issuance.
 Already-running remote scripts can finish writing their bounded local progress file.
 No telemetry setting creates, starts, stops, or deletes a phone.
 
@@ -38,10 +38,10 @@ No telemetry setting creates, starts, stops, or deletes a phone.
 Run from the service checkout, using the same protected host access as the database:
 
 ```sh
-node scripts/diagnostics.ts .data/phonelink.db list
-node scripts/diagnostics.ts .data/phonelink.db timeline <operation-id>
-node scripts/diagnostics.ts .data/phonelink.db aggregate
-node scripts/diagnostics.ts .data/phonelink.db health
+node scripts/diagnostics.ts .data/emuly.db list
+node scripts/diagnostics.ts .data/emuly.db timeline <operation-id>
+node scripts/diagnostics.ts .data/emuly.db aggregate
+node scripts/diagnostics.ts .data/emuly.db health
 ```
 
 The reader opens SQLite read-only. It does not load credentials or migrate the database.
@@ -87,7 +87,7 @@ Account deletion cascades through linked diagnostic records.
 Each operation holds at most 2,048 steps. Excess records increment dropped counts.
 Remote batches hold at most 32 records and 24 KiB of source lines.
 Each record is at most 2 KiB. Each progress file is at most approximately 1 MiB.
-Progress uses a per-operation directory under `$HOME/phonelink/.progress` with private permissions.
+Progress uses a per-operation directory under `$HOME/emuly/.progress` with private permissions.
 The reader rejects symlinks, non-regular files, wrong owners, and unexpected operation paths.
 Partial final lines remain unread until complete. Malformed complete lines are dropped.
 Delivery deduplicates by step identity and producer sequence.

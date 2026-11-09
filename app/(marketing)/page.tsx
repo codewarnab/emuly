@@ -11,7 +11,7 @@ import { AGENT_PROMPT } from "../../lib/agent-prompt";
 import s from "./landing.module.css";
 
 export const metadata: Metadata = {
-  title: "phonelink — a free Android emulator in the cloud",
+  title: "Emuly — a free Android emulator in the cloud",
   description: "Run an Android emulator in the cloud, for free. Use the Codespaces hours included in your GitHub plan. Paste one prompt into your coding agent.",
 };
 
@@ -52,14 +52,14 @@ export default function LandingPage() {
       <section className={s.faq} aria-label="Common questions">
         <h2>A few things to know</h2>
         <div>
-          <details><summary>Is it really free?</summary><p>Yes. You bring the compute through the Codespaces hours included in your GitHub plan. Phonelink never bills you or resells GitHub. Stay within your included hours to avoid GitHub charges.</p></details>
+          <details><summary>Is it really free?</summary><p>Yes. You bring the compute through the Codespaces hours included in your GitHub plan. Emuly never bills you or resells GitHub. Stay within your included hours to avoid GitHub charges.</p></details>
           <details><summary>What does it need from GitHub?</summary><p>One permission: Codespaces. No repo access. Your agent asks you to sign in when it needs approval.</p></details>
           <details><summary>What happens when I stop it?</summary><p>Your codespace keeps the phone. It resumes in about 15 seconds. Only deleting the codespace erases it. GitHub deletes a stopped phone after its retention period. New phones get 30 days after the last stop. The console shows each phone&apos;s countdown.</p></details>
           <details><summary>Limits?</summary><p>Running phones share your hours. GitHub decides how many codespaces you can have and run. GitHub stops an idle phone after 30 minutes or 4 hours, your choice. Cold boot takes 63–157 seconds. Hours shown in the console are estimates.</p></details>
         </div>
       </section>
     </main>
-    <footer className={s.footer}>phonelink — your codespace, your phone.</footer>
+    <footer className={s.footer}>Emuly — your codespace, your phone.</footer>
   </div>;
 }
 

@@ -8,7 +8,7 @@ test("screen routes enforce session, ownership, readiness, origin, and input bou
   const api = createPhoneScreenApi({ user: async () => identity,
     phone: (user, id) => user === 1 && id === "phone-aaaa" ? { state, android_state: android } : undefined,
     runner: async () => { calls++; return Response.json({ ok: true }); } });
-  const request = (input: unknown, origin = "https://phonelink.test") => new Request("https://phonelink.test/app/phones/phone-aaaa/screen.png", {
+  const request = (input: unknown, origin = "https://emuly.test") => new Request("https://emuly.test/app/phones/phone-aaaa/screen.png", {
     method: "POST", headers: { "Content-Type": "application/json", origin }, body: JSON.stringify(input) });
   assert.equal((await api(request({}), "phone-aaaa")).status, 401);
   identity = { id: 2 };
@@ -38,7 +38,7 @@ test("screens return only PNG bytes with private no-store headers, and hide upst
       if (invalid) throw new Error("synthetic-private-token");
       return new Response(bytes, { headers: { "Content-Type": "image/png", "X-Github-Token": "synthetic-private-token" } });
     } });
-  const request = new Request("https://phonelink.test/screen.png");
+  const request = new Request("https://emuly.test/screen.png");
   const response = await api(request, "phone-aaaa");
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("Cache-Control"), "private, no-store");

@@ -7,7 +7,7 @@ directory = None
 output = None
 try:
     target = os.path.abspath(sys.argv[1])
-    allowed = [os.path.join(os.path.expanduser("~"), "phonelink", "setup.log"), "/tmp/runner.log", "/tmp/emulator.log"]
+    allowed = [os.path.join(os.path.expanduser("~"), "emuly", "setup.log"), "/tmp/runner.log", "/tmp/emulator.log"]
     if target not in allowed or os.path.islink(os.path.dirname(target)):
         raise ValueError("unsupported log")
     directory = os.open(os.path.dirname(target), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)

@@ -27,7 +27,7 @@ export function HoursSettings() {
     </fieldset>
     <label className={s.settingToggle}>
       <span><b>Stop phones before hours run out <InfoTip label="What auto-stop does">
-        When your estimated hours drop to about 30 minutes, phonelink stops your running phones.
+        When your estimated hours drop to about 30 minutes, Emuly stops your running phones.
         Stopping keeps each phone and its apps. GitHub stops charging, so you do not pay past your free hours.
         Wake a phone again when your hours reset or after you add more.
       </InfoTip></b><small>At about 30 min left.</small></span>

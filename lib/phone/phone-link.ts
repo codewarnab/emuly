@@ -12,7 +12,7 @@ export type AppsPath = "/apps" | "/apps/open" | "/app-installs" | `/app-installs
 export type AppsRequest = { method: "GET" | "POST" | "PUT"; json?: Record<string, unknown>; bytes?: Uint8Array; offset?: number; digest?: string; signal?: AbortSignal };
 
 /** One connection per owned phone. Only a read-only probe may fall back; never replay a mutation. */
-export function createPhoneLinks({ token, tunnel, keepAwake, observations, fetch: request = fetch, idleMs = 120_000 }: {
+export function createEmulyLinks({ token, tunnel, keepAwake, observations, fetch: request = fetch, idleMs = 120_000 }: {
   token: (userId: number) => Promise<string>;
   tunnel: (token: string, name: string, signal: AbortSignal) => Promise<Bridge>;
   keepAwake?: (token: string, name: string) => Promise<unknown>;

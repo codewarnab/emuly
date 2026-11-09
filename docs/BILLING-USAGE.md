@@ -8,7 +8,7 @@ Storage includes prebuild storage. GB-hours are divided by the calendar month's 
 Unknown units or malformed reports fall back to the local estimate.
 
 The cache lasts ten minutes per user and month. OAuth completion invalidates that user's cache.
-The countdown adds phonelink time since the cached report, with the full local estimate as a lower bound.
+The countdown adds Emuly time since the cached report, with the full local estimate as a lower bound.
 It cannot observe other codespaces' live activity or correct GitHub's reporting delay.
 The REST usage API and automatic stop continue to use the local estimate.
 

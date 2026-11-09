@@ -30,7 +30,7 @@ an explicit field allowlist and redact credentials and URLs in messages.
 DNS is checked at registration and on every attempt. Every answer must be public.
 The socket connects to a checked address while retaining the original TLS server
 name and Host header. Redirects are never followed. HTTP localhost is allowed
-only when `PHONELINK_BASE_URL` itself has the hostname `localhost`.
+only when `EMULY_BASE_URL` itself has the hostname `localhost`.
 
 ## Existing lifecycle limits
 
@@ -43,7 +43,7 @@ The current delete UI remains unavailable. Reconciliation emits `phone.deleted`
 when GitHub reports deletion; M4 does not add destructive phone controls.
 GitHub does not distinguish an external manual stop from idle timeout in the
 fields currently read. Those stops use `reason: "github"`. Stops requested through
-phonelink preserve `user`, `hours_budget`, or `retention` until shutdown confirms.
+Emuly preserve `user`, `hours_budget`, or `retention` until shutdown confirms.
 
 No real GitHub calls are required for M4 tests. The localhost receiver verifies
 actual raw HTTP signatures and proves that redirects are not followed. Other

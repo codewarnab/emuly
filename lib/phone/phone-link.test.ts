@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { createPhoneLinks } from "./phone-link.ts";
+import { createEmulyLinks } from "./phone-link.ts";
 
 const phone = { userId: 1, id: "phone-aaaa", codespaceName: "owned-space" };
 
@@ -22,7 +22,7 @@ test("Apps transports binary chunks unchanged through forwarding and bridge, pre
     });
     server.listen(0, "127.0.0.1"); await once(server, "listening");
     const address = server.address() as { port: number };
-    const links = createPhoneLinks({ token: async () => "synthetic-credential",
+    const links = createEmulyLinks({ token: async () => "synthetic-credential",
       tunnel: async () => ({ url: `http://127.0.0.1:${address.port}`, close() {} }),
       fetch: async (url, init) => {
         if (String(url).startsWith("https://")) {
@@ -55,7 +55,7 @@ test("private forwarding keeps tokens server-side, refuses redirects, and falls 
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const address = server.address() as { port: number };
-  const links = createPhoneLinks({ token: async () => "synthetic-token",
+  const links = createEmulyLinks({ token: async () => "synthetic-token",
     tunnel: async () => { opens++; return { url: `http://127.0.0.1:${address.port}`, close: () => { closes++; } }; },
     fetch: async (url, init) => {
       if (String(url).startsWith("https://")) {
@@ -81,7 +81,7 @@ test("private forwarding keeps tokens server-side, refuses redirects, and falls 
 
 test("forwarded connections refresh credentials, isolate owners, and never replay failed input", async () => {
   let credential = "first", calls = 0, owner = 1;
-  const links = createPhoneLinks({ token: async user => `${credential}-${user}`,
+  const links = createEmulyLinks({ token: async user => `${credential}-${user}`,
     tunnel: async () => { throw new Error("No fallback after a successful probe"); },
     fetch: async (url, init) => {
       calls++;
@@ -105,7 +105,7 @@ test("idle bridges close and reconnect, while active requests retain their conne
   let opens = 0, closes = 0;
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-  const links = createPhoneLinks({ token: async () => "synthetic", idleMs: 20,
+  const links = createEmulyLinks({ token: async () => "synthetic", idleMs: 20,
     tunnel: async () => { opens++; return { url: "http://bridge.invalid", close: () => { closes++; } }; },
     fetch: async url => {
       if (String(url).startsWith("https://")) return new Response(null, { status: 403 });
@@ -131,7 +131,7 @@ test("closing a phone cancels a pending connection and disposes a bridge that op
   const entered = Promise.withResolvers<void>();
   const bridge = Promise.withResolvers<{ url: string; close: () => void }>();
   let closes = 0;
-  const links = createPhoneLinks({ token: async () => "synthetic",
+  const links = createEmulyLinks({ token: async () => "synthetic",
     fetch: async () => new Response(null, { status: 403 }),
     tunnel: async (_token, _name, signal) => {
       entered.resolve();
@@ -152,7 +152,7 @@ test("a late failure from a closed connection cannot close its replacement", asy
   const entered = Promise.withResolvers<void>();
   const failed = Promise.withResolvers<Response>();
   let opens = 0, closes = 0;
-  const links = createPhoneLinks({ token: async () => "synthetic",
+  const links = createEmulyLinks({ token: async () => "synthetic",
     tunnel: async () => ({ url: `http://bridge-${++opens}.invalid`, close: () => { closes++; } }),
     fetch: async url => {
       if (String(url).startsWith("https://")) return new Response(null, { status: 403 });
@@ -173,7 +173,7 @@ test("a late failure from a closed connection cannot close its replacement", asy
 
 test("a stream holds its Phase 0 lease until release and closes when the phone closes", async () => {
   let closes = 0;
-  const links = createPhoneLinks({ token: async () => "synthetic", idleMs: 15,
+  const links = createEmulyLinks({ token: async () => "synthetic", idleMs: 15,
     fetch: async () => new Response(null, { status: 403 }),
     tunnel: async () => ({ url: "http://127.0.0.1:10001", close: () => { closes++; } }) });
   try {
@@ -192,7 +192,7 @@ test("a stream holds its Phase 0 lease until release and closes when the phone c
 
 test("a rejected private WebSocket switches the next connection to the persistent bridge", async () => {
   let tunnels = 0, token = "first";
-  const links = createPhoneLinks({ token: async () => token,
+  const links = createEmulyLinks({ token: async () => token,
     fetch: async () => Response.json({ ok: true }),
     tunnel: async () => { tunnels++; return { url: "http://127.0.0.1:10002", close() {} }; } });
   try {

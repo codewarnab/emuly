@@ -1,4 +1,4 @@
-# phonelink web app — implementation plan
+# Emuly web app — implementation plan
 
 Status: draft, 2026-11-06. The design board file was deleted; `docs/DESIGN.md` now holds
 the live visual system.
@@ -52,7 +52,7 @@ Two hard constraints shape everything:
 ## 2. What already exists
 
 ```
-/home/ubuntu/code/phonelink
+/home/ubuntu/code/emuly
   app/
     layout.tsx              root layout, metadata
     page.tsx                landing page (server component)
@@ -111,7 +111,7 @@ tunnels (start with 6) and close on idle > 10 min.
 
 ## 4. Data model
 
-SQLite file at `/var/lib/phonelink/phonelink.db`, `PRAGMA journal_mode=WAL`,
+SQLite file at `/var/lib/emuly/emuly.db`, `PRAGMA journal_mode=WAL`,
 `PRAGMA foreign_keys=ON`, `PRAGMA busy_timeout=5000`.
 
 ```sql
@@ -141,7 +141,7 @@ CREATE INDEX sessions_user ON sessions(user_id);
 CREATE TABLE phones (
   id                TEXT PRIMARY KEY,   -- "phone-7f2a", also the display name
   user_id           INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  codespace_name    TEXT NOT NULL UNIQUE,  -- "phonelink-7f2a-3kd9"
+  codespace_name    TEXT NOT NULL UNIQUE,  -- "emuly-7f2a-3kd9"
   codespace_id      TEXT,
   repo_full_name    TEXT NOT NULL,
   machine           TEXT NOT NULL,
@@ -217,12 +217,12 @@ GET /login
 
 Details that matter:
 
-- **State cookie** is `__Host-pl_state`, `HttpOnly`, `Secure`, `SameSite=Lax`, 10-minute TTL,
+- **State cookie** is `__Host-emuly_state`, `HttpOnly`, `Secure`, `SameSite=Lax`, 10-minute TTL,
   single use.
 - **Cookies on localhost:** browsers treat `http://localhost` as a secure context, so
   `Secure` and `__Host-` cookies work without TLS. This stops working the moment you open
   the app on `http://<lan-ip>:4321`. Keep testing on `localhost`, or set
-  `PHONELINK_COOKIE_INSECURE=1` for a plain-HTTP LAN test; the flag must be off before any
+  `EMULY_COOKIE_INSECURE=1` for a plain-HTTP LAN test; the flag must be off before any
   real hosting.
 - **No PKCE.** GitHub OAuth Apps support it only recently and the client secret is required
   anyway; the code is exchanged server-to-server.
@@ -265,7 +265,7 @@ Rules:
 The token can manage **every** codespace the user owns. These invariants are enforced in
 `lib/github.ts` and covered by tests:
 
-1. `listCodespaces()` returns only codespaces whose name starts with `phonelink-` **and**
+1. `listCodespaces()` returns only codespaces whose name starts with `emuly-` **and**
    whose name exists in our `phones` table for that user. Everything else is dropped before
    it reaches a page.
 2. `start/stop/delete` call `assertOwnedCodespace()` first: the name must exist in `phones`
@@ -284,7 +284,7 @@ The token can manage **every** codespace the user owns. These invariants are enf
 
 ## 8. The runner inside the codespace
 
-The template repo (`phonelink-template`, public) has a devcontainer that:
+The template repo (`emuly-template`, public) has a devcontainer that:
 
 - installs JDK 17, the Android command-line tools, an API 36 AVD, and `ws-scrcpy`;
 - clones the public `agent-skills` repo for the `android-emu` scripts;
@@ -393,7 +393,7 @@ codespace at the end.
 - Extract `components/` primitives from the design board: `Pill`, `Button`, `Card`, `Stage`,
   `Meta`, `Tabs`, `Topbar`, `QuotaStrip`, `EmptyState`, `DangerPanel`.
 - `app/(app)/app/layout.tsx` with the top bar; mobile breakpoints from the board.
-- Fake data only, behind `PHONELINK_MOCK=1`.
+- Fake data only, behind `EMULY_MOCK=1`.
 
 **Acceptance:** `/app` and `/app/phones/phone-7f2a` render from fixtures at 1440 and 390
 px, matching the board within a pixel diff, and the landing page diff is unchanged.
@@ -484,7 +484,7 @@ unit, no public URL. The app runs on this machine so you can test it. Hosting is
 decision that happens later, and only after you say so.
 
 ```bash
-cd /home/ubuntu/code/phonelink
+cd /home/ubuntu/code/emuly
 cp .env.example .env.local        # gitignored, chmod 600
 pnpm dev                          # http://localhost:4321
 ```
@@ -492,15 +492,15 @@ pnpm dev                          # http://localhost:4321
 `.env.local` for local runs:
 
 ```
-PHONELINK_BASE_URL=http://localhost:4321
-PHONELINK_GITHUB_CLIENT_ID=…
-PHONELINK_GITHUB_CLIENT_SECRET=…
-PHONELINK_TOKEN_KEY=<32 bytes base64, generate with: openssl rand -base64 32>
-PHONELINK_DB=.data/phonelink.db
-PHONELINK_TEMPLATE_REPO=codewarnab/phonelink-template
+EMULY_BASE_URL=http://localhost:4321
+EMULY_GITHUB_CLIENT_ID=…
+EMULY_GITHUB_CLIENT_SECRET=…
+EMULY_TOKEN_KEY=<32 bytes base64, generate with: openssl rand -base64 32>
+EMULY_DB=.data/emuly.db
+EMULY_TEMPLATE_REPO=codewarnab/emuly-template
 # Optional operator cap across all users for local tests; unset by default.
-# PHONELINK_MAX_PHONES=10
-PHONELINK_MAX_TUNNELS=6
+# EMULY_MAX_PHONES=10
+EMULY_MAX_TUNNELS=6
 ```
 
 - GitHub OAuth App callback URL: `http://localhost:4321/auth/callback`. GitHub accepts
@@ -555,11 +555,11 @@ The landing page earned its trust by being accurate. The app keeps the same stan
 | Free accounts lack 4-core machines | Slower boots, worse UX | Query machines per user and show the real spec |
 | Users hit quota mid-session | Phone dies confusingly | Pre-flight estimate + "needs you" state with a link to GitHub |
 | Abuse: signups creating phones in a loop | Noise, support | 1 create/min, optional operator cap, GitHub limits, block list |
-| OAuth callback host changes later | Sign-in breaks until the callback URL is updated | `PHONELINK_BASE_URL` is one env var; localhost now, whatever you pick later |
+| OAuth callback host changes later | Sign-in breaks until the callback URL is updated | `EMULY_BASE_URL` is one env var; localhost now, whatever you pick later |
 
 Open questions for the user:
 
-1. Template repo owner/name — `codewarnab/phonelink-template`? (public)
+1. Template repo owner/name — `codewarnab/emuly-template`? (public)
 2. Resolved in `PLAN-MULTI.md` §1: no product phone count limit; running phones share the account hours.
 
 Hosting is not an open question here. It is out of scope until you finish local testing.

@@ -12,12 +12,12 @@ import { seal, open } from "../auth/crypto.ts";
 import { insertSession } from "../auth/session-store.ts";
 
 test("tokens refresh once for concurrent callers, persist encrypted, and invalidate sessions on failure", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "phonelink-token-test-"));
-  process.env.PHONELINK_DB = join(directory, "test.db");
-  process.env.PHONELINK_TOKEN_KEY = randomBytes(32).toString("base64");
-  process.env.PHONELINK_GITHUB_CLIENT_ID = "synthetic-client";
-  process.env.PHONELINK_GITHUB_CLIENT_SECRET = "synthetic-secret";
-  const database = openDatabase(process.env.PHONELINK_DB!);
+  const directory = mkdtempSync(join(tmpdir(), "emuly-token-test-"));
+  process.env.EMULY_DB = join(directory, "test.db");
+  process.env.EMULY_TOKEN_KEY = randomBytes(32).toString("base64");
+  process.env.EMULY_GITHUB_CLIENT_ID = "synthetic-client";
+  process.env.EMULY_GITHUB_CLIENT_SECRET = "synthetic-secret";
+  const database = openDatabase(process.env.EMULY_DB!);
   const client = asyncDb();
   let calls = 0;
   let refuse = false;

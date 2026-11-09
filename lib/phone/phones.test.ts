@@ -11,10 +11,10 @@ import { listPhones, findPhone, phoneCard } from "./phones.ts";
 import { phoneStatus } from "./phone-status.ts";
 
 test("phone lists, cards, and detail share persisted setup failure and handle records without attempts", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "phonelink-status-"));
-  const previousPath = process.env.PHONELINK_DB;
-  process.env.PHONELINK_DB = join(directory, "test.db");
-  openDatabase(process.env.PHONELINK_DB!).close();
+  const directory = mkdtempSync(join(tmpdir(), "emuly-status-"));
+  const previousPath = process.env.EMULY_DB;
+  process.env.EMULY_DB = join(directory, "test.db");
+  openDatabase(process.env.EMULY_DB!).close();
   const database = db();
   try {
     database.exec(`INSERT INTO users (id, github_id, login, token_cipher, token_scopes, created_at, last_seen_at)
@@ -35,8 +35,8 @@ test("phone lists, cards, and detail share persisted setup failure and handle re
     asyncDb().close();
     database.close();
     globalThis.gc?.();
-    if (previousPath === undefined) delete process.env.PHONELINK_DB;
-    else process.env.PHONELINK_DB = previousPath;
+    if (previousPath === undefined) delete process.env.EMULY_DB;
+    else process.env.EMULY_DB = previousPath;
     await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

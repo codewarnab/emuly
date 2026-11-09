@@ -9,22 +9,22 @@ function need(name: string): string {
 
 export const env = {
   get baseUrl() {
-    return need("PHONELINK_BASE_URL").replace(/\/$/, "");
+    return need("EMULY_BASE_URL").replace(/\/$/, "");
   },
   get clientId() {
-    return need("PHONELINK_GITHUB_CLIENT_ID");
+    return need("EMULY_GITHUB_CLIENT_ID");
   },
   get clientSecret() {
-    return need("PHONELINK_GITHUB_CLIENT_SECRET");
+    return need("EMULY_GITHUB_CLIENT_SECRET");
   },
   get tokenKey() {
-    return need("PHONELINK_TOKEN_KEY");
+    return need("EMULY_TOKEN_KEY");
   },
   get dbPath() {
-    return process.env.PHONELINK_DB || ".data/phonelink.db";
+    return process.env.EMULY_DB || ".data/emuly.db";
   },
   /** Plain-HTTP LAN testing only. Must be off before any real hosting. */
   get cookieInsecure() {
-    return process.env.PHONELINK_COOKIE_INSECURE === "1";
+    return process.env.EMULY_COOKIE_INSECURE === "1";
   },
 };

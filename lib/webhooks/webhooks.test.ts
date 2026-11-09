@@ -21,7 +21,7 @@ import { createPhoneService } from "../phone/phone-mutations.ts";
 
 const publicDns: ResolveHost = async () => [{ address: "93.184.216.34", family: 4 }];
 function fixture() {
-  const directory = mkdtempSync(join(tmpdir(), "phonelink-webhook-"));
+  const directory = mkdtempSync(join(tmpdir(), "emuly-webhook-"));
   const filename = join(directory, "test.db");
   let database = openDatabase(filename);
   const asyncDatabase = createClient({ url: pathToFileURL(filename).href });
@@ -33,14 +33,14 @@ function fixture() {
   for (const id of [1, 2]) database.prepare(`INSERT INTO users
     (id, github_id, login, token_cipher, token_scopes, created_at, last_seen_at)
     VALUES (?, ?, 'fixture', ?, 'codespace', '2026-11-01', '2026-11-01')`).run(id, id, encrypt("synthetic-token"));
-  const service = (resolve = publicDns, baseUrl = "https://phonelink.example", send?: SendWebhook) =>
+  const service = (resolve = publicDns, baseUrl = "https://emuly.example", send?: SendWebhook) =>
     createWebhookService({ database: asyncDatabase, encrypt, clock, baseUrl, resolve,
       deliver: createWebhookOutbox({ database: asyncDatabase, decrypt, clock, baseUrl, resolve, send }) });
   return {
     asyncDatabase, get database() { return database; }, clock, service, encrypt, decrypt,
     advance(ms: number) { time += ms; },
     reopen() { database.close(); database = openDatabase(filename); },
-    outbox(send?: SendWebhook, resolve = publicDns, baseUrl = "https://phonelink.example") {
+    outbox(send?: SendWebhook, resolve = publicDns, baseUrl = "https://emuly.example") {
       return createWebhookOutbox({ database: asyncDatabase, decrypt, clock, baseUrl, resolve, send });
     },
     async close() { asyncDatabase.close(); database.close(); globalThis.gc?.(); await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); },
@@ -151,13 +151,13 @@ test("outbox persists five retry delays across restarts, then fails; resend pres
     const failed = (await f.service().deliveries(1, hook.id))[0]!;
     assert.equal(failed.attempt, 6); assert.equal(failed.state, "failed"); assert.equal(failed.next_try_at, null);
     await f.outbox(send)(); assert.equal(calls.length, 6);
-    assert.ok(calls.every(call => call.headers["phonelink-delivery"] === failed.id));
+    assert.ok(calls.every(call => call.headers["emuly-delivery"] === failed.id));
     const rotated = await f.service().update(1, hook.id, { roll_secret: true });
     await f.service().resend(1, hook.id, failed.id);
     await f.outbox(async (_target, body, headers) => {
       assert.equal(JSON.parse(body).id, failed.event_id);
-      assert.ok(verifyWebhook(rotated.secret!, body, headers["phonelink-signature"]!, f.clock));
-      assert.equal(headers["phonelink-event"], "webhook.test");
+      assert.ok(verifyWebhook(rotated.secret!, body, headers["emuly-signature"]!, f.clock));
+      assert.equal(headers["emuly-event"], "webhook.test");
       return 204;
     })();
     assert.equal((await f.service().deliveries(1, hook.id))[0]?.state, "ok");
@@ -251,8 +251,8 @@ test("local receiver verifies wire signatures, refuses redirects, and aborts a s
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     received++;
     const body = Buffer.concat(chunks).toString("utf8");
-    valid = verifyWebhook(secret, body, String(request.headers["phonelink-signature"]), f.clock)
-      && request.headers["phonelink-event"] === "webhook.test" && String(request.headers["phonelink-delivery"]).startsWith("dlv_");
+    valid = verifyWebhook(secret, body, String(request.headers["emuly-signature"]), f.clock)
+      && request.headers["emuly-event"] === "webhook.test" && String(request.headers["emuly-delivery"]).startsWith("dlv_");
     if (request.url === "/timeout") return;
     response.writeHead(302, { Location: "/redirected" }); response.end();
   });
@@ -350,11 +350,11 @@ test("synchronous tests sign and persist the real result, isolate the delivery, 
   try {
     let secret = "";
     let sends = 0;
-    const service = f.service(publicDns, "https://phonelink.example", async (_target, body, headers, signal) => {
+    const service = f.service(publicDns, "https://emuly.example", async (_target, body, headers, signal) => {
       sends++;
       assert.equal(signal.aborted, false);
-      assert.equal(headers["phonelink-event"], "webhook.test");
-      assert.ok(verifyWebhook(secret, body, headers["phonelink-signature"]!, f.clock));
+      assert.equal(headers["emuly-event"], "webhook.test");
+      assert.ok(verifyWebhook(secret, body, headers["emuly-signature"]!, f.clock));
       f.advance(142);
       return 200;
     });
@@ -391,13 +391,13 @@ test("synchronous test reports HTTP and network failures and refuses DNS rebindi
     const hook = await f.service().create(1, { url: "https://receiver.example" });
     let sends = 0;
     for (const send of [async () => { sends++; return 503; }, async () => { sends++; throw new Error("private provider details"); }]) {
-      const result = await f.service(publicDns, "https://phonelink.example", send).testNow(1, hook.id);
+      const result = await f.service(publicDns, "https://emuly.example", send).testNow(1, hook.id);
       assert.equal(result?.state, "pending");
       assert.equal(result?.status, sends === 1 ? 503 : null);
       assert.equal((await f.service().deliveries(1, hook.id))[0]?.attempt, 1);
       f.advance(5000);
     }
-    const result = await f.service(async () => [{ address: "127.0.0.1", family: 4 }], "https://phonelink.example",
+    const result = await f.service(async () => [{ address: "127.0.0.1", family: 4 }], "https://emuly.example",
       async () => { sends++; return 200; }).testNow(1, hook.id);
     assert.equal(sends, 2); assert.equal(result?.status, null);
     assert.doesNotMatch(JSON.stringify(result), /private|provider|127\.0\.0\.1/);
@@ -412,7 +412,7 @@ test("a synchronous test and a concurrent outbox tick attempt a delivery only on
   const gate = new Promise<void>(resolve => { release = resolve; });
   try {
     let sends = 0;
-    const service = f.service(publicDns, "https://phonelink.example", async () => { sends++; sending(); await gate; return 204; });
+    const service = f.service(publicDns, "https://emuly.example", async () => { sends++; sending(); await gate; return 204; });
     const hook = await service.create(1, { url: "https://receiver.example" });
     const testing = service.testNow(1, hook.id);
     await started;

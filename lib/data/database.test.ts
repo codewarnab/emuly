@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { migrate, openDatabase } from "./database.ts";
 
 test("request connections require explicit migrations and never advance the schema", () => {
-  const directory = mkdtempSync(join(tmpdir(), "phonelink-schema-gate-"));
+  const directory = mkdtempSync(join(tmpdir(), "emuly-schema-gate-"));
   const filename = join(directory, "app.db");
   try {
     assert.throws(() => openDatabase(filename, false), /Run pnpm db:migrate/);
@@ -21,7 +21,7 @@ test("request connections require explicit migrations and never advance the sche
 });
 
 test("migrate applies a migration added after the connection was opened", () => {
-  const dir = mkdtempSync(join(tmpdir(), "phonelink-db-"));
+  const dir = mkdtempSync(join(tmpdir(), "emuly-db-"));
   const database = openDatabase(join(dir, "app.db"));
   try {
     const { user_version: latest } = database.prepare("PRAGMA user_version").get() as { user_version: number };
@@ -38,7 +38,7 @@ test("migrate applies a migration added after the connection was opened", () => 
 });
 
 test("migration 5 preserves saved allowances from v4 as explicit overrides", () => {
-  const directory = mkdtempSync(join(tmpdir(), "phonelink-billing-migration-"));
+  const directory = mkdtempSync(join(tmpdir(), "emuly-billing-migration-"));
   const filename = join(directory, "test.db");
   let database = new DatabaseSync(filename);
   try {
@@ -92,7 +92,7 @@ const v1 = `
 `;
 
 test("migrations preserve v1 phones, credentials, sessions and history; defaults and cascades survive reopen", () => {
-  const directory = mkdtempSync(join(tmpdir(), "phonelink-v2-"));
+  const directory = mkdtempSync(join(tmpdir(), "emuly-v2-"));
   const filename = join(directory, "test.db");
   let database = new DatabaseSync(filename);
   try {
@@ -128,7 +128,7 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
     assert.equal(database.prepare("SELECT generation FROM backups").get()?.generation, "gen-1");
     database.exec(`INSERT INTO user_settings (user_id) VALUES (1);
       INSERT INTO phone_keeps VALUES ('phone-aaaa', 'starting', '2026-11-07', NULL);
-      INSERT INTO runs (phone_id, cores, started_at, source) VALUES ('phone-aaaa', 4, '2026-11-07', 'phonelink');
+      INSERT INTO runs (phone_id, cores, started_at, source) VALUES ('phone-aaaa', 4, '2026-11-07', 'emuly');
       INSERT INTO notices VALUES (1, 'hours.low', '2026-11');`);
     assert.deepEqual({ ...database.prepare("SELECT * FROM user_settings").get() }, {
       user_id: 1, allowance_core_hours: 120, default_machine: null, default_idle_min: 30,

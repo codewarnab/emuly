@@ -5,10 +5,10 @@ import { UIProvider } from "@/components/ui/ui-provider";
 
 const body = Public_Sans({ subsets: ["latin"], variable: "--font-body", display: "swap" });
 const display = Sora({ subsets: ["latin"], variable: "--font-display", display: "swap" });
-const themeScript = `(function(){try{var q=matchMedia("(prefers-color-scheme: dark)");function apply(){var p=localStorage.getItem("phonelink-theme");document.documentElement.dataset.theme=p==="light"||p==="dark"?p:q.matches?"dark":"light"}apply();q.addEventListener("change",apply);addEventListener("storage",apply)}catch(e){}})()`;
+const themeScript = `(function(){try{var q=matchMedia("(prefers-color-scheme: dark)");function apply(){var p=localStorage.getItem("emuly-theme");document.documentElement.dataset.theme=p==="light"||p==="dark"?p:q.matches?"dark":"light"}apply();q.addEventListener("change",apply);addEventListener("storage",apply)}catch(e){}})()`;
 
 export const metadata: Metadata = {
-  title: "phonelink — a free Android emulator in the cloud",
+  title: "Emuly — a free Android emulator in the cloud",
   description:
     "Run an Android emulator in the cloud, for free. Use your included GitHub Codespaces hours with one prompt.",
 };

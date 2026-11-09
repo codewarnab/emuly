@@ -1,4 +1,4 @@
-# phonelink: blue porcelain
+# Emuly: blue porcelain
 
 The phone is the instrument. The interface is its quiet workbench. This design replaces
 console-v1; the historical HTML stays intact. Landing copy and section order stay intact.

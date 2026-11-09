@@ -26,11 +26,11 @@ export async function startScrcpy(ws, { adb, ADB, SERIAL, ROOT, quality }) {
   ws.on("close", close); ws.on("error", close);
   const timer = setTimeout(close, 20_000);
   try {
-    await adb(["push", join(ROOT, "runner/scrcpy-server.jar"), "/data/local/tmp/phonelink-scrcpy.jar"]);
+    await adb(["push", join(ROOT, "runner/scrcpy-server.jar"), "/data/local/tmp/emuly-scrcpy.jar"]);
     if (closed) return;
     port = Number((await adb(["forward", "tcp:0", `localabstract:${name}`])).trim());
     if (closed) { void adb(["forward", "--remove", `tcp:${port}`]).catch(() => {}); return; }
-    child = spawn(ADB, ["-s", SERIAL, "shell", "CLASSPATH=/data/local/tmp/phonelink-scrcpy.jar",
+    child = spawn(ADB, ["-s", SERIAL, "shell", "CLASSPATH=/data/local/tmp/emuly-scrcpy.jar",
       "app_process", "/", "com.genymobile.scrcpy.Server", "3.3.4", `scid=${scid.toString(16)}`,
       "tunnel_forward=true", "audio=false", "control=true", "video_codec=h264", `max_size=${size}`,
       `max_fps=${fps}`, `video_bit_rate=${bitrate}`, "send_dummy_byte=true", "send_device_meta=false", "send_codec_meta=false",

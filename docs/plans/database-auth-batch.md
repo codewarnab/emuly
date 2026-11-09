@@ -12,9 +12,9 @@ Implemented 2026-11-08. This is the first implementation batch for issue #3, not
 
 ## Configuration and limits
 
-For local development, leave `PHONELINK_DATABASE_URL` unset and run `pnpm db:migrate` before starting the application. Existing SQLite records are retained. Restart the server after changing database configuration.
+For local development, leave `EMULY_DATABASE_URL` unset and run `pnpm db:migrate` before starting the application. Existing SQLite records are retained. Restart the server after changing database configuration.
 
-Hosted connection settings are `PHONELINK_DATABASE_URL` and `PHONELINK_DATABASE_AUTH_TOKEN`. Supply credentials through the existing secret mechanism. The migration command also accepts URL-file and token-file paths as its two positional arguments. Neither command arguments nor logs contain credential values.
+Hosted connection settings are `EMULY_DATABASE_URL` and `EMULY_DATABASE_AUTH_TOKEN`. Supply credentials through the existing secret mechanism. The migration command also accepts URL-file and token-file paths as its two positional arguments. Neither command arguments nor logs contain credential values.
 
 Do not enable hosted mode for the full application yet. All application database consumers now use async libSQL. Shared OAuth refresh and phone/scheduled-operation coordination remain unfinished. Do not cut over a multi-instance deployment until that work and import acceptance are complete.
 

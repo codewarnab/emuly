@@ -23,7 +23,7 @@ export async function exchangeTokens(parameters: Record<string, string>, options
 } = {}): Promise<TokenPair> {
   const response = await githubFetch("https://github.com/login/oauth/access_token", {
     method: "POST",
-    headers: { Accept: "application/json", "User-Agent": "phonelink-local" },
+    headers: { Accept: "application/json", "User-Agent": "emuly-local" },
     body: new URLSearchParams({ client_id: env.clientId, client_secret: env.clientSecret, ...parameters }),
     cache: "no-store",
     signal: AbortSignal.timeout(15_000),
@@ -53,7 +53,7 @@ export async function githubGet(path: "/user" | "/user/codespaces?per_page=1", t
       Authorization: `Bearer ${token}`,
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "phonelink-local",
+      "User-Agent": "emuly-local",
     },
     cache: "no-store",
     signal: AbortSignal.timeout(15_000),
