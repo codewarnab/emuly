@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { TimeAgo } from "@/components/ui/event-time";
 import { APK_CHUNK_BYTES, APK_MAX_BYTES, installFinished, type AppInstall, type AppInstallStage, type InstalledApp } from "@/lib/phone/phone-apps-contract";
 import { parseAppInventory, parseAppInstall, parseAppInstalls, parseAppOpened, parsePhoneError, parseRunnerUpdate, readPhoneResponse } from "@/lib/phone/phone-response";
 import s from "@/components/phone/phone-apps.module.css";
@@ -198,6 +199,8 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
   const blockedReason = !ready ? "Start the phone first to install apps."
     : needsUpdate ? "Update the phone before installing apps."
     : "Wait for the current installation to finish.";
+  /** When a finished operation ended, so a restored record does not read as a new failure. */
+  const endedAt = operation && !active ? operation.updatedAt ?? operation.createdAt : undefined;
   return <section className={s.panel} aria-label="Apps">
     <div className={s.card}>
       <div className={s.cardHead}>
@@ -255,6 +258,7 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
         <p role="status"><strong>{stages[operation.stage] ?? "Checking status"}</strong></p>
       </div>
       <p className={s.filename}>{operation.filename}</p>
+      {endedAt && <small className={s.hint}>{stages[operation.stage]} · <TimeAgo at={endedAt} /></small>}
       {["uploading", "downloading"].includes(operation.stage) && <>
         <progress aria-label={stages[operation.stage]} value={operation.totalBytes ? operation.bytesReceived : undefined} max={operation.totalBytes ?? undefined} />
         <small>{size(operation.bytesReceived)}{operation.totalBytes ? ` of ${size(operation.totalBytes)}` : " received"}</small>

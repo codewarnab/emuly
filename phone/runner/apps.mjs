@@ -295,13 +295,15 @@ export async function createApps({ root, sdk, run, adb, exclusive, booted }) {
     try {
       const record = JSON.parse(await readFile(join(dir(item.name), "operation.json"), "utf8"));
       if (record.id !== item.name) continue;
+      // A restart ends every operation's story. Keeping old finished records would
+      // present a stale failure as if it had happened just now.
+      if (terminal(record.stage)) { await rm(dir(record.id), { recursive: true, force: true }); continue; }
       records.set(record.id, record);
       if (record.stage === "installing") {
         const version = await installedVersion(record.packageId).catch(() => null);
         await finish(record, record.priorVersionCode !== record.versionCode && version === record.versionCode ? "succeeded" : "interrupted",
           { message: "The runner restarted. Refresh apps before trying again." });
-      } else if (!terminal(record.stage)) await finish(record, "expired", { message: "The runner restarted. Submit the APK again." });
-      else await cleanupSource(record);
+      } else await finish(record, "expired", { message: "The runner restarted. Submit the APK again." });
     } catch {
       // IDs and direct-child directory type were checked before any recursive removal.
       await rm(dir(item.name), { recursive: true, force: true });
