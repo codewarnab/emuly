@@ -6,6 +6,7 @@ export function forbidAgent(user: { authKind?: "session" | "agent" }, message: s
     { status: 403, headers: { "Cache-Control": "private, no-store" } });
 }
 
+export const AGENT_DEVICE_MESSAGE = "Agent keys cannot approve sign-in requests. Open the link in a browser.";
 export const AGENT_SETTINGS_MESSAGE = "Agent keys cannot change account settings. Use the Emuly console.";
 export const AGENT_WEBHOOK_MESSAGE = "Agent keys can create and list webhooks, but cannot change, test or delete them. Use the Emuly console.";
 export const AGENT_DELETE_PHONE_MESSAGE = "Agent keys cannot delete a phone. Delete it in the Emuly console.";

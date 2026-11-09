@@ -19,20 +19,29 @@ export async function authenticateAgent(authorization: string | null, database: 
 const exchangeWindowMs = 60_000;
 const exchangeLimit = 10;
 const exchanges = new Map<string, number[]>();
+const deviceStarts = new Map<string, number[]>();
 
 /** Small in-process guard. A hosted deployment should replace this with a shared limiter. */
-export function allowAgentExchange(ip: string, now = Date.now()) {
-  const recent = (exchanges.get(ip) ?? []).filter(at => now - at < exchangeWindowMs);
+function allowAttempts(attempts: Map<string, number[]>, ip: string, now: number) {
+  const recent = (attempts.get(ip) ?? []).filter(at => now - at < exchangeWindowMs);
   if (recent.length >= exchangeLimit) {
-    exchanges.set(ip, recent);
+    attempts.set(ip, recent);
     return false;
   }
   recent.push(now);
-  exchanges.set(ip, recent);
-  if (exchanges.size > 10_000) {
-    for (const [key, times] of exchanges) if (!times.some(at => now - at < exchangeWindowMs)) exchanges.delete(key);
+  attempts.set(ip, recent);
+  if (attempts.size > 10_000) {
+    for (const [key, times] of attempts) if (!times.some(at => now - at < exchangeWindowMs)) attempts.delete(key);
   }
   return true;
+}
+
+export function allowAgentExchange(ip: string, now = Date.now()) {
+  return allowAttempts(exchanges, ip, now);
+}
+
+export function allowAgentDeviceStart(ip: string, now = Date.now()) {
+  return allowAttempts(deviceStarts, ip, now);
 }
 
 const SAFE_KEY = /^emuly_key_[A-Za-z0-9_-]+$/;

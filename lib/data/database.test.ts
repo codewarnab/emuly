@@ -26,12 +26,12 @@ test("migrate applies a migration added after the connection was opened", () => 
   const database = openDatabase(join(dir, "app.db"));
   try {
     const { user_version: latest } = database.prepare("PRAGMA user_version").get() as { user_version: number };
-    // Simulate a connection opened before the latest migration existed.
+    // Simulate a connection opened before the agent login migrations existed.
     database.exec(`DROP TABLE IF EXISTS agent_keys; DROP TABLE IF EXISTS agent_setup_codes;
-      PRAGMA user_version = ${latest - 1}`);
+      DROP TABLE IF EXISTS agent_device_codes; PRAGMA user_version = 11`);
     migrate(database);
     assert.equal((database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, latest);
-    assert.equal(database.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name IN ('agent_setup_codes', 'agent_keys')").get()?.n, 2);
+    assert.equal(database.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name IN ('agent_setup_codes', 'agent_keys', 'agent_device_codes')").get()?.n, 3);
     migrate(database); // no-op when current
   } finally {
     database.close();

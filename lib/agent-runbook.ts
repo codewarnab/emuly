@@ -1,5 +1,5 @@
 /** Static, versioned runbook served at /agent.md. It documents only routes that exist under app/v1. */
-export const AGENT_RUNBOOK_VERSION = "2026-11-09.4";
+export const AGENT_RUNBOOK_VERSION = "2026-11-09.5";
 
 export function agentRunbook(osId?: string | null, agentId?: string | null) {
   const supported = osId === "windows" && agentId === "claude-code";
@@ -45,14 +45,20 @@ Three ways to drive the phone exist. Use the first one by default.
 - At the end, ask whether to stop the phone, then use \`POST /v1/phones/<id>/stop\`.
   Stopping keeps the phone and its apps.
 
-## A. Get a key from the setup code
+## A. Get a key
 
-The prompt contains a setup code such as \`emuly_sc_...\`. It works once and expires in
-one hour. Exchange it for a 90-day key. Emuly saves nothing on the laptop for you: the
-response gives a \`save\` command that stores the key in the Windows user environment
-variable \`EMULY_KEY\`. Run it once. Never print the key in the chat.
+First check for a saved key. If one exists, skip this section.
 
-First check for a saved key. If one exists, skip the exchange.
+The prompt either contains a setup code such as \`emuly_sc_...\` or it has no code:
+- **Setup code in the prompt:** exchange it once for a 90-day key.
+- **No setup code:** start the device sign-in flow, show the user one short link, and wait
+  for them to approve it in the browser.
+
+Emuly saves nothing on the laptop for you: the response gives a \`save\` command that stores
+the key in the Windows user environment variable \`EMULY_KEY\`. Run it once. Never print the
+key in the chat.
+
+### A1. A setup code was in the prompt
 
 PowerShell:
 
@@ -85,13 +91,98 @@ fi
 auth="Authorization: Bearer $key"
 ~~~
 
+### A2. No setup code: use the device sign-in flow
+
+Run \`POST /v1/agent/device\`. It returns \`device_code\`, \`user_code\`,
+\`verification_uri_complete\`, \`expires_in\` and \`interval\`. Show only the
+\`verification_uri_complete\` link, on one short line:
+
+> Approve this sign-in: https://your-emuly-host/link?code=WXYZ-2345
+
+Ask the user to open it and approve the code. Then poll
+\`POST /v1/agent/device/token\` with \`{"device_code":"..."}\` every \`interval\` seconds
+(10 minutes maximum). Keep the device code in a variable, never in the chat.
+
+- \`authorization_pending\`: keep polling.
+- \`slow_down\`: wait 5 extra seconds, then keep polling.
+- \`access_denied\`: stop. The user denied it.
+- \`expired_token\`: stop. Ask the user to click **Copy prompt** again.
+- Success returns the same body as \`/v1/agent/token\`: \`key\`, \`expires_at\`, \`save\`,
+  \`read\` and \`clear\`. Save the key once and never print it.
+
+PowerShell:
+
+~~~powershell
+$base = "https://your-emuly-host"
+$key = [Environment]::GetEnvironmentVariable('EMULY_KEY','User')
+if (-not $key) {
+  $start = Invoke-RestMethod -Method Post -Uri "$base/v1/agent/device"
+  Write-Output "Approve this sign-in: $($start.verification_uri_complete)"
+  $deadline = (Get-Date).AddSeconds($start.expires_in)
+  while ((Get-Date) -lt $deadline) {
+    Start-Sleep -Seconds $start.interval
+    try {
+      $body = @{ device_code = $start.device_code } | ConvertTo-Json
+      $result = Invoke-RestMethod -Method Post -Uri "$base/v1/agent/device/token" -ContentType "application/json" -Body $body
+      cmd /c $result.save | Out-Null
+      $key = $result.key
+      break
+    } catch {
+      $status = $_.ErrorDetails.Message | ConvertFrom-Json
+      if ($status.error -eq "authorization_pending") { continue }
+      if ($status.error -eq "slow_down") { Start-Sleep -Seconds 5; continue }
+      if ($status.error -eq "access_denied") { Write-Output "Sign-in was denied. Stop here."; break }
+      if ($status.error -eq "expired_token") { Write-Output "The link expired. Ask the user to click Copy prompt again."; break }
+      throw
+    }
+  }
+}
+$headers = @{ Authorization = "Bearer $key" }
+~~~
+
+Git Bash (also use \`curl.exe\`, not the \`curl\` alias):
+
+~~~bash
+base="https://your-emuly-host"
+key=$(powershell.exe -NoProfile -Command "[Environment]::GetEnvironmentVariable('EMULY_KEY','User')" | tr -d '\\r')
+if [ -z "$key" ]; then
+  start=$(curl.exe -sS -X POST "$base/v1/agent/device")
+  device=$(printf '%s' "$start" | sed -n 's/.*"device_code":"\\([^"]*\\)".*/\\1/p')
+  link=$(printf '%s' "$start" | sed -n 's/.*"verification_uri_complete":"\\([^"]*\\)".*/\\1/p')
+  interval=$(printf '%s' "$start" | sed -n 's/.*"interval":\\([0-9]*\\).*/\\1/p')
+  expires=$(printf '%s' "$start" | sed -n 's/.*"expires_in":\\([0-9]*\\).*/\\1/p')
+  printf 'Approve this sign-in: %s\\n' "$link"
+  waited=0
+  while [ "$waited" -lt "$expires" ]; do
+    sleep "$interval"
+    waited=$((waited + interval))
+    response=$(curl.exe -sS -X POST "$base/v1/agent/device/token" -H "content-type: application/json" \\
+      --data "{\\"device_code\\":\\"$device\\"}")
+    error=$(printf '%s' "$response" | sed -n 's/.*"error":"\\([^"]*\\)".*/\\1/p')
+    if [ -z "$error" ]; then
+      key=$(printf '%s' "$response" | sed -n 's/.*"key":"\\([^"]*\\)".*/\\1/p')
+      setx EMULY_KEY "$key" > /dev/null
+      unset response
+      break
+    fi
+    if [ "$error" = "authorization_pending" ]; then continue; fi
+    if [ "$error" = "slow_down" ]; then sleep 5; waited=$((waited + 5)); continue; fi
+    if [ "$error" = "access_denied" ]; then echo "Sign-in was denied. Stop here."; break; fi
+    if [ "$error" = "expired_token" ]; then echo "The link expired. Ask the user to click Copy prompt again."; break; fi
+    echo "Sign-in failed: $error"
+    break
+  done
+fi
+auth="Authorization: Bearer $key"
+~~~
+
 The read works at once, without a restart of Claude Code. Each new shell repeats the read
 line; it is the only setup a later session needs. Never exchange a second setup code
 unless the user clicks **Copy prompt** again in the console.
 
 If a request that uses the saved key returns **401**, the key is expired or revoked:
 
-1. Clear the saved key: \`setx EMULY_KEY ""\` (the \`clear\` command from the exchange).
+1. Clear the saved key: \`setx EMULY_KEY ""\` (the \`clear\` command from the response).
 2. Ask the user to click **Copy prompt** in the Emuly console and send you the new code.
 3. Exchange the new code once. Do not reuse the old code.
 

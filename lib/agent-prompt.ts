@@ -14,3 +14,10 @@ export function buildAgentPrompt(baseUrl: string, setupCode: string) {
 Read and follow ${baseUrl.replace(/\/$/, "")}/agent.md?os=windows&agent=claude-code
 Setup code: ${setupCode} (works once, expires in 1 hour)`;
 }
+
+/** Signed-out users copy this. The runbook starts the RFC 8628 device flow instead of exchanging a code. */
+export function buildDevicePrompt(baseUrl: string) {
+  return `Set me up with an Android phone using Emuly.
+Read and follow ${baseUrl.replace(/\/$/, "")}/agent.md?os=windows&agent=claude-code
+No setup code is needed. Start the device sign-in flow and give me the link to approve.`;
+}
