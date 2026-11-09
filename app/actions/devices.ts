@@ -10,7 +10,7 @@ export type DeviceActionResult = { ok: boolean; message: string };
 /** A browser session approves a device login. An agent bearer key is never allowed to. */
 export async function approveDevice(_previous: DeviceActionResult, form: FormData): Promise<DeviceActionResult> {
   const user = await requireUser();
-  if (forbidAgent(user, AGENT_DEVICE_MESSAGE)) return { ok: false, message: AGENT_DEVICE_MESSAGE };
+  if (forbidAgent(user, AGENT_DEVICE_MESSAGE, "/link")) return { ok: false, message: AGENT_DEVICE_MESSAGE };
   const status = await approveDeviceCode(asyncDb(), form.get("code"), user.id);
   revalidatePath("/link");
   switch (status) {
@@ -25,7 +25,7 @@ export async function approveDevice(_previous: DeviceActionResult, form: FormDat
 /** A browser session denies a pending device login. */
 export async function denyDevice(_previous: DeviceActionResult, form: FormData): Promise<DeviceActionResult> {
   const user = await requireUser();
-  if (forbidAgent(user, AGENT_DEVICE_MESSAGE)) return { ok: false, message: AGENT_DEVICE_MESSAGE };
+  if (forbidAgent(user, AGENT_DEVICE_MESSAGE, "/link")) return { ok: false, message: AGENT_DEVICE_MESSAGE };
   const status = await denyDeviceCode(asyncDb(), form.get("code"));
   revalidatePath("/link");
   switch (status) {

@@ -11,7 +11,8 @@
   color: var(--dim); font-size: 13px; font-weight: 500;
 }
 .eyebrow::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-.eyebrow[data-state="approved"]::before, .eyebrow[data-state="used"]::before { background: var(--safe); }
+.eyebrow[data-state="approved"]::before, .eyebrow[data-state="used"]::before,
+.eyebrow[data-state="deleted"]::before, .eyebrow[data-state="kept"]::before { background: var(--safe); }
 .eyebrow[data-state="denied"]::before { background: var(--danger); }
 .eyebrow[data-state="expired"]::before { background: var(--amber); }
 
@@ -51,6 +52,30 @@
 .quiet:hover { color: var(--text); }
 .primary:focus-visible, .quiet:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .primary:disabled, .quiet:disabled { opacity: .55; cursor: default; transform: none; }
+
+.details { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 18px; margin: 0 0 22px; font-size: 14px; }
+.details dt { color: var(--dim); }
+.details dd { margin: 0; color: var(--text); }
+
+.confirmForm { display: grid; gap: 10px; margin: 0 0 4px; }
+.fieldLabel { color: var(--dim); font-size: 14px; }
+.fieldLabel b { color: var(--text); font-weight: 600; }
+.confirmInput {
+  width: 100%; padding: 12px 14px; border: 1px solid var(--control-line); border-radius: 10px;
+  background: var(--panel); color: var(--text); font: inherit;
+}
+.confirmInput:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-color: var(--accent); }
+.deleteActions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.dangerButton {
+  display: inline-flex; justify-content: center; align-items: center;
+  background: var(--danger); color: var(--bg); border: 0; border-radius: 10px;
+  padding: 13px 26px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: opacity .15s ease, transform .15s ease;
+}
+.dangerButton:hover { opacity: .9; }
+.dangerButton:active { transform: scale(.98); }
+.dangerButton:disabled { opacity: .45; cursor: default; transform: none; }
+.dangerButton:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 .foot { margin: 28px 0 0; color: var(--dim); font-size: 13px; }
 .foot strong { color: var(--text); font-weight: 500; }

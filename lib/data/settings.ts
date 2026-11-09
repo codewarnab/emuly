@@ -8,6 +8,7 @@ export type UserSettings = {
   default_idle_min: number;
   auto_stop_before_empty: boolean;
   auto_keep: boolean;
+  agent_delete_phones: boolean;
 };
 
 export class SettingsInputError extends Error {}
@@ -54,21 +55,24 @@ export async function userSettings(database: DatabaseQueries, userId: number): P
   const row = (await database.execute({ sql: `SELECT COALESCE(b.allowance_override,
       CASE WHEN b.plan_name = 'pro' THEN 180 ELSE 120 END) AS allowance_core_hours,
       s.default_machine, COALESCE(s.default_idle_min, 30) AS default_idle_min,
-      COALESCE(s.auto_stop_before_empty, 0) AS auto_stop_before_empty, COALESCE(s.auto_keep, 0) AS auto_keep
+      COALESCE(s.auto_stop_before_empty, 0) AS auto_stop_before_empty, COALESCE(s.auto_keep, 0) AS auto_keep,
+      COALESCE(s.agent_delete_phones, 0) AS agent_delete_phones
     FROM users u LEFT JOIN user_settings s ON s.user_id = u.id
     LEFT JOIN billing_settings b ON b.user_id = u.id WHERE u.id = ?`, args: [userId] })).rows[0];
   return row ? {
     allowance_core_hours: Number(row.allowance_core_hours), default_machine: row.default_machine as string | null,
     default_idle_min: Number(row.default_idle_min), auto_stop_before_empty: row.auto_stop_before_empty === 1,
-    auto_keep: row.auto_keep === 1,
-  } : { allowance_core_hours: 120, default_machine: null, default_idle_min: 30, auto_stop_before_empty: false, auto_keep: false };
+    auto_keep: row.auto_keep === 1, agent_delete_phones: row.agent_delete_phones === 1,
+  } : { allowance_core_hours: 120, default_machine: null, default_idle_min: 30, auto_stop_before_empty: false,
+    auto_keep: false, agent_delete_phones: false };
 }
 
 /** Partial updates preserve other settings. Validate the whole patch before writing. */
 export async function updateSettings(database: Client, userId: number, input: unknown): Promise<UserSettings> {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new SettingsInputError("Expected a JSON object.");
   const patch = input as Record<string, unknown>;
-  const keys = ["allowance_core_hours", "default_machine", "default_idle_min", "auto_stop_before_empty", "auto_keep"];
+  const keys = ["allowance_core_hours", "default_machine", "default_idle_min", "auto_stop_before_empty", "auto_keep",
+    "agent_delete_phones"];
   if (!Object.keys(patch).length || Object.keys(patch).some(key => !keys.includes(key))) {
     throw new SettingsInputError("Choose an allowance, machine, idle timeout, or auto-stop setting.");
   }
@@ -89,14 +93,19 @@ export async function updateSettings(database: Client, userId: number, input: un
   if ("auto_keep" in patch && typeof patch.auto_keep !== "boolean") {
     throw new SettingsInputError("Auto-keep must be true or false.");
   }
+  if ("agent_delete_phones" in patch && typeof patch.agent_delete_phones !== "boolean") {
+    throw new SettingsInputError("Agent delete approval must be true or false.");
+  }
   return transaction(database, async queries => {
     const settings = { ...await userSettings(queries, userId), ...patch } as UserSettings;
     await queries.execute({ sql: `INSERT INTO user_settings
-      (user_id, allowance_core_hours, default_machine, default_idle_min, auto_stop_before_empty, auto_keep) VALUES (?, ?, ?, ?, ?, ?)
+      (user_id, allowance_core_hours, default_machine, default_idle_min, auto_stop_before_empty, auto_keep, agent_delete_phones)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET allowance_core_hours = excluded.allowance_core_hours,
       default_machine = excluded.default_machine, default_idle_min = excluded.default_idle_min,
-      auto_stop_before_empty = excluded.auto_stop_before_empty, auto_keep = excluded.auto_keep`, args: [userId, settings.allowance_core_hours, settings.default_machine, settings.default_idle_min,
-        Number(settings.auto_stop_before_empty), Number(settings.auto_keep)] });
+      auto_stop_before_empty = excluded.auto_stop_before_empty, auto_keep = excluded.auto_keep,
+      agent_delete_phones = excluded.agent_delete_phones`, args: [userId, settings.allowance_core_hours, settings.default_machine, settings.default_idle_min,
+        Number(settings.auto_stop_before_empty), Number(settings.auto_keep), Number(settings.agent_delete_phones)] });
     if ("allowance_core_hours" in patch) {
       await queries.execute({ sql: `INSERT INTO billing_settings (user_id, allowance_override) VALUES (?, ?)
         ON CONFLICT(user_id) DO UPDATE SET allowance_override = excluded.allowance_override`, args: [userId, settings.allowance_core_hours] });

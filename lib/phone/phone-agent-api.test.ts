@@ -27,6 +27,13 @@ const post = (path: string, body?: unknown, headers: Record<string, string> = {}
   method: "POST", headers: { "content-type": "application/json", ...headers },
   ...(body === undefined ? {} : { body: JSON.stringify(body) }),
 });
+const multipart = (path: string, args: unknown, files: { name: string; body: string }[] = [],
+  extra: Record<string, string> = {}) => {
+  const form = new FormData();
+  form.set("args", JSON.stringify(args));
+  for (const [index, file] of files.entries()) form.set(`file${index}`, new File([file.body], file.name));
+  return new Request(`https://emuly.test${path}`, { method: "POST", body: form, headers: { origin: "https://emuly.test", ...extra } });
+};
 
 test("phone list and read require authentication, scope to the caller and build browser links", async () => {
   let signedIn = false;
@@ -137,4 +144,54 @@ test("adb validates args before the runner and returns raw PNG for screenshots",
   assert.deepEqual(await failure.json(), { exit_code: 1, stdout: "", stderr: "no device" });
   assert.deepEqual(runnerCalls[1], { args: ["shell", "id"], timeout_s: 5, binary: false });
   assert.deepEqual(logCalls[1], { args: ["shell", "id"], exitCode: 1, agentKeyId: 42 });
+});
+
+test("multipart adb passes uploaded bytes and rejects missing or unreferenced files", async () => {
+  const runnerCalls: { args: string[]; timeout_s: number; binary?: boolean; files?: { name: string; bytes: Uint8Array }[] }[] = [];
+  const { api } = fixture({
+    user: async () => ({ id: 7, authKind: "agent", agentKeyId: 42 }),
+    adb: async (_userId, _id, input) => {
+      runnerCalls.push(input);
+      return Response.json({ exit_code: 0, stdout: "Success", stderr: "" });
+    },
+  });
+  const installed = await api.adb(multipart(`/v1/phones/${stored.id}/adb`,
+    ["install", "-r", "@file0"], [{ name: "app.apk", body: "apk-bytes" }]), stored.id);
+  assert.equal(installed.status, 200);
+  assert.equal(runnerCalls[0]?.args[0], "install");
+  assert.equal(runnerCalls[0]?.files?.length, 1);
+  assert.equal(runnerCalls[0]?.files?.[0]?.name, "app.apk");
+  assert.equal(Buffer.from(runnerCalls[0]!.files![0]!.bytes).toString(), "apk-bytes");
+  assert.equal(runnerCalls[0]?.timeout_s, 30);
+
+  const missing = await api.adb(multipart(`/v1/phones/${stored.id}/adb`, ["install", "-r", "@file0"]), stored.id);
+  assert.equal(missing.status, 400);
+  assert.match((await missing.json()).message, /not uploaded/);
+
+  const unreferenced = await api.adb(multipart(`/v1/phones/${stored.id}/adb`, ["install", "-r", "@file0"],
+    [{ name: "a.apk", body: "a" }, { name: "b.apk", body: "b" }]), stored.id);
+  assert.equal(unreferenced.status, 400);
+  assert.match((await unreferenced.json()).message, /file1 is not referenced/);
+  assert.equal(runnerCalls.length, 1, "invalid multipart never reaches the runner");
+});
+
+test("pull and bugreport relay the runner's bytes and filename", async () => {
+  const { api } = fixture({
+    user: async () => ({ id: 7, authKind: "agent", agentKeyId: 42 }),
+    adb: async (_userId, _id, input) => new Response(new Uint8Array([1, 2, 3]), {
+      headers: { "content-type": "application/octet-stream",
+        "content-disposition": `attachment; filename="${input.args[0] === "pull" ? "x.png" : "bugreport.zip"}"` },
+    }),
+  });
+  const pulled = await api.adb(post(`/v1/phones/${stored.id}/adb`, { args: ["pull", "/sdcard/x.png"] }, {
+    origin: "https://emuly.test" }), stored.id);
+  assert.equal(pulled.status, 200);
+  assert.equal(pulled.headers.get("content-type"), "application/octet-stream");
+  assert.equal(pulled.headers.get("content-disposition"), 'attachment; filename="x.png"');
+  assert.deepEqual(new Uint8Array(await pulled.arrayBuffer()), new Uint8Array([1, 2, 3]));
+
+  const bug = await api.adb(post(`/v1/phones/${stored.id}/adb`, { args: ["bugreport"], timeout_s: 300 }, {
+    origin: "https://emuly.test" }), stored.id);
+  assert.equal(bug.status, 200);
+  assert.equal(bug.headers.get("content-disposition"), 'attachment; filename="bugreport.zip"');
 });

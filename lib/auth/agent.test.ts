@@ -142,10 +142,14 @@ test("user codes are normalized and reject ambiguous characters", () => {
 });
 
 test("agent keys cannot approve device sign-ins", async () => {
-  const denied = forbidAgent({ authKind: "agent" }, AGENT_DEVICE_MESSAGE);
+  process.env.EMULY_BASE_URL = "https://emuly.test";
+  const denied = forbidAgent({ authKind: "agent" }, AGENT_DEVICE_MESSAGE, "/link");
   assert.equal(denied?.status, 403);
-  assert.match((await denied!.json()).message, /cannot approve/);
-  assert.equal(forbidAgent({ authKind: "session" }, AGENT_DEVICE_MESSAGE), null);
+  const body = await denied!.json();
+  assert.match(body.message, /cannot approve/);
+  assert.match(body.message, /Open manage_url/);
+  assert.equal(body.manage_url, "https://emuly.test/link");
+  assert.equal(forbidAgent({ authKind: "session" }, AGENT_DEVICE_MESSAGE, "/link"), null);
 });
 
 test("getUser resolves a bearer key first and does not fall back to the browser session", async () => {
@@ -174,26 +178,43 @@ test("getUser resolves a bearer key first and does not fall back to the browser 
 });
 
 test("agent keys are blocked from settings and from changing or deleting webhooks", async () => {
+  process.env.EMULY_BASE_URL = "https://emuly.test";
   const client = await fixture();
   try {
     const user = async () => ({ id: 1, authKind: "agent" as const });
-    const patch = createSettingsApi({ database: client, user });
-    const settings = await patch(new Request("https://emuly.test/v1/settings", { method: "PATCH",
+    const settingsApi = createSettingsApi({ database: client, user });
+    const settings = await settingsApi.patch(new Request("https://emuly.test/v1/settings", { method: "PATCH",
       headers: { "content-type": "application/json" }, body: "{}" }));
     assert.equal(settings.status, 403);
-    assert.equal((await settings.json()).error, "forbidden");
+    const settingsBody = await settings.json();
+    assert.equal(settingsBody.error, "forbidden");
+    assert.equal(settingsBody.manage_url, "https://emuly.test/app/settings/hours");
+
+    const read = await settingsApi.get();
+    assert.equal(read.status, 200);
+    const readBody = await read.json();
+    assert.equal(readBody.settings.agent_delete_phones, false);
+    assert.equal(readBody.agents.length, 0);
+    assert.doesNotMatch(JSON.stringify(readBody), /emuly_key_|key_hash|secret/);
 
     const service = {
       list: async () => [],
       create: async () => ({ id: "wh_1" }),
+      get: async () => ({ id: "wh_1", url: "https://example.com/emuly", events: "*", enabled: true,
+        created_at: "2026-11-09", failing_since: null }),
     } as unknown as ReturnType<typeof createWebhookService>;
     const api = createWebhookApi({ user, service });
     assert.equal((await api(new Request("https://emuly.test/v1/webhooks", { method: "GET" }))).status, 200);
+    const one = await api(new Request("https://emuly.test/v1/webhooks/wh_1", { method: "GET" }), "wh_1");
+    assert.equal(one.status, 200);
+    assert.doesNotMatch(JSON.stringify(await one.json()), /secret/);
     assert.equal((await api(new Request("https://emuly.test/v1/webhooks", { method: "POST",
       headers: { "content-type": "application/json" }, body: '{"url":"https://example.com/emuly"}' }))).status, 201);
     const remove = await api(new Request("https://emuly.test/v1/webhooks/wh_1", { method: "DELETE" }), "wh_1");
     assert.equal(remove.status, 403);
-    assert.match((await remove.json()).message, /cannot change, test or delete/);
+    const removeBody = await remove.json();
+    assert.match(removeBody.message, /cannot change, test or delete/);
+    assert.equal(removeBody.manage_url, "https://emuly.test/app/settings/webhooks#webhook-wh_1");
     assert.equal((await api(new Request("https://emuly.test/v1/webhooks/wh_1", { method: "PATCH" }), "wh_1")).status, 403);
   } finally {
     client.close();

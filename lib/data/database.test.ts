@@ -28,7 +28,8 @@ test("migrate applies a migration added after the connection was opened", () => 
     const { user_version: latest } = database.prepare("PRAGMA user_version").get() as { user_version: number };
     // Simulate a connection opened before the agent login migrations existed.
     database.exec(`DROP TABLE IF EXISTS agent_keys; DROP TABLE IF EXISTS agent_setup_codes;
-      DROP TABLE IF EXISTS agent_device_codes; PRAGMA user_version = 11`);
+      DROP TABLE IF EXISTS agent_device_codes; ALTER TABLE user_settings DROP COLUMN agent_delete_phones;
+      PRAGMA user_version = 11`);
     migrate(database);
     assert.equal((database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, latest);
     assert.equal(database.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name IN ('agent_setup_codes', 'agent_keys', 'agent_device_codes')").get()?.n, 3);
@@ -134,7 +135,7 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
       INSERT INTO notices VALUES (1, 'hours.low', '2026-11');`);
     assert.deepEqual({ ...database.prepare("SELECT * FROM user_settings").get() }, {
       user_id: 1, allowance_core_hours: 120, default_machine: null, default_idle_min: 30,
-      auto_stop_before_empty: 0, auto_keep: 0,
+      auto_stop_before_empty: 0, auto_keep: 0, agent_delete_phones: 0,
     });
     assert.throws(() => database.exec("INSERT INTO notices VALUES (1, 'hours.low', '2026-11')"));
     database.prepare(`INSERT INTO webhooks (id, user_id, url, events, secret_cipher, created_at)
