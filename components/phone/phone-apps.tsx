@@ -31,6 +31,8 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
   const transferRunning = useRef(false);
   const pending = useRef<{ key: string; file?: File; url?: string; id?: string } | null>(null);
   const alive = useRef(true);
+  /** A finished operation the owner dismissed; status refreshes keep ignoring it. */
+  const dismissed = useRef<string | null>(null);
   const active = operation !== null && !installFinished(operation.stage);
 
   const api = useCallback(async <T,>(path: string, parse: (value: unknown) => T, options: RequestInit = {}) => {
@@ -57,7 +59,8 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
       const result = await api("app-installs", parseAppInstalls);
       const latest: AppInstall | null = result.operations[0] ?? null;
       if (alive.current && !transferRunning.current) {
-        setOperation(latest);
+        if (latest?.id === dismissed.current) setOperation(null);
+        else setOperation(latest);
         setError("");
         if (latest && installFinished(latest.stage)) void refresh();
       }
@@ -84,7 +87,8 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
           const latest = parseAppInstalls(JSON.parse(event.data)).operations[0] ?? null;
           healthy = true;
           if (alive.current && !transferRunning.current) {
-            setOperation(latest);
+            if (latest?.id === dismissed.current) setOperation(null);
+            else setOperation(latest);
             setError("");
             if (latest && installFinished(latest.stage)) void refresh();
           }
@@ -167,6 +171,12 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
       const result = await api(`app-installs/${operation.id}/cancel`, parseAppInstall, { method: "POST" });
       setOperation(result); setError(""); pending.current = null;
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not cancel. Refresh status."); }
+  }
+  /** Hides a finished operation locally; the runner keeps its record. */
+  function dismiss() {
+    if (!operation || active) return;
+    dismissed.current = operation.id;
+    setOperation(null); setError(""); setNotice("");
   }
   async function openApp(packageId: string) {
     setOpening(packageId); setNotice("");
@@ -255,7 +265,8 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
       {operation.message && <p>{operation.message}</p>}
       <div className={s.opActions}>
         {operation.canCancel && <Button type="button" tiny variant="ghost" onClick={() => { void cancel(); }}>Cancel</Button>}
-        <Button type="button" tiny variant="ghost" disabled={!ready || busy} onClick={() => { void refreshOperation(); }}>Refresh status</Button>
+        {active && <Button type="button" tiny variant="ghost" disabled={!ready || busy} onClick={() => { void refreshOperation(); }}>Refresh status</Button>}
+        {!active && <Button type="button" tiny variant="ghost" onClick={dismiss}>Dismiss</Button>}
       </div>
     </article>}
     <div className={s.card}>
