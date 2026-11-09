@@ -569,3 +569,20 @@
 }
 .syncAction:hover { background: color-mix(in srgb, var(--amber) 14%, transparent); }
 .syncAction:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+/* Settings: connected agent keys. */
+.agents { display: grid; gap: 8px; min-width: 0; }
+.agentHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.agentHeader .settingHint { margin: 0; }
+.agentTableWrap { overflow-x: auto; margin-top: 8px; min-width: 0; }
+.agentTable { border-collapse: collapse; width: 100%; font-size: 13px; text-align: left; }
+.agentTable th, .agentTable td { padding: 10px 8px; border-bottom: 1px solid var(--control-line); white-space: nowrap; }
+.agentTable thead th { color: var(--dim); font-weight: 500; }
+.agentTable tbody th { font-weight: 500; }
+.agentCaption { text-align: left; color: var(--dim); font-size: 13px; padding-bottom: 8px; }
+.agentState { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--panel2); color: var(--dim); }
+.agentState[data-state="active"] { color: var(--safe); background: var(--safe-soft); }
+.agentState[data-state="revoked"], .agentState[data-state="expired"] { color: var(--danger); background: var(--danger-soft); }
+@media (max-width: 680px) {
+  .agentTable th, .agentTable td { white-space: normal; }
+}

@@ -54,7 +54,8 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmissi
       if (stored.state !== "running" || stored.android_state !== "ready") bad(409, "Start the phone to use Apps.");
       if (request.method !== "GET") {
         const origin = request.headers.get("origin");
-        if (origin !== new URL(request.url).origin || request.headers.get("sec-fetch-site") === "cross-site") bad(403, "Forbidden.");
+        // Non-browser clients such as an agent send no Origin. A present Origin must still be same-origin.
+        if ((origin && origin !== new URL(request.url).origin) || request.headers.get("sec-fetch-site") === "cross-site") bad(403, "Forbidden.");
       }
       const route = parts.join("/");
       if (route === "apps/update" && request.method === "POST" && upgrade) {
