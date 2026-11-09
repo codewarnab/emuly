@@ -4,6 +4,7 @@ import { shortMessage } from "../../../../../lib/shared/short-message";
 import { phoneName } from "../../../../../lib/shared/phone-name";
 import { PHONE_TABS } from "../../../../../lib/shared/keyboard";
 import { idleLabel } from "../../../../../lib/shared/idle";
+import { machineRows } from "../../../../../lib/shared/machine-specs";
 import { phoneStatus } from "../../../../../lib/phone/phone-status";
 import Loading from "./loading";
 import { Suspense } from "react";
@@ -137,6 +138,11 @@ async function StoredPhone({ phone, user, search, syncError }: {
   const tab = (rawTab && tabSet.has(rawTab) ? rawTab : "log") as Tab;
   const screenReady = !phone.keeping && phone.state === "running" && phone.android_state === "ready";
   const status = phoneStatus(phone);
+  const events = await phoneEvents(user.id, phone.id);
+  const androidBooting = phone.state === "running" && phone.android_state === "booting";
+  const inProgress = Boolean(phone.keeping) || ["pending", "booting", "stopping"].includes(phone.state);
+  // The newest event marks when the current step began.
+  const stepStarted = androidBooting ? phone.android_started_at : events[0]?.at ?? null;
   return <>
     <KeyboardTools phones={(await listPhones(user.id)).map(item => ({ id: item.id, name: item.name }))} />
     <Topbar breadcrumb={["Phones", phone.name]}>
@@ -150,7 +156,7 @@ async function StoredPhone({ phone, user, search, syncError }: {
           <PhoneScreen key={phone.id} id={phone.id} resting={false} live quality={await streamQuality(asyncDb(), user.id)} />}
         {phone.state !== "running" && phone.state !== "stopped" && <div className={s.emptyPhone} aria-hidden />}
         {!screenReady && <h2>{status.title}</h2>}
-        {phone.state === "running" && phone.android_state === "booting" && <AndroidElapsed started={phone.android_started_at} />}
+        {(androidBooting || inProgress) && <AndroidElapsed key={stepStarted ?? "none"} started={stepStarted} />}
         {phone.state === "running" && phone.android_state === "failed" && <><p>{phone.android_error}</p><RetryBoot id={phone.id} /></>}
         {(phone.state !== "running" || Boolean(phone.keeping)) && <>
         <p>{phone.state === "error" ? shortMessage(status.description) : status.description}</p>
@@ -168,11 +174,11 @@ async function StoredPhone({ phone, user, search, syncError }: {
         <Tabs active={tab} phoneId={phone.id} />
         <section role="tabpanel" className={s.tabPanel} id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} tabIndex={0}>
         {tab === "danger" ? <DangerPanel phoneName={phone.id} /> : tab === "apps" ? <PhoneApps key={phone.id} id={phone.id} ready={screenReady} /> :
-          <LogFeed rows={tab === "log" ? (await phoneEvents(user.id, phone.id)) : []} live={false}
+          <LogFeed rows={tab === "log" ? events : []} live={false}
             running={tab === "log" ? `Current status: ${status.title}` : undefined} emptyMessage={tab === "backups" ? "No backups yet." : "No activity yet."} />}
         </section>
         <div className={s.subgrid}>
-          <Mini title="This phone" rows={[["Machine", "4-core"], ["Idle stop", idleLabel(phone.idle_timeout_min)]]} />
+          <Mini title="Host codespace" rows={[...machineRows(phone.machine, phone.cores), ["Idle stop", idleLabel(phone.idle_timeout_min)]]} />
         </div>
         <p className={s.fineprint}><a href="https://docs.github.com/en/codespaces/setting-your-user-preferences/setting-your-timeout-period-for-github-codespaces" target="_blank" rel="noreferrer">GitHub timeout settings</a></p>
       </div>
