@@ -227,4 +227,26 @@ export const MIGRATIONS = [
   );`,
   // The backups feature was never built (no keep.sh, no writer). Drop its empty table.
   `DROP TABLE IF EXISTS backups;`,
+  `
+  CREATE TABLE IF NOT EXISTS agent_setup_codes (
+    code_hash  TEXT PRIMARY KEY,   -- sha256 of the one-time code, never the code itself
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at    TEXT
+  );
+  CREATE INDEX IF NOT EXISTS agent_setup_codes_user ON agent_setup_codes(user_id);
+
+  CREATE TABLE IF NOT EXISTS agent_keys (
+    id           INTEGER PRIMARY KEY,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL,
+    key_hash     TEXT NOT NULL UNIQUE, -- sha256 of the bearer key, never the key itself
+    created_at   TEXT NOT NULL,
+    last_used_at TEXT,
+    expires_at   TEXT NOT NULL,
+    revoked_at   TEXT
+  );
+  CREATE INDEX IF NOT EXISTS agent_keys_user ON agent_keys(user_id);
+  `,
 ];

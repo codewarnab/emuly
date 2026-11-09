@@ -1,7 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { AGENT_PROMPT } from "@/lib/agent-prompt";
 import { filterCommands, PHONE_TABS, phoneTabHref, SETTINGS_TABS, SETTINGS_KEYS } from "@/lib/shared/keyboard";
 import { useSettingsControls } from "@/components/settings/settings-provider";
 import type { Webhook } from "@/lib/webhooks/webhooks";
@@ -38,6 +37,14 @@ export function KeyboardTools({ phones }: { phones?: PhoneChoice[] }) {
     if (current?.stream) void copyText(current.stream, notify, "Stream URL copied");
     else notify("Stream URL is not available until the phone connects.");
   }, [current, notify]);
+  const copyPrompt = useCallback(async () => {
+    try {
+      const response = await fetch("/v1/agent/setup-code", { method: "POST", cache: "no-store" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.message ?? "Could not make a setup code.");
+      await copyText(body.prompt, notify, "Prompt copied");
+    } catch (error) { notify(error instanceof Error ? error.message : "Prompt copy failed."); }
+  }, [notify]);
   const theme = useCallback((choice?: Theme) => {
     const value = choice ?? cycleTheme();
     if (choice) setTheme(choice);
@@ -90,7 +97,7 @@ export function KeyboardTools({ phones }: { phones?: PhoneChoice[] }) {
       { id: "adb", label: "Copy adb address", hint: "", run: () => { if (current.adb) void copyText(current.adb, notify, "adb address copied"); }, reason: current.adb ? undefined : "Available when the phone connects." },
     ] : []),
   ] : [
-    { id: "prompt", label: "Copy prompt", hint: "", run: () => { void copyText(AGENT_PROMPT, notify, "Prompt copied"); } },
+    { id: "prompt", label: "Copy prompt", hint: "", run: () => { void copyPrompt(); } },
     { id: "signin", label: "Sign in", hint: "", run: () => router.push("/login") },
     { id: "theme", label: "Toggle theme", hint: "t", run: () => theme() },
   ];

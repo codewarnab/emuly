@@ -1,13 +1,16 @@
 import type { Client } from "@libsql/client";
 import { SettingsInputError, updateSettings } from "./settings.ts";
+import { forbidAgent, AGENT_SETTINGS_MESSAGE } from "../auth/scope.ts";
 
 export function createSettingsApi({ database, user }: {
-  database: Client; user: () => Promise<{ id: number } | null>;
+  database: Client; user: () => Promise<{ id: number; authKind?: "session" | "agent" } | null>;
 }) {
   return async function patch(request: Request) {
     const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "private, no-store" } });
     const identity = await user();
     if (!identity) return json({ error: "unauthorized" }, 401);
+    const denied = forbidAgent(identity, AGENT_SETTINGS_MESSAGE);
+    if (denied) return denied;
     const origin = request.headers.get("origin");
     if ((origin && origin !== new URL(request.url).origin) || request.headers.get("sec-fetch-site") === "cross-site") {
       return json({ error: "forbidden" }, 403);
