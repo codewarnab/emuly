@@ -17,9 +17,11 @@ const SKILL_DESCRIPTION = /^description:\s*(.+)$/m;
 
 const trim = (base: string) => base.replace(/\/$/, "");
 const md = (name: string) => name.endsWith(".md");
+/** The Markdown uses {{EMULY_BASE_URL}}, so every served copy names this host. */
+const withBase = (text: string, base: string) => text.replaceAll("{{EMULY_BASE_URL}}", trim(base));
 
-export function setupShared() {
-  return readFileSync(path.join(SETUP, "shared.md"), "utf8");
+export function setupShared(baseUrl: string) {
+  return withBase(readFileSync(path.join(SETUP, "shared.md"), "utf8"), baseUrl);
 }
 
 export function setupOsIds() {
@@ -27,9 +29,9 @@ export function setupOsIds() {
 }
 
 /** Returns null for an unknown id, so a route can answer 404. */
-export function setupOs(id: string | null | undefined) {
+export function setupOs(id: string | null | undefined, baseUrl: string) {
   if (!id || !ID.test(id) || !setupOsIds().includes(id)) return null;
-  return readFileSync(path.join(SETUP, `${id}.md`), "utf8");
+  return withBase(readFileSync(path.join(SETUP, `${id}.md`), "utf8"), baseUrl);
 }
 
 export function setupOsUrl(baseUrl: string, id: string) {
@@ -45,14 +47,14 @@ export function skillFiles() {
 }
 
 /** Only listed files are served, so a request path can never leave the skill folder. */
-export function skillFile(relative: string) {
+export function skillFile(relative: string, baseUrl: string) {
   if (!skillFiles().includes(relative)) return null;
-  return readFileSync(path.join(SKILL, ...relative.split("/")), "utf8");
+  return withBase(readFileSync(path.join(SKILL, ...relative.split("/")), "utf8"), baseUrl);
 }
 
 /** The /.well-known/skills/index.json body that `npx skills add <base>` reads. */
-export function skillIndex() {
-  const description = SKILL_DESCRIPTION.exec(skillFile("SKILL.md") ?? "")?.[1] ?? "";
+export function skillIndex(baseUrl: string) {
+  const description = SKILL_DESCRIPTION.exec(skillFile("SKILL.md", baseUrl) ?? "")?.[1] ?? "";
   return { skills: [{ name: SKILL_NAME, description, files: skillFiles() }] };
 }
 
