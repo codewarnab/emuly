@@ -10,17 +10,24 @@ type ProviderObservation = {
   machine?: { cpus: number } | null;
 };
 
+/** How long after a stop request GitHub may still report a starting codespace. */
+export const STOP_GRACE_MS = 180_000;
+
 /** Decide persisted phone state from a provider observation at the supplied time.
  * The service retains responsibility for guards, writes, diagnostics and remote work.
  */
-export function decidePhoneTransition({ previous, codespace, androidState, setupAvailable, setupFailure, now }: {
+export function decidePhoneTransition({ previous, codespace, androidState, setupAvailable, setupFailure, stopRequestedAt, now }: {
   previous: LifecyclePhone; codespace: ProviderObservation; androidState: string;
-  setupAvailable: boolean; setupFailure?: string; now: number;
+  setupAvailable: boolean; setupFailure?: string; stopRequestedAt: number | null; now: number;
 }) {
   const mapped = phoneState(codespace.state);
   const needsSetup = setupAvailable && androidState === "idle";
+  // After a stop, GitHub can briefly report starting again. Past that window an Available
+  // codespace means someone restarted it outside Emuly, so resume the normal setup path.
+  const stillStopping = previous.state === "stopping" && (mapped === "stopping"
+    || (mapped === "booting" && stopRequestedAt !== null && now - stopRequestedAt < STOP_GRACE_MS));
   const state = codespace.state === "Available" && previous.state === "running" && !needsSetup ? "running"
-    : previous.state === "stopping" && ["booting", "stopping"].includes(mapped) ? "stopping" : mapped;
+    : stillStopping ? "stopping" : mapped;
   const started = ["Available", "Starting"].includes(codespace.state);
   const lastStarted = started && ["stopped", "error"].includes(previous.state) ? new Date(now).toISOString() : previous.last_started_at;
   const lastStopped = state === "stopped" && previous.state !== "stopped" ? new Date(now).toISOString() : previous.last_stopped_at;

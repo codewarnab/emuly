@@ -623,16 +623,127 @@ test("an Available codespace starts phone setup, checks it until ready, then the
     assert.equal(state().state, "booting", "setup still works in the codespace");
     assert.equal(f.database.prepare("SELECT failed FROM phone_setup_attempts").get()?.failed, 0);
     assert.match(state().state_detail ?? "", /Installing Android/);
+    for (let i = 0; i < 200 && runs.length < 13; i++) await flush();
+    assert.equal(runs.length, 13, "working checks chain at once and stop after twelve");
     await ready.sync(1);
-    assert.equal(runs.length, 2, "the next check waits a short time");
+    assert.equal(runs.length, 13, "the chain limit hands back to the poller");
     now += 21_000;
     status = "ready";
     await ready.sync(1);
     await new Promise(resolve => setImmediate(resolve));
-    assert.equal(runs.length, 3);
+    assert.equal(runs.length, 14);
     assert.equal(state().state, "running");
     assert.equal(state().state_detail, null);
     assert.equal(f.database.prepare("SELECT 1 FROM phone_setup_attempts").get(), undefined);
+  } finally { await f.close(); }
+});
+
+test("a pending start watches GitHub and starts setup when Available without a sync call", async () => {
+  let current = space("generated-phone-aaaa", "Shutdown");
+  const f = fixture(async url => {
+    const path = new URL(String(url)).pathname;
+    if (path.endsWith("/start")) { current = space(current.name, "Starting"); return Response.json(current); }
+    return Response.json(current);
+  });
+  const runs: string[] = [];
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
+    sleep: async () => { await flush(); },
+    setup: async (_user, name) => { runs.push(name); return "ready"; } });
+  try {
+    f.add("phone-aaaa", 1, current.name);
+    await service.start(1, "phone-aaaa");
+    assert.equal(f.database.prepare("SELECT state FROM phones").get()?.state, "booting");
+    current = space(current.name, "Available");
+    for (let i = 0; i < 200 && !runs.length; i++) await flush();
+    assert.deepEqual(runs, ["generated-phone-aaaa"]);
+  } finally { await f.close(); }
+});
+
+test("the start watch stops at once on a GitHub rate limit", async () => {
+  let current = space("generated-phone-aaaa", "Shutdown");
+  let gets = 0;
+  let firstGet = true;
+  const f = fixture(async url => {
+    const path = new URL(String(url)).pathname;
+    if (path.endsWith("/start")) { current = space(current.name, "Starting"); return Response.json(current); }
+    if (firstGet) { firstGet = false; return Response.json(current); }
+    gets++;
+    return Response.json({ message: "Rate limit" }, { status: 429 });
+  });
+  let setupCalls = 0;
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
+    sleep: async () => { await flush(); }, setup: async () => { setupCalls++; return "working"; } });
+  try {
+    f.add("phone-aaaa", 1, current.name);
+    await service.start(1, "phone-aaaa");
+    for (let i = 0; i < 50; i++) await flush();
+    assert.equal(gets, 1);
+    for (let i = 0; i < 50; i++) await flush();
+    assert.equal(gets, 1, "a 429 stops the watch without a retry");
+    assert.equal(setupCalls, 0);
+  } finally { await f.close(); }
+});
+
+test("the start watch stops when the phone is no longer booting", async () => {
+  let current = space("generated-phone-aaaa", "Shutdown");
+  let gets = 0;
+  let firstGet = true;
+  const f = fixture(async url => {
+    const path = new URL(String(url)).pathname;
+    if (path.endsWith("/start")) { current = space(current.name, "Starting"); return Response.json(current); }
+    if (firstGet) { firstGet = false; return Response.json(current); }
+    gets++;
+    return Response.json(current);
+  });
+  let setupCalls = 0;
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
+    sleep: async () => {
+      f.database.prepare("UPDATE phones SET state = 'stopping' WHERE id = 'phone-aaaa'").run();
+      await flush();
+    },
+    setup: async () => { setupCalls++; return "working"; } });
+  try {
+    f.add("phone-aaaa", 1, current.name);
+    await service.start(1, "phone-aaaa");
+    for (let i = 0; i < 50; i++) await flush();
+    assert.equal(f.database.prepare("SELECT state FROM phones").get()?.state, "stopping");
+    assert.equal(gets, 0, "the watch does not ask GitHub after the phone stops");
+    assert.equal(setupCalls, 0);
+  } finally { await f.close(); }
+});
+
+test("a working setup check re-checks at once and boots without another sync", async () => {
+  const f = fixture(async () => Response.json({ codespaces: [space("generated-phone-aaaa", "Available")] }));
+  let checks = 0, boots = 0;
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
+    setup: async () => { checks++; if (checks === 1) { entered.resolve(); await release.promise; return "working"; } return "ready"; },
+    runner: async () => { boots++; return Response.json({ booted: true }); } });
+  try {
+    f.add("phone-aaaa");
+    await service.sync(1);
+    await entered.promise;
+    release.resolve();
+    for (let i = 0; i < 200 && !boots; i++) await flush();
+    assert.equal(checks, 2, "the next check runs without another sync");
+    assert.equal(boots, 1);
+    assert.equal(f.database.prepare("SELECT state FROM phones").get()?.state, "running");
+  } finally { release.resolve(); await flush(); await f.close(); }
+});
+
+test("a failed setup check does not re-call setup", async () => {
+  const f = fixture(async () => Response.json({ codespaces: [space("generated-phone-aaaa", "Available")] }));
+  let checks = 0;
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
+    setup: async () => { checks++; throw new Error("setup failed"); } });
+  try {
+    f.add("phone-aaaa");
+    await service.sync(1);
+    for (let i = 0; i < 200 && !checks; i++) await flush();
+    for (let i = 0; i < 50; i++) await flush();
+    assert.equal(checks, 1);
+    assert.equal(f.database.prepare("SELECT failed FROM phone_setup_attempts").get()?.failed, 1);
   } finally { await f.close(); }
 });
 
