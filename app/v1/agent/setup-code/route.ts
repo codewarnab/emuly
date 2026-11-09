@@ -9,7 +9,7 @@ import { env } from "../../../../lib/env";
 export async function POST(request: Request) {
   const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "private, no-store" } });
   const user = await getUser();
-  if (!user) return json({ error: "unauthorized", message: "Sign in to copy a setup prompt." }, 401);
+  if (!user) return json({ error: "unauthorized", message: "Sign in to copy a setup prompt.", base_url: env.baseUrl }, 401);
   const denied = forbidAgent(user, "Agent keys cannot create setup codes. Click Copy prompt in the Emuly console.");
   if (denied) return denied;
   const origin = request.headers.get("origin");

@@ -4,12 +4,15 @@ import { createHash } from "node:crypto";
 import { createClient } from "../data/async-database.ts";
 import { migrateHosted } from "../data/hosted-migrations.ts";
 import { createSetupCode, exchangeSetupCode, findAgentKey, revokeAgentKey,
-  AGENT_KEY_PREFIX, SETUP_CODE_PREFIX } from "../data/agents.ts";
+  AGENT_KEY_PREFIX, SETUP_CODE_PREFIX, DEVICE_CODE_PREFIX, DEVICE_CODE_TTL_MS, DEVICE_POLL_INTERVAL_MS,
+  approveDeviceCode, createDeviceCode, denyDeviceCode, getDeviceRequest, normalizeUserCode,
+  pollDeviceCode } from "../data/agents.ts";
 import { createSettingsApi } from "../data/settings-api.ts";
 import { createWebhookApi } from "../webhooks/webhook-api.ts";
 import type { createWebhookService } from "../webhooks/webhooks.ts";
 import { resolveUser } from "./identity.ts";
 import { agentKeyCommands } from "./agent.ts";
+import { AGENT_DEVICE_MESSAGE, forbidAgent } from "./scope.ts";
 
 const NOW = Date.parse("2026-11-09T12:00:00Z");
 
@@ -61,6 +64,88 @@ test("setup codes exchange once, store only hashes and reject reused or expired 
   } finally {
     client.close();
   }
+});
+
+test("device codes start, poll slowly, approve and mint one key exactly once", async () => {
+  const client = await fixture();
+  try {
+    const started = await createDeviceCode(client, NOW);
+    assert.match(started.deviceCode, new RegExp(`^${DEVICE_CODE_PREFIX}[A-Za-z0-9_-]{43}$`));
+    assert.match(started.userCode, /^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/);
+    assert.doesNotMatch(started.userCode.replace("-", ""), /[01IO]/);
+    assert.equal(started.expiresAt, new Date(NOW + DEVICE_CODE_TTL_MS).toISOString());
+    assert.equal(started.expiresIn, 600);
+    assert.equal(started.interval, 5);
+
+    const stored = (await client.execute("SELECT device_code_hash, user_code, status FROM agent_device_codes")).rows[0]!;
+    assert.equal(stored.device_code_hash, createHash("sha256").update(started.deviceCode).digest("base64url"));
+    assert.notEqual(stored.device_code_hash, started.deviceCode);
+    assert.equal(stored.user_code, started.userCode);
+    assert.equal(stored.status, "pending");
+
+    assert.deepEqual(await pollDeviceCode(client, started.deviceCode, NOW), { status: "pending" });
+    assert.deepEqual(await pollDeviceCode(client, started.deviceCode, NOW + 1_000), { status: "slow_down" });
+    assert.deepEqual(await pollDeviceCode(client, started.deviceCode, NOW + DEVICE_POLL_INTERVAL_MS), { status: "pending" });
+
+    assert.equal(await approveDeviceCode(client, started.userCode.toLowerCase(), 1, NOW + DEVICE_POLL_INTERVAL_MS + 1_000), "approved");
+    const approved = (await client.execute("SELECT status, user_id FROM agent_device_codes")).rows[0]!;
+    assert.equal(approved.status, "approved");
+    assert.equal(approved.user_id, 1);
+
+    const success = await pollDeviceCode(client, started.deviceCode, NOW + DEVICE_POLL_INTERVAL_MS + 2_000);
+    assert.equal(success.status, "approved");
+    if (success.status !== "approved") assert.fail("expected a key");
+    assert.match(success.key, new RegExp(`^${AGENT_KEY_PREFIX}[A-Za-z0-9_-]{43}$`));
+    const storedKey = (await client.execute("SELECT name, key_hash FROM agent_keys")).rows[0]!;
+    assert.equal(storedKey.name, "Agent device login");
+    assert.equal(storedKey.key_hash, createHash("sha256").update(success.key).digest("base64url"));
+    assert.deepEqual(await pollDeviceCode(client, started.deviceCode, NOW + DEVICE_POLL_INTERVAL_MS + 3_000), { status: "used" });
+    assert.equal((await getDeviceRequest(client, started.userCode, NOW + DEVICE_POLL_INTERVAL_MS + 3_000))?.status, "used");
+    assert.equal(Number((await client.execute("SELECT count(*) AS n FROM agent_keys")).rows[0]!.n), 1);
+  } finally {
+    client.close();
+  }
+});
+
+test("device codes can be denied or expire, and an unknown code is invalid", async () => {
+  const client = await fixture();
+  try {
+    const denied = await createDeviceCode(client, NOW);
+    assert.equal(await denyDeviceCode(client, denied.userCode, NOW + 1_000), "denied");
+    assert.deepEqual(await pollDeviceCode(client, denied.deviceCode, NOW + 1_000), { status: "denied" });
+    assert.equal((await getDeviceRequest(client, denied.userCode, NOW + 1_000))?.status, "denied");
+    assert.equal(await approveDeviceCode(client, denied.userCode, 1, NOW + 1_000), "denied");
+
+    const expired = await createDeviceCode(client, NOW);
+    const late = NOW + DEVICE_CODE_TTL_MS + 1;
+    assert.deepEqual(await pollDeviceCode(client, expired.deviceCode, late), { status: "expired" });
+    assert.equal((await getDeviceRequest(client, expired.userCode, late))?.status, "expired");
+    assert.equal(await approveDeviceCode(client, expired.userCode, 1, late), "expired");
+
+    assert.deepEqual(await pollDeviceCode(client, `${DEVICE_CODE_PREFIX}${"a".repeat(43)}`, NOW), { status: "invalid" });
+    assert.equal(await getDeviceRequest(client, "NOPE-9999", NOW), null);
+  } finally {
+    client.close();
+  }
+});
+
+test("user codes are normalized and reject ambiguous characters", () => {
+  assert.equal(normalizeUserCode("wxyz-2345"), "WXYZ-2345");
+  assert.equal(normalizeUserCode(" wxyz 2345 "), "WXYZ-2345");
+  assert.equal(normalizeUserCode("WXYZ2345"), "WXYZ-2345");
+  assert.equal(normalizeUserCode("WXYZ-234O"), null);
+  assert.equal(normalizeUserCode("WXYZ-2340"), null);
+  assert.equal(normalizeUserCode("WXYZ-234I"), null);
+  assert.equal(normalizeUserCode("WXYZ-2341"), null);
+  assert.equal(normalizeUserCode("short"), null);
+  assert.equal(normalizeUserCode(1234), null);
+});
+
+test("agent keys cannot approve device sign-ins", async () => {
+  const denied = forbidAgent({ authKind: "agent" }, AGENT_DEVICE_MESSAGE);
+  assert.equal(denied?.status, 403);
+  assert.match((await denied!.json()).message, /cannot approve/);
+  assert.equal(forbidAgent({ authKind: "session" }, AGENT_DEVICE_MESSAGE), null);
 });
 
 test("getUser resolves a bearer key first and does not fall back to the browser session", async () => {

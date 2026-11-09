@@ -249,4 +249,17 @@ export const MIGRATIONS = [
   );
   CREATE INDEX IF NOT EXISTS agent_keys_user ON agent_keys(user_id);
   `,
+  `
+  CREATE TABLE IF NOT EXISTS agent_device_codes (
+    device_code_hash TEXT PRIMARY KEY,       -- sha256 of the long device code, never the code itself
+    user_code        TEXT NOT NULL,          -- short code the user types or approves
+    status           TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'denied', 'used')),
+    user_id          INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    created_at       TEXT NOT NULL,
+    expires_at       TEXT NOT NULL,
+    last_polled_at   TEXT
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS agent_device_codes_pending_code
+    ON agent_device_codes(user_code) WHERE status = 'pending';
+  `,
 ];

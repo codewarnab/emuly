@@ -8,22 +8,25 @@ import { createSession } from "../../../lib/auth/session";
 import { cookieName, cookieOptions } from "../../../lib/auth/auth-cookies";
 import { exchangeTokens, githubIdentity, githubGet, SignInError } from "../../../lib/auth/github-oauth";
 import { getUser } from "../../../lib/auth/auth";
+import { safeNext } from "../../../lib/auth/next-path";
 import { billingClient } from "../../../lib/github/billing";
 
 export async function GET(request: NextRequest) {
   const store = await cookies();
   const expected = store.get(cookieName("state"))?.value;
   const billing = store.get(cookieName("billing"))?.value === "1";
+  const next = safeNext(store.get(cookieName("next"))?.value);
   store.set(cookieName("billing"), "", cookieOptions(0));
+  store.set(cookieName("next"), "", cookieOptions(0));
   const current = billing ? await getUser() : null;
-  const failurePath = current ? "/app?billing=unavailable" : "/login?error=denied";
+  const failurePath = current ? "/app?billing=unavailable" : loginFailure("denied", next);
   // Clear on every result, including denial and malformed requests.
   store.set(cookieName("state"), "", cookieOptions(0));
   const state = request.nextUrl.searchParams.get("state");
-  if (!validState(state, expected)) return result("/login?error=state");
+  if (!validState(state, expected)) return result(loginFailure("state", next));
   if (request.nextUrl.searchParams.has("error")) return result(failurePath);
   const code = request.nextUrl.searchParams.get("code");
-  if (!code || code.length > 1024) return result("/login?error=code");
+  if (!code || code.length > 1024) return result(loginFailure("code", next));
   try {
     const pair = await exchangeTokens({ code, redirect_uri: `${env.baseUrl}/auth/callback` });
     const identity = await githubIdentity(pair.accessToken);
@@ -47,14 +50,18 @@ export async function GET(request: NextRequest) {
       seal(pair.accessToken), pair.accessExpiresAt, seal(pair.refreshToken), pair.refreshExpiresAt,
       pair.scopes, timestamp, timestamp,
     ] })).rows[0] as unknown as { id: number; blocked: number };
-    if (user.blocked) return result("/login?error=blocked");
+    if (user.blocked) return result(loginFailure("blocked", next));
     billingClient.invalidate(user.id);
     await createSession(user.id);
-    return result("/app");
+    return result(next ?? "/app");
   } catch (error) {
     // Do not log the request, provider payload, authorization code, or exception.
-    return result(current ? failurePath : `/login?error=${error instanceof SignInError ? error.code : "signin"}`);
+    return result(current ? failurePath : loginFailure(error instanceof SignInError ? error.code : "signin", next));
   }
+}
+
+function loginFailure(code: string, next: string | null) {
+  return `/login?error=${code}${next ? `&next=${encodeURIComponent(next)}` : ""}`;
 }
 
 function validState(state: string | null, expected: string | undefined) {
