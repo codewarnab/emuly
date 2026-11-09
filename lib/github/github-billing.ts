@@ -92,6 +92,8 @@ export function createBillingClient({ accessToken, fetch: fetcher = fetch, clock
         const data = await profile.json();
         if (data.plan?.name === "free" || data.plan?.name === "pro") plan = data.plan.name;
       } else await profile.body?.cancel();
+      // Normal logins have only `codespace`, so this is the usual path: no billing report, and
+      // usage outside Emuly is not counted. The quota strip shows an "Emuly phones only" note.
       if (!user.scopes.split(/[ ,]+/).includes("user")) {
         return { usage: null, plan, checkedAt, unavailable: "permission" };
       }

@@ -2,6 +2,7 @@ import Link from "next/link";
 import s from "@/components/console.module.css";
 import type { AccountUsage } from "@/lib/github/billing";
 import { quotaState } from "@/lib/github/github-billing";
+import { InfoTip } from "@/components/ui/info-tip";
 
 export function QuotaStrip({ usage, defaultCores = 4 }: { usage: AccountUsage; defaultCores?: number }) {
   const cores = Math.max(1, defaultCores);
@@ -16,6 +17,10 @@ export function QuotaStrip({ usage, defaultCores = 4 }: { usage: AccountUsage; d
     <div className={s.strip}>
       <span className={s.big}>
         {(left / cores).toFixed(1)} of {(included / cores).toFixed(1)} hours left
+        {/* Login asks only for the codespace scope, so the billing report is usually unavailable. */}
+        {!usage.billing.usage && <> <InfoTip label="How hours are counted">
+          Counts only phones you run in Emuly. Codespaces you use outside Emuly do not show here. See GitHub billing for your full usage.
+        </InfoTip></>}
         {state === "low" && <span className={s.bigSmall}> · running low</span>}
         {state === "paid" && <span className={s.bigSmall}> · you now pay ${net.toFixed(2)}</span>}
       </span>
