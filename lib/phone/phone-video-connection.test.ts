@@ -135,6 +135,21 @@ test("visibility keeps brief switches alive and suspends longer hidden sessions"
   session.dispose();
 });
 
+test("pongs do not hide a socket without a painted frame", async t => {
+  const b = browser(t), session = b.start(); await setImmediate();
+  const ws = b.sockets[0];
+  for (let waited = 0; waited < 6000; waited += 1000) {
+    ws.onmessage?.({ data: JSON.stringify({ type: "pong", server: Date.now(), time: Date.now() }) });
+    t.mock.timers.tick(1000);
+  }
+  await setImmediate();
+  assert.equal(ws.readyState, 3);
+  assert.equal(b.states.at(-1), "retrying");
+  t.mock.timers.tick(1000); await setImmediate();
+  assert.equal(b.sockets.length, 2);
+  session.dispose();
+});
+
 test("resume reconnects a static screen and queue pressure requests saver quality", async t => {
   const b = browser(t); b.start(); await setImmediate();
   b.window.dispatchEvent(new Event("focus"));
