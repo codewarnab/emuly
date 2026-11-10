@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { daemonPolicy, findOnPath, forwardHeaders, info, policyJson } from "../../phone/runner/agent-device-proxy.mjs";
+import { homedir, tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
+import { daemonPolicy, daemonStateDir, findOnPath, forwardHeaders, info, policyJson,
+  proxyArguments, proxyEnv, sdkPathEntries } from "../../phone/runner/agent-device-proxy.mjs";
 
 test("the daemon policy allows one emulator and denies device lifecycle commands", () => {
   assert.deepEqual(JSON.parse(policyJson()), {
@@ -31,6 +32,31 @@ test("the proxy reports disabled before it is started", () => {
   assert.equal(state.ready, false);
   assert.equal(state.token, null);
   assert.equal(state.version, process.env.AGENT_DEVICE_VERSION?.trim() || null);
+});
+
+test("the proxy gets its own daemon state directory", () => {
+  assert.equal(daemonStateDir("/home/ubuntu"), "/home/ubuntu/.emuly-agent-device");
+  // The default is our own directory, not the ~/.agent-device every other CLI shares.
+  assert.equal(daemonStateDir(), join(homedir(), ".emuly-agent-device"));
+});
+
+test("the proxy is spawned with a private state dir and the runner token", () => {
+  assert.deepEqual(proxyArguments({ token: "t0ken", stateDir: "/home/ubuntu/.emuly-agent-device" }), [
+    "proxy", "--host", "127.0.0.1", "--port", "4310",
+    "--state-dir", "/home/ubuntu/.emuly-agent-device", "--daemon-auth-token", "t0ken"]);
+});
+
+test("the daemon sees the SDK on PATH, the SDK roots, and no idle reap", () => {
+  const env = proxyEnv("/opt/android-sdk", { PATH: "/usr/bin", HOME: "/home/ubuntu" });
+  assert.deepEqual(sdkPathEntries("/opt/android-sdk"), ["/opt/android-sdk/platform-tools", "/opt/android-sdk/emulator"]);
+  assert.equal(env.PATH, ["/opt/android-sdk/platform-tools", "/opt/android-sdk/emulator", "/usr/bin"].join(delimiter));
+  assert.equal(env.ANDROID_HOME, "/opt/android-sdk");
+  assert.equal(env.ANDROID_SDK_ROOT, "/opt/android-sdk");
+  // 0 disables the detached daemon's idle reap (Agent Device's default is 5 minutes).
+  assert.equal(env.AGENT_DEVICE_DAEMON_IDLE_TIMEOUT_MS, "0");
+  assert.equal(env.HOME, "/home/ubuntu", "the rest of the environment is passed through");
+  // An empty PATH still yields a PATH that starts with the SDK dirs.
+  assert.equal(proxyEnv("/sdk", {}).PATH, ["/sdk/platform-tools", "/sdk/emulator"].join(delimiter));
 });
 
 test("PATH lookup finds only executable files", async () => {

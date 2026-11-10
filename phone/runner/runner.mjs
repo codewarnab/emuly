@@ -219,7 +219,7 @@ async function adbRoute(req) {
 }
 const apps = await createApps({ root: join(ROOT, "data", "app-installs"), sdk: SDK, run, adb, exclusive, booted });
 // The agent-device proxy runs only while this process does; its token never reaches a log.
-const agentDevice = startAgentDeviceProxy();
+const agentDevice = startAgentDeviceProxy({ sdk: SDK });
 
 const routes = {
   "GET /health": async () => ({ ok: true, version: 10, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles"], avd: "t", api_level: 36, booted: await booted() }),
