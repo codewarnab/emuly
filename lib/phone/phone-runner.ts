@@ -54,7 +54,8 @@ export async function runnerAgentDevice(userId: number, id: string) {
 }
 
 /** The agent-device proxy authenticates with its own token, so the phone is found by id alone. */
-export async function runnerProxy(id: string, token: string, path: string, init: ProxyRequest) {
+export async function runnerProxy(id: string, token: string, path: string, init: ProxyRequest,
+  onResponse?: (userId: number, status: number) => Promise<void>) {
   const row = (await asyncDb().execute({ sql: `SELECT p.user_id AS user_id, p.codespace_name AS codespace_name,
     p.agent_device_token_hash AS token_hash
     FROM phones p JOIN users u ON u.id = p.user_id
@@ -65,6 +66,7 @@ export async function runnerProxy(id: string, token: string, path: string, init:
   // A rotated token invalidates the digest; drop it so the agent fetches a fresh one.
   if (response.status === 401) await asyncDb().execute({ sql: `UPDATE phones SET agent_device_token_hash = NULL
     WHERE id = ? AND agent_device_token_hash = ?`, args: [id, row.token_hash] }).catch(() => {});
+  if (onResponse) await onResponse(row.user_id, response.status).catch(() => {});
   return response;
 }
 
