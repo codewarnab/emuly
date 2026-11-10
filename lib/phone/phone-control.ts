@@ -3,6 +3,7 @@ import { asyncDb } from "../data/async-db.ts";
 import { seal } from "../auth/crypto.ts";
 import { getAccessToken } from "../github/github-token.ts";
 import { createGitHubClient } from "../github/github.ts";
+import type { Codespace } from "../github/github.ts";
 import { createPhoneService, PhoneInputError } from "./phone-mutations.ts";
 import { createPhoneSetup } from "./phone-setup.ts";
 import { runnerRequest, closeRunner } from "./phone-runner.ts";
@@ -34,6 +35,18 @@ export async function syncPhoneState(userId: number): Promise<SyncError | null> 
   catch (error) {
     return syncError(error);
   }
+}
+
+// The stream proxy checks the provider only after a WebSocket upgrade failed. A 5 s ceiling keeps
+// the browser from waiting while still distinguishing a stopped codespace from a transient 401.
+export async function codespaceSnapshot(userId: number, phoneId: string): Promise<Codespace> {
+  const github = createGitHubClient({ database: asyncDb(), accessToken: getAccessToken });
+  return github.getCodespace(userId, phoneId, { signal: AbortSignal.timeout(5000) });
+}
+
+/** Record an observed codespace state through the poller's own transition and event code. */
+export async function recordCodespaceState(userId: number, phoneId: string, codespace: Codespace) {
+  await phoneControl().observeCodespace(userId, phoneId, codespace);
 }
 
 // Phones run in a codespace of this repository, with .devcontainer/phone/devcontainer.json.

@@ -8,7 +8,7 @@ import { phoneObservations } from "./phone-observation.ts";
 
 const global = globalThis as unknown as { __emulyLinks?: ReturnType<typeof createEmulyLinks>; __emulyLinksVersion?: number };
 const links = () => {
-  if (global.__emulyLinksVersion !== 6) { global.__emulyLinks = undefined; global.__emulyLinksVersion = 6; }
+  if (global.__emulyLinksVersion !== 7) { global.__emulyLinks = undefined; global.__emulyLinksVersion = 7; }
   return global.__emulyLinks ??= createEmulyLinks({ token: getAccessToken, tunnel: openCodespacePort,
   observations: phoneObservations(asyncDb()),
   // Command completion is measured; provider idle-timer reset remains unverified.
