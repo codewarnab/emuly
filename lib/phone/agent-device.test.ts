@@ -2,7 +2,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { agentDeviceBaseUrl, agentDeviceInfo, agentDevicePath, agentDeviceSession, agentDeviceTokenHash,
-  agentDeviceTokenMatches, agentDeviceUnavailable, bearerToken, proxyRequestHeaders } from "./agent-device.ts";
+  agentDeviceCommand, agentDeviceTokenMatches, agentDeviceUnavailable, bearerToken, proxyRequestHeaders } from "./agent-device.ts";
+
+test("the activity log keeps only a short command name from an agent-device request", () => {
+  assert.equal(agentDeviceCommand({ jsonrpc: "2.0", method: "agent_device.command", params: { command: "press", args: ["@e2"] } }), "press");
+  assert.equal(agentDeviceCommand({ method: "snapshot" }), "snapshot");
+  assert.equal(agentDeviceCommand({ params: { command: "type my password" } }), null);
+  assert.equal(agentDeviceCommand("press"), null);
+  assert.equal(agentDeviceCommand(null), null);
+});
 
 test("the public base URL is the app's proxy route, not the codespace", () => {
   assert.equal(agentDeviceBaseUrl("https://emuly.test/", "phone-quiet-falcon"),
