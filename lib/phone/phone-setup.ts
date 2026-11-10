@@ -2,11 +2,18 @@ import "server-only";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { codespaceExec } from "../github/codespace-tunnel.ts";
+import { AGENT_DEVICE_VERSION } from "../agent-device-version.ts";
 import { collectProgress, measure, progressCursor, diagnosticHealth, diagnosticOperation } from "../diagnostics/diagnostics.ts";
 import { validateStep, type Step } from "../diagnostics/diagnostic-contract.ts";
 
 /** Files copied into each codespace, relative to `phone/` in this repository. */
 const FILES = ["scripts/progress.sh", "scripts/read-progress.py", "scripts/bounded-log.py", "scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "runner/runner.mjs", "runner/apps.mjs", "runner/apps-protocol.mjs", "runner/adb-protocol.mjs", "runner/apk-download.mjs", "runner/scrcpy.mjs", "runner/scrcpy-protocol.mjs"];
+
+/** The pinned version reaches shell scripts, so refuse anything that is not a plain release version. */
+function agentDeviceExport() {
+  if (!/^\d+\.\d+\.\d+$/.test(AGENT_DEVICE_VERSION)) throw new Error("Invalid AGENT_DEVICE_VERSION");
+  return `export AGENT_DEVICE_VERSION=${AGENT_DEVICE_VERSION}`;
+}
 
 export class PhoneSetupError extends Error {}
 export type SetupStatus = "ready" | "working";
@@ -38,7 +45,7 @@ export function setupScript(root = join(process.cwd(), "phone"), cursor = 0) {
   const files: [string, string][] = [...FILES.map(file => [file, Buffer.from(readFileSync(join(root, file), "utf8").replace(/\r\n/g, "\n")).toString("base64")] as [string, string]),
     ["runner/ws.cjs", readFileSync(join(process.cwd(), "node_modules/next/dist/compiled/ws/index.js")).toString("base64")],
     ["runner/ws.LICENSE", readFileSync(join(process.cwd(), "node_modules/next/dist/compiled/ws/LICENSE")).toString("base64")],
-    ["run.sh", Buffer.from(RUN.replace('builtin cd', `export EMULY_DIAGNOSTICS=${diagnosticOperation() ? "1" : "0"}\nexport PH_OPERATION_ID=${diagnosticOperation() ?? "disabled"}\nbuiltin cd`)).toString("base64")]];
+    ["run.sh", Buffer.from(RUN.replace('builtin cd', `export EMULY_DIAGNOSTICS=${diagnosticOperation() ? "1" : "0"}\nexport PH_OPERATION_ID=${diagnosticOperation() ?? "disabled"}\n${agentDeviceExport()}\nbuiltin cd`)).toString("base64")]];
   const writes = files.map(([file, body]) => `mkdir -p "$(dirname "${file}")"\necho '${body}' | base64 -d > "${file}"`);
   // A plain shell, not a login shell: the image's rvm profile fails under bash and kills the run.
   // Node comes from the image's nvm, which the profile would add to PATH.
@@ -69,6 +76,7 @@ emuly_wait
 ${writes[0]}
 export EMULY_DIAGNOSTICS=${diagnosticOperation() ? "1" : "0"}
 export PH_OPERATION_ID=${diagnosticOperation() ?? "disabled"}
+${agentDeviceExport()}
 source scripts/progress.sh
 ph_begin setup_upload
 ${writes.slice(1).join("\n")}
