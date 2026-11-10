@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { usePhoneVideo } from "@/components/phone/use-phone-video";
+import { AgentOverlay } from "@/components/phone/agent-overlay";
 import { pngConnection } from "@/components/phone/png-connection";
 import { screenPoint, phoneKeys } from "@/lib/phone/phone-video";
 import { copyText, useToast } from "@/components/ui/ui-provider";
@@ -29,6 +30,8 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
   const [screenshotAt, setScreenshotAt] = useState(0);
   const [error, setError] = useState("");
   const [inputPending, setInputPending] = useState(false);
+  const [lastAgentAt, setLastAgentAt] = useState(0);
+  const [agentNow, setAgentNow] = useState(0);
   const notify = useToast();
   const [clipboardPending, setClipboardPending] = useState(false);
   const [clipboardEmpty, setClipboardEmpty] = useState(false);
@@ -141,6 +144,12 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
     const timer = setTimeout(() => { setClipboardPending(false); setClipboardEmpty(true); }, 4000);
     return () => clearTimeout(timer);
   }, [clipboardPending]);
+  useEffect(() => {
+    if (!lastAgentAt) return;
+    const ticker = setInterval(() => setAgentNow(Date.now()), 1000);
+    const stop = setTimeout(() => clearInterval(ticker), 10_000);
+    return () => { clearInterval(ticker); clearTimeout(stop); };
+  }, [lastAgentAt]);
 
   async function input(body: Record<string, unknown>) {
     if (!live || (!video.active && !screenshotFresh) || inputBusy.current) return;
@@ -180,6 +189,8 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
   const reconnecting = live && !fresh;
   const connectionLabel = !live ? resting ? "Resting" : "Waiting for Android"
     : video.active ? "Live" : screenshotFresh ? "Screenshot view" : frame || video.painted ? "Reconnecting · showing last image" : "Connecting";
+  const agentAgo = lastAgentAt && agentNow ? Math.max(0, Math.floor((agentNow - lastAgentAt) / 1000)) : 0;
+  const agentWorking = lastAgentAt > 0 && agentNow > 0 && agentNow - lastAgentAt < 10_000;
   function control(key: "home" | "back" | "recent" | "volumeUp" | "volumeDown", label: string) {
     return <button type="button" className={s.control} aria-label={label} title={label}
       disabled={!fresh || inputPending || (!video.active && !["home", "back"].includes(key))}
@@ -261,6 +272,8 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
       <canvas ref={canvas} className={s.screenImage} style={{ display: showCanvas ? "block" : "none" }} aria-label="Live Android screen" />
       {frame && <img ref={image} src={frame} alt="Android screen" className={s.screenImage} style={{ display: showCanvas ? "none" : "block" }} />}
       {!frame && !video.painted && <div className={s.screenPlaceholder}>{live ? "Connecting to the screen..." : resting ? "Resting" : "Waiting for Android..."}</div>}
+      <AgentOverlay id={id} live={live} delayMs={video.active ? video.stats.delay : 0}
+        onActivity={at => { setLastAgentAt(at); setAgentNow(at); }} />
     </div>
     <div className={s.navigation} role="group" aria-label="Android navigation">
       {control("back", "Back")}{control("home", "Home")}{control("recent", "Recent apps")}
@@ -284,6 +297,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
     </div>
     <footer className={s.footer}>
       <span>{reconnecting ? "Controls resume when a fresh image arrives" : video.active ? "Click to control · Type to send text" : "Click the screen to tap"}</span>
+      {agentWorking && <span className={s.agentStatus}>Agent is working · last action {agentAgo}s ago</span>}
       <span role="status">{video.active ? `${video.stats.fps} fps · ${video.stats.delay} ms` : live && video.supported ? "Reconnecting…" : ""}</span>
     </footer>
     {(phoneClipboard || clipboardPending || clipboardEmpty) && <div className={s.clipboardPanel} role="status">
