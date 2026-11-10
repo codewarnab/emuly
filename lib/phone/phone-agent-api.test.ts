@@ -16,6 +16,7 @@ function fixture(overrides: Partial<Parameters<typeof createPhoneAgentApi>[0]> =
       stop: async (userId, id) => { calls.push(`stop:${userId}:${id}`); return id; },
     },
     adb: async (userId, id) => { calls.push(`adb:${userId}:${id}`); return Response.json({ exit_code: 0, stdout: "", stderr: "" }); },
+    agentDevice: async (userId, id) => { calls.push(`agent:${userId}:${id}`); return { ready: true, token: "proxy-token", version: "0.21.36" }; },
     baseUrl: () => "https://emuly.test/",
     ...overrides,
   });
@@ -109,6 +110,41 @@ test("adb requires a ready phone and the same Origin rule as the other routes", 
   assert.equal(run.status, 200);
   assert.deepEqual(await run.json(), { exit_code: 0, stdout: "", stderr: "" });
   assert.deepEqual(agent.calls, [`phone:7:${stored.id}`, `adb:7:${stored.id}`]);
+});
+
+test("agent-device returns the proxy URL only for the owner's running, ready phone", async () => {
+  const { api, calls } = fixture({ user: async () => ({ id: 7, authKind: "agent", agentKeyId: 42 }) });
+  const response = await api.agentDevice(get(`/v1/phones/${stored.id}/agent-device`), stored.id);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await response.json(), {
+    base_url: `https://emuly.test/v1/phones/${stored.id}/agent-device-proxy/agent-device`,
+    token: "proxy-token", version: "0.21.36", session: `emuly-${stored.id}`,
+  });
+  assert.deepEqual(calls, [`phone:7:${stored.id}`, `agent:7:${stored.id}`]);
+
+  const anonymous = fixture({ user: async () => null });
+  assert.equal((await anonymous.api.agentDevice(get(`/v1/phones/${stored.id}/agent-device`), stored.id)).status, 401);
+  assert.deepEqual(anonymous.calls, [], "authentication comes before any phone lookup");
+
+  const cookie = fixture({ user: async () => ({ id: 7, authKind: "session" }) });
+  assert.equal((await cookie.api.agentDevice(get(`/v1/phones/${stored.id}/agent-device`), stored.id)).status, 403);
+  assert.deepEqual(cookie.calls, [], "an origin-less cookie request is cross-site");
+});
+
+test("agent-device hides every unavailable reason behind one 404", async () => {
+  const expected = { error: "agent-device is not available on this phone" };
+  const agent = async () => ({ id: 7, authKind: "agent" as const, agentKeyId: 42 });
+  const stopped = fixture({ user: agent, phone: async () => ({ ...stored, state: "stopped", android_state: "idle" }) });
+  const waiting = fixture({ user: agent, agentDevice: async () => ({ ready: false, token: "proxy-token" }) });
+  const failed = fixture({ user: agent, agentDevice: async () => { throw new Error("runner route missing"); } });
+  const notOwner = fixture({ user: agent, phone: async () => undefined });
+  for (const { api } of [stopped, waiting, failed, notOwner]) {
+    const response = await api.agentDevice(get(`/v1/phones/${stored.id}/agent-device`), stored.id);
+    assert.equal(response.status, 404);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await response.json(), expected);
+  }
 });
 
 test("adb validates args before the runner and returns raw PNG for screenshots", async () => {
