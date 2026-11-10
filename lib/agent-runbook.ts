@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { AGENT_DEVICE_VERSION } from "./agent-device-version.ts";
 
 /**
  * Agent docs are Markdown in content/:
@@ -7,7 +8,7 @@ import path from "node:path";
  * - skills/emuly-playbook/: the skill that operates phones. Agents install it or fetch it.
  * To add Linux or a new agent, add one Markdown file. No code change is needed.
  */
-export const AGENT_RUNBOOK_VERSION = "2026-11-09.8";
+export const AGENT_RUNBOOK_VERSION = "2026-11-10.1";
 export const SKILL_NAME = "emuly-playbook";
 
 const SETUP = path.join(process.cwd(), "content", "agent", "setup");
@@ -17,8 +18,10 @@ const SKILL_DESCRIPTION = /^description:\s*(.+)$/m;
 
 const trim = (base: string) => base.replace(/\/$/, "");
 const md = (name: string) => name.endsWith(".md");
-/** The Markdown uses {{EMULY_BASE_URL}}, so every served copy names this host. */
-const withBase = (text: string, base: string) => text.replaceAll("{{EMULY_BASE_URL}}", trim(base));
+/** The Markdown uses {{EMULY_BASE_URL}} and {{AGENT_DEVICE_VERSION}}, so every served copy names this host and the pinned CLI. */
+const withBase = (text: string, base: string) => text
+  .replaceAll("{{EMULY_BASE_URL}}", trim(base))
+  .replaceAll("{{AGENT_DEVICE_VERSION}}", AGENT_DEVICE_VERSION);
 
 export function setupShared(baseUrl: string) {
   return withBase(readFileSync(path.join(SETUP, "shared.md"), "utf8"), baseUrl);

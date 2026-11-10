@@ -110,3 +110,27 @@ if ! echo "$SCRCPY_SHA  $SCRCPY_FILE" | sha256sum -c - >/dev/null 2>&1; then
   mv "$SCRCPY_FILE.tmp" "$SCRCPY_FILE"
 fi
 ph_end succeeded none "$disposition"
+
+# --- 6. agent-device CLI, pinned so the laptop CLI, the Codespace proxy and the API agree ---
+ph_begin agent_device
+disposition=already_present
+INSTALLED_AGENT_DEVICE="$(agent-device --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
+if [ -z "${AGENT_DEVICE_VERSION:-}" ]; then
+  echo "agent-device: AGENT_DEVICE_VERSION is unset, skipping"
+elif ! [[ "$AGENT_DEVICE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "agent-device: AGENT_DEVICE_VERSION is not a release version, skipping"
+elif ! node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 12) ? 0 : 1)' 2>/dev/null; then
+  echo "WARNING: agent-device $AGENT_DEVICE_VERSION needs Node >= 22.12, skipping"
+elif [ "$INSTALLED_AGENT_DEVICE" = "$AGENT_DEVICE_VERSION" ]; then
+  echo "agent-device: $AGENT_DEVICE_VERSION already installed"
+else
+  disposition=installed
+  # A failed CLI install must not fail Android setup; the runner works without it.
+  if npm install -g "agent-device@$AGENT_DEVICE_VERSION" >/tmp/agent-device-install.log 2>&1; then
+    echo "agent-device: installed $AGENT_DEVICE_VERSION"
+  else
+    disposition=unknown
+    echo "WARNING: agent-device install failed; see /tmp/agent-device-install.log"
+  fi
+fi
+ph_end succeeded none "$disposition"

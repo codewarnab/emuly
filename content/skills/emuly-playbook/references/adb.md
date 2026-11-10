@@ -60,3 +60,15 @@ do not create a phone to work around it.
 **Screenshots:** the route detects `["exec-out","screencap","-p"]` and returns raw PNG bytes
 instead of JSON. Save them to a file. Sending `Accept: image/png` also asks for raw bytes;
 use it only with screenshot calls.
+
+**Read the screen as text:** dump the UI hierarchy, then read the file back.
+
+```json
+["shell","uiautomator","dump","/sdcard/ui.xml"]
+["exec-out","cat","/sdcard/ui.xml"]
+```
+
+It returns XML with one node per element, each carrying `text`, `resource-id`,
+`content-desc` and `bounds="[x1,y1][x2,y2]"`. Tap the center of a node's bounds with
+`["shell","input","tap","<x>","<y>"]`. Prefer this over guessing coordinates from a
+screenshot. Dump again after the screen changes, because the old XML goes stale.

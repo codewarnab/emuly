@@ -287,4 +287,6 @@ export const MIGRATIONS = [
   );
   CREATE INDEX IF NOT EXISTS agent_phone_deletions_user ON agent_phone_deletions(user_id, deleted_at DESC);
   `,
+  // The proxy token is stored as a digest; NULL means the agent must ask GET /agent-device again.
+  `ALTER TABLE phones ADD COLUMN agent_device_token_hash TEXT;`,
 ];

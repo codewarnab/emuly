@@ -3,6 +3,7 @@
 import ws from "./ws.cjs";
 import { startScrcpy } from "./scrcpy.mjs";
 import { createApps, CHUNK_SIZE } from "./apps.mjs";
+import { startAgentDeviceProxy } from "./agent-device-proxy.mjs";
 import { ADB_DOWNLOAD_MAX_BYTES, ADB_FILES_MAX, ADB_OUTPUT_MAX_BYTES, ADB_UPLOAD_MAX_BYTES,
   adbArguments, adbTimeout, isDownload, isScreencap } from "./adb-protocol.mjs";
 import { AppError } from "./apk-download.mjs";
@@ -217,6 +218,8 @@ async function adbRoute(req) {
   }
 }
 const apps = await createApps({ root: join(ROOT, "data", "app-installs"), sdk: SDK, run, adb, exclusive, booted });
+// The agent-device proxy runs only while this process does; its token never reaches a log.
+const agentDevice = startAgentDeviceProxy({ sdk: SDK });
 
 const routes = {
   "GET /health": async () => ({ ok: true, version: 10, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles"], avd: "t", api_level: 36, booted: await booted() }),
@@ -270,6 +273,7 @@ const routes = {
   "POST /apps/open": ({ packageId }) => apps.open(packageId),
   "GET /app-installs": () => apps.list(),
   "POST /app-installs": body => apps.create(body),
+  "GET /agent-device-info": () => agentDevice.info(),
 
 };
 
@@ -314,6 +318,8 @@ const server = createServer(async (req, res) => {
       }
       return send(200, result);
     }
+    // Raw passthrough: streaming bodies, no JSON parsing, no buffering.
+    if (path.startsWith("/agent-device/")) return agentDevice.forward(req, res);
     const handler = routes[`${req.method} ${path}`];
     if (!handler) return send(404, { error: "not found" });
     const result = await handler(req.method === "POST" ? await readBody(req) : {});
