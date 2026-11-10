@@ -8,10 +8,11 @@ type Owner = { userId: number; id: string; codespaceName: string };
 type Connection = Bridge & { forwarded: boolean };
 type Entry = { connection: Promise<Connection>; abort: AbortController; active: number; viewers: number; timer?: NodeJS.Timeout; awake?: NodeJS.Timeout };
 class RunnerResponseError extends Error {}
-export type RunnerPath = "/health" | "/boot" | "/stop" | "/screenshot" | "/tap" | "/key";
+export type RunnerPath = "/health" | "/boot" | "/stop" | "/screenshot" | "/tap" | "/key" | "/agent-device-info";
 export type AppsPath = "/apps" | "/apps/open" | "/app-installs" | `/app-installs/${string}`;
 export type AppsRequest = { method: "GET" | "POST" | "PUT"; json?: Record<string, unknown>; bytes?: Uint8Array; offset?: number; digest?: string; signal?: AbortSignal };
 export type AdbRequest = { args: string[]; timeout_s: number; binary?: boolean; files?: { name: string; bytes: Uint8Array }[] };
+export type ProxyRequest = { method: string; headers: Headers; body?: ReadableStream<Uint8Array> | null; signal?: AbortSignal };
 
 /** One connection per owned phone. Only a read-only probe may fall back; never replay a mutation. */
 export function createEmulyLinks({ token, tunnel, keepAwake, observations, fetch: request = fetch, idleMs = 120_000 }: {
@@ -152,6 +153,44 @@ export function createEmulyLinks({ token, tunnel, keepAwake, observations, fetch
         return new Response(Buffer.concat(chunks), { status: response.status, headers: relayed });
       } finally { release(); }
     },
+    /** Raw relay for the agent-device proxy: both bodies stream, so nothing is buffered or parsed. */
+    async proxy(phone: Owner, path: string, init: ProxyRequest): Promise<Response> {
+      if (!path.startsWith("/agent-device/") || /[\u0000-\u001f\u007f]/.test(path)) throw new Error("Invalid proxy route");
+      const { entry, release } = acquire(phone);
+      try {
+        const connection = await entry.connection;
+        const headers = new Headers(init.headers);
+        if (connection.forwarded) headers.set("X-Github-Token", await token(phone.userId));
+        const signals = init.signal ? [entry.abort.signal, init.signal] : [entry.abort.signal];
+        const response = await request(`${connection.url}${path}`, {
+          method: init.method, headers, body: init.body ?? undefined,
+          redirect: "manual", cache: "no-store", signal: AbortSignal.any(signals),
+          // Node's fetch needs this for a streaming request body.
+          duplex: init.body ? "half" : undefined,
+        } as RequestInit & { duplex?: "half" });
+        const relayed = new Headers({ "content-type": response.headers.get("content-type") ?? "application/json",
+          "cache-control": "no-store" });
+        if (!response.body) { release(); return new Response(null, { status: response.status, headers: relayed }); }
+        // Hold the connection lease until the CLI finishes reading, then return it to the idle timer.
+        const reader = response.body.getReader();
+        const body = new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            try {
+              const { done, value } = await reader.read();
+              if (done) { release(); controller.close(); return; }
+              controller.enqueue(value);
+            } catch (error) { release(); controller.error(error); }
+          },
+          async cancel(reason) { release(); await reader.cancel(reason).catch(() => {}); },
+        });
+        return new Response(body, { status: response.status, headers: relayed });
+      } catch (error) {
+        release();
+        // A client walking away is not a tunnel failure; keep the reusable bridge for the next call.
+        if (!init.signal?.aborted && entries.get(key(phone)) === entry) close(phone);
+        throw new Error("Phone connection failed. Try again.");
+      }
+    },
     async stream(phone: Owner) {
       const { entry, release } = acquire(phone);
       try {
@@ -218,7 +257,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, observations, fetch
     },
     async request(phone: Owner, path: RunnerPath, body?: Record<string, unknown>): Promise<Response> {
       if (!/^[\w-]{1,100}$/.test(phone.codespaceName)) throw new Error("Invalid codespace name");
-      if (!["/health", "/boot", "/stop", "/screenshot", "/tap", "/key"].includes(path)) throw new Error("Invalid runner route");
+      if (!["/health", "/boot", "/stop", "/screenshot", "/tap", "/key", "/agent-device-info"].includes(path)) throw new Error("Invalid runner route");
       const { entry, release } = acquire(phone);
       try {
         const connection = await entry.connection;

@@ -209,3 +209,35 @@ test("a rejected private WebSocket switches the next connection to the persisten
     assert.deepEqual(fallback.headers, {}); assert.equal(tunnels, 1); fallback.release();
   } finally { links.close(phone); }
 });
+
+test("the proxy relay streams the upstream body and forwards message headers only", async () => {
+  let relayed: { url: string; init?: RequestInit } | undefined;
+  const links = createEmulyLinks({ token: async () => "synthetic-credential",
+    fetch: async (url, init) => {
+      if (String(url).startsWith("https://")) return new Response(null, { status: 403 });
+      relayed = { url: String(url), init };
+      return new Response('{"ok":true}', { status: 201, headers: { "content-type": "application/json" } });
+    },
+    tunnel: async () => ({ url: "http://runner.test", close() {} }) });
+  try {
+    const response = await links.proxy(phone, "/agent-device/health?verbose=1", {
+      method: "GET", headers: new Headers({ authorization: "Bearer proxy-token", cookie: "session=secret" }) });
+    assert.equal(relayed?.url, "http://runner.test/agent-device/health?verbose=1");
+    const forwarded = new Headers(relayed?.init?.headers);
+    assert.equal(forwarded.get("authorization"), "Bearer proxy-token");
+    assert.equal(forwarded.get("cookie"), "session=secret", "the caller drops cookies; the link relays what it is given");
+    assert.equal(forwarded.get("x-github-token"), null, "the local bridge needs no GitHub credential");
+    assert.equal(response.status, 201);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await response.json(), { ok: true });
+  } finally { links.close(phone); }
+});
+
+test("the proxy relay refuses paths outside the agent-device prefix", async () => {
+  const links = createEmulyLinks({ token: async () => "synthetic", fetch: async () => new Response(null, { status: 403 }),
+    tunnel: async () => ({ url: "http://runner.test", close() {} }) });
+  try {
+    await assert.rejects(links.proxy(phone, "/health", { method: "GET", headers: new Headers() }), /Invalid proxy route/);
+    await assert.rejects(links.proxy(phone, "/agent-device/a\nb", { method: "GET", headers: new Headers() }), /Invalid proxy route/);
+  } finally { links.close(phone); }
+});

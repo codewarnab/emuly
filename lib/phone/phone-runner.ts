@@ -2,7 +2,7 @@ import "server-only";
 import { asyncDb } from "../data/async-db.ts";
 import { getAccessToken } from "../github/github-token.ts";
 import { codespaceExec, openCodespacePort } from "../github/codespace-tunnel.ts";
-import { createEmulyLinks, type RunnerPath, type AppsPath, type AppsRequest, type AdbRequest } from "./phone-link.ts";
+import { createEmulyLinks, type RunnerPath, type AppsPath, type AppsRequest, type AdbRequest, type ProxyRequest } from "./phone-link.ts";
 import { phoneObservations } from "./phone-observation.ts";
 
 const global = globalThis as unknown as { __emulyLinks?: ReturnType<typeof createEmulyLinks>; __emulyLinksVersion?: number };
@@ -36,6 +36,24 @@ export async function runnerAdb(userId: number, id: string, input: AdbRequest) {
     AND EXISTS(SELECT 1 FROM users WHERE id = ? AND blocked = 0)`, args: [userId, id, userId] })).rows[0] as unknown as { codespace_name: string } | undefined;
   if (!row) throw new Error("Phone is not available");
   return links().adb({ userId, id, codespaceName: row.codespace_name }, input);
+}
+
+/** The runner's agent-device proxy state. Any failure is shaped as unavailable by the caller. */
+export async function runnerAgentDevice(userId: number, id: string) {
+  const row = (await asyncDb().execute({ sql: `SELECT codespace_name FROM phones WHERE user_id = ? AND id = ? AND state = 'running' AND android_state = 'ready'
+    AND EXISTS(SELECT 1 FROM users WHERE id = ? AND blocked = 0)`, args: [userId, id, userId] })).rows[0] as unknown as { codespace_name: string } | undefined;
+  if (!row) throw new Error("Phone is not available");
+  const response = await links().request({ userId, id, codespaceName: row.codespace_name }, "/agent-device-info");
+  return response.json() as Promise<unknown>;
+}
+
+/** The agent-device proxy authenticates with its own token, so the phone is found by id alone. */
+export async function runnerProxy(id: string, path: string, init: ProxyRequest) {
+  const row = (await asyncDb().execute({ sql: `SELECT p.user_id AS user_id, p.codespace_name AS codespace_name
+    FROM phones p JOIN users u ON u.id = p.user_id
+    WHERE p.id = ? AND p.state = 'running' AND p.android_state = 'ready' AND u.blocked = 0`, args: [id] })).rows[0] as unknown as { user_id: number; codespace_name: string } | undefined;
+  if (!row) throw new Error("Phone is not available");
+  return links().proxy({ userId: row.user_id, id, codespaceName: row.codespace_name }, path, init);
 }
 
 export async function runnerStream(userId: number, id: string, sessionId: string) {
