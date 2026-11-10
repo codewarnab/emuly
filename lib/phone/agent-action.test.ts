@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { adbEventMeta, parseAdbAction } from "./agent-action.ts";
+import { adbEventMeta, parseAdbAction, parseWmSize } from "./agent-action.ts";
 
 test("taps parse with or without a shell prefix and round fractional coordinates", () => {
   assert.deepEqual(parseAdbAction(["shell", "input", "tap", "540", "1200"]), { type: "tap", x: 540, y: 1200 });
@@ -74,6 +74,23 @@ test("event meta never stores typed text", () => {
   const meta = adbEventMeta(["shell", "input", "text", "hello%sworld"], 0)!;
   assert.deepEqual(JSON.parse(meta), { action: { type: "text" } });
   assert.equal(meta.includes("hello"), false);
+});
+
+test("wm size prefers an override over the physical panel", () => {
+  assert.deepEqual(parseWmSize("Physical size: 1080x2400\n"), { width: 1080, height: 2400 });
+  assert.deepEqual(parseWmSize("Physical size: 1080x2400\nOverride size: 720x1600\n"), { width: 720, height: 1600 });
+  // The override can be listed before the physical size; it still wins.
+  assert.deepEqual(parseWmSize("Override size: 720x1600\nPhysical size: 1080x2400"), { width: 720, height: 1600 });
+  assert.deepEqual(parseWmSize("Physical size: 1080x2400\r\nOverride size: 720x1600\r\n"), { width: 720, height: 1600 });
+  assert.deepEqual(parseWmSize("  Physical size: 1080x2400"), { width: 1080, height: 2400 });
+});
+
+test("wm size output without a usable size is null", () => {
+  assert.equal(parseWmSize(""), null);
+  assert.equal(parseWmSize("Physical size: 0x0"), null);
+  assert.equal(parseWmSize("Physical size: 1080x"), null);
+  assert.equal(parseWmSize("Physical size: widex2400"), null);
+  assert.equal(parseWmSize("Override size: 720x1600x2"), null);
 });
 
 test("unrelated adb commands are not agent actions", () => {

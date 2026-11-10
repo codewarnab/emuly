@@ -54,6 +54,25 @@ export function parseAdbAction(args: string[]): AgentAction | null {
   return null;
 }
 
+const WM_SIZE = /^\s*(Physical|Override) size:\s*(\d+)x(\d+)\s*$/gm;
+
+/**
+ * Parses `adb shell wm size` into the real display size. An override (density or
+ * resolution testing) wins over the physical panel, since that is what adb taps
+ * are checked against. Null when the output holds no usable size.
+ */
+export function parseWmSize(stdout: string): { width: number; height: number } | null {
+  let physical: { width: number; height: number } | null = null;
+  let override: { width: number; height: number } | null = null;
+  for (const match of stdout.matchAll(WM_SIZE)) {
+    const width = Number(match[2]), height = Number(match[3]);
+    if (!(width > 0 && height > 0)) continue;
+    if (match[1] === "Override") override ??= { width, height };
+    else physical ??= { width, height };
+  }
+  return override ?? physical;
+}
+
 /**
  * Builds the events.meta payload for an adb row: agent attribution plus the
  * displayable action. Null when there is neither, so plain rows stay lean.
