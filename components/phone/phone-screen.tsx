@@ -111,7 +111,9 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
     const visibility = () => { if (document.hidden) invalidate(); else resume(); };
     const timer = setInterval(() => { void poll(); }, 1000);
     document.addEventListener("visibilitychange", visibility);
-    window.addEventListener("focus", resume);
+    // A window change with the tab still visible keeps the current PNG stream.
+    const focus = () => { void poll(); };
+    window.addEventListener("focus", focus);
     void poll();
     return () => {
       disposed = true;
@@ -119,7 +121,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
       streamController.abort();
       clearInterval(timer);
       document.removeEventListener("visibilitychange", visibility);
-      window.removeEventListener("focus", resume);
+      window.removeEventListener("focus", focus);
       // Keep the displayed frame when live changes. Release it after the replacement loads or unmounts.
     };
   }, [endpoint, id, live, video.active, video.lastFrameAt]);
