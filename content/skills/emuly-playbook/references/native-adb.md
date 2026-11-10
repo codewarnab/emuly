@@ -9,9 +9,12 @@ to open terminals. Ask the user to act only for a sign-in that needs their brows
 
 ## 1. Check the tools
 
-- `gh --version`, `adb --version` and `scrcpy --version` must succeed. If one is missing,
-  ask once, then install it (see the OS file, for example `references/os/windows.md`).
-  The scrcpy package includes adb.
+- `gh --version`, `adb --version` and `scrcpy --version` must succeed.
+- If one is missing, never install it on your own. Ask first, and name each tool:
+  "scrcpy needs <missing tools>, which are not installed. Install them with <package
+  manager>?" Install only after the user says yes. On a no, keep the browser link and stop.
+  Install commands are in the OS file, for example `references/os/windows.md`. The scrcpy
+  package includes adb.
 - `gh auth status` must show at least one signed-in account. If none is signed in, ask the
   user to run `gh auth login` themselves. Never ask for a GitHub token.
 

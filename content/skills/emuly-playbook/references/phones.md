@@ -32,14 +32,29 @@ When Android is ready, put the link in the chat as a clickable link, with this l
 Give the link again when you report that the task is done. If the user is signed out, the
 link opens sign-in first and then returns to the phone page.
 
-When it is suitable, offer scrcpy as a second way to see the phone, in one line after the
-link. The browser link always comes first. scrcpy is suitable when one of these is true:
+When it is suitable, offer scrcpy as a second way to see the phone, after the link. The
+browser link always comes first. scrcpy is suitable when one of these is true:
 
 - The user will use the phone by hand for a long time, for example manual testing.
 - The user says the browser view is slow, laggy or hard to use.
 - The user already uses adb, Android Studio or scrcpy.
 
-Use this line: "If you want a faster native window, I can set up scrcpy on your computer."
+Give both ways with this text:
+
+```text
+Two ways to see the phone:
+
+1. Browser link (ready now): <browser_url>
+   + Nothing to install. Works on any computer.
+   - A little slower than a native window.
+
+2. scrcpy window on your computer
+   + Smoother, with less delay. Drag files in, copy and paste.
+   - Needs gh, adb and scrcpy. I will ask before I install anything.
+
+Do you want me to open the scrcpy window?
+```
+
 Offer it once per session. Do not set it up until the user says yes. The steps are in
 `references/native-adb.md`.
 
