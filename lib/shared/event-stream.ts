@@ -1,5 +1,6 @@
 /** One bounded connection. EventSource reconnects after rotation or transport failure. */
-export function eventStream(request: Request, read: () => Promise<unknown | undefined>) {
+export function eventStream(request: Request, read: () => Promise<unknown | undefined>, options: { intervalMs?: number } = {}) {
+  const intervalMs = options.intervalMs ?? 1500;
   const abort = new AbortController();
   const signal = AbortSignal.any([request.signal, abort.signal, AbortSignal.timeout(270_000)]);
   const encoder = new TextEncoder();
@@ -16,7 +17,7 @@ export function eventStream(request: Request, read: () => Promise<unknown | unde
           else controller.enqueue(encoder.encode(": heartbeat\n\n"));
           await new Promise<void>(resolve => {
             const done = () => { clearTimeout(timer); signal.removeEventListener("abort", done); resolve(); };
-            const timer = setTimeout(done, 1500);
+            const timer = setTimeout(done, intervalMs);
             signal.addEventListener("abort", done, { once: true });
             if (signal.aborted) done();
           });

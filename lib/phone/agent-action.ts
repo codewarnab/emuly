@@ -53,3 +53,16 @@ export function parseAdbAction(args: string[]): AgentAction | null {
   if (command === "text") return rest.length > 0 ? { type: "text" } : null;
   return null;
 }
+
+/**
+ * Builds the events.meta payload for an adb row: agent attribution plus the
+ * displayable action. Null when there is neither, so plain rows stay lean.
+ */
+export function adbEventMeta(args: string[], exitCode: number, agentKeyId?: number): string | null {
+  const action = exitCode === 0 ? parseAdbAction(args) : null;
+  if (action === null && agentKeyId === undefined) return null;
+  return JSON.stringify({
+    ...(agentKeyId === undefined ? {} : { agent_key_id: agentKeyId }),
+    ...(action === null ? {} : { action }),
+  });
+}
