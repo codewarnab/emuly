@@ -108,6 +108,10 @@ export async function startScrcpy(ws, { adb, ADB, SERIAL, ROOT, quality }) {
     // the screen is static, so a new viewer saw no picture until a user touched the phone.
     // KEYCODE_WAKEUP (224) makes Android redraw without changing any app or screen state.
     // Do not use home, back, or a touch here; those change what the user sees.
+    // Future option, if a stuck static screen still happens: add the scrcpy server option
+    // "video_codec_options=repeat-previous-frame-after:100000" to the spawn args above. The encoder then
+    // repeats the last frame when nothing changes. It uses more bandwidth all the time, and support
+    // in scrcpy 3.3.4 is not confirmed yet, so we do not use it now.
     const wake = setTimeout(() => {
       if (closed || !control?.writable) return;
       try { control.write(controlMessage({ type: "key", key: "wakeup" })); } catch { close(); }
