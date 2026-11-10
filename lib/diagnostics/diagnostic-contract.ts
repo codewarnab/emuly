@@ -3,7 +3,7 @@ export const stepCodes = [
   "request_accepted", "github_create", "github_start", "github_stop", "github_delete", "provider_wait",
   "credential_lookup", "metadata_fetch", "tunnel_lookup", "relay_connect", "port_wait", "ssh_server", "ssh_auth", "command",
   "forwarded_probe", "setup_check", "setup_upload", "setup_launch", "kvm", "runtime_libraries", "sdk_tools", "sdk_packages",
-  "android_cli", "avd", "scrcpy", "runner_launch", "runner_health", "adb_init", "cli_boot", "fallback_boot", "boot_completed",
+  "android_cli", "avd", "scrcpy", "agent_device", "runner_launch", "runner_health", "adb_init", "cli_boot", "fallback_boot", "boot_completed",
   "android_boot", "stream_authorization", "stream_attach", "stream_detach", "first_decoded", "first_painted", "screenshot_fallback",
   "presence", "input_summary", "reconnect", "keep_awake", "awake_timer_start", "awake_timer_stop", "coverage_gap", "coverage_recovered",
   "observer_restart", "stop_intent", "provider_stop", "poll_backoff", "retry_wait", "collector",

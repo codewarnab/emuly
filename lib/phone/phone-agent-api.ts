@@ -6,6 +6,7 @@ import {
   ADB_FILES_MAX, ADB_UPLOAD_MAX_BYTES, AdbError, adbArguments, adbResult, adbTimeout, isDownload, isScreencap,
 } from "./phone-adb-contract.ts";
 import { PhoneInputError, redact, type createPhoneService } from "./phone-mutations.ts";
+import { agentDeviceBaseUrl, agentDeviceInfo, agentDeviceSession, agentDeviceUnavailable } from "./agent-device.ts";
 import type { Phone } from "./phones.ts";
 
 type Identity = { id: number; authKind?: "session" | "agent"; agentKeyId?: number };
@@ -80,13 +81,14 @@ async function readAdbMultipart(request: Request): Promise<{ args: unknown; time
 }
 
 /** The agent-facing phone routes: list/read plus lifecycle and adb. Both auth kinds may use them. */
-export function createPhoneAgentApi({ user, phones, phone, service, adb, baseUrl, log }: {
+export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDevice, baseUrl, log }: {
   user: () => Promise<Identity | null>;
   phones: (userId: number) => Promise<PhoneView[]>;
   phone: (userId: number, id: string) => Promise<PhoneView | undefined>;
   service: Pick<ReturnType<typeof createPhoneService>, "start" | "stop">;
   adb: (userId: number, id: string, input: { args: string[]; timeout_s: number; binary?: boolean;
     files?: { name: string; bytes: Uint8Array }[] }) => Promise<Response>;
+  agentDevice: (userId: number, id: string) => Promise<unknown>;
   baseUrl: () => string;
   log?: (call: AdbCall) => void | Promise<void>;
 }) {
@@ -135,6 +137,20 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, baseUrl
     },
     start: (request: Request, id: string) => change(request, id, "start"),
     stop: (request: Request, id: string) => change(request, id, "stop"),
+    async agentDevice(request: Request, id: string) {
+      const identity = await user();
+      if (!identity) return json({ error: "unauthorized" }, 401);
+      if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden" }, 403);
+      try {
+        const stored = await phone(identity.id, id);
+        if (!stored || stored.state !== "running" || stored.android_state !== "ready") return agentDeviceUnavailable();
+        const info = agentDeviceInfo(await agentDevice(identity.id, id));
+        if (!info) return agentDeviceUnavailable();
+        // The token is relayed to the caller and never logged here or by the runner.
+        return Response.json({ base_url: agentDeviceBaseUrl(baseUrl(), id), token: info.token, version: info.version,
+          session: agentDeviceSession(id) }, { headers: { "Cache-Control": "no-store" } });
+      } catch { return agentDeviceUnavailable(); }
+    },
     async adb(request: Request, id: string) {
       const identity = await user();
       if (!identity) return json({ error: "unauthorized" }, 401);

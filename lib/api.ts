@@ -6,7 +6,7 @@ import { phoneControl, templateRepository } from "./phone/phone-control";
 import { createPhoneApi } from "./phone/phone-api";
 import { createPhoneAgentApi } from "./phone/phone-agent-api";
 import { findPhone, listPhones } from "./phone/phones";
-import { runnerAdb } from "./phone/phone-runner";
+import { runnerAdb, runnerAgentDevice } from "./phone/phone-runner";
 import { recordPhoneAdb } from "./phone/phone-activity";
 import { readUsage, userSettings } from "./data/usage";
 import { webhookControl } from "./webhooks/webhook-control";
@@ -22,5 +22,5 @@ export function phoneApi() {
 /** List/read/start/stop/adb share the agent-facing surface and the same origin rule. */
 export function agentPhoneApi() {
   return createPhoneAgentApi({ user: getUser, phones: listPhones, phone: findPhone, service: phoneControl(),
-    adb: runnerAdb, baseUrl: () => env.baseUrl, log: recordPhoneAdb });
+    adb: runnerAdb, agentDevice: runnerAgentDevice, baseUrl: () => env.baseUrl, log: recordPhoneAdb });
 }

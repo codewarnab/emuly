@@ -5,10 +5,15 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
+import { AGENT_DEVICE_VERSION } from "../agent-device-version.ts";
+
+// The setup dependency uses TypeScript parameter properties, so this process needs transformation.
+// Node 26 transforms types by default and dropped the flag; older releases need it.
+const transform = execFileSync(process.execPath, ["--help"], { encoding: "utf8" }).includes("--experimental-transform-types")
+  ? ["--experimental-transform-types"] : [];
 
 function generatedScript() {
-  // The setup dependency uses TypeScript parameter properties, so this process needs transformation.
-  return execFileSync(process.execPath, ["--conditions=react-server", "--experimental-transform-types",
+  return execFileSync(process.execPath, ["--conditions=react-server", ...transform,
     "--input-type=module", "--eval", `
       const { setupScript } = await import(process.argv[1]);
       process.stdout.write(setupScript());
@@ -38,18 +43,22 @@ test("RUN starts an early emulator boot before setup when the AVD already exists
   assert.match(run, /early-boot\.log/);
 });
 
+test("run.sh and the launcher export the pinned agent-device version", () => {
+  const script = generatedScript();
+  const line = `export AGENT_DEVICE_VERSION=${AGENT_DEVICE_VERSION}`;
+  assert.match(AGENT_DEVICE_VERSION, /^\d+\.\d+\.\d+$/);
+  assert.ok(script.includes(`${line}\n`), "the setup launcher exports the pinned version");
+  const encoded = script.match(/echo '([A-Za-z0-9+/=]+)' \| base64 -d > "run\.sh"/)?.[1];
+  assert.ok(encoded, "run.sh is part of the upload payload");
+  const run = Buffer.from(encoded, "base64").toString("utf8");
+  assert.ok(run.includes(`${line}\n`), "run.sh exports the same pinned version");
+});
+
 test("setup packages an Apps runner that loads with plain Node outside the repository", async () => {
   const root = await mkdtemp(join(tmpdir(), "emuly-package-"));
   try {
     // Decode the actual upload payload without executing its shell commands.
-    // The setup dependency uses TypeScript parameter properties, so this process needs transformation.
-    const script = execFileSync(process.execPath, ["--conditions=react-server", "--experimental-transform-types",
-      "--input-type=module", "--eval", `
-        const { setupScript } = await import(process.argv[1]);
-        process.stdout.write(setupScript());
-      `, pathToFileURL(resolve("lib/phone/phone-setup.ts")).href], {
-      encoding: "utf8", timeout: 10_000, maxBuffer: 2 * 1024 * 1024,
-    });
+    const script = generatedScript();
     for (const [, body, name] of script.matchAll(/echo '([A-Za-z0-9+/=]+)' \| base64 -d > "([^"]+)"/g)) {
       const target = resolve(root, name);
       assert.ok(target.startsWith(root + sep));
