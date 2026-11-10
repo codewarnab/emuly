@@ -18,9 +18,13 @@ test("ticket issuance enforces session, origin, ownership and readiness without 
   identity = { id: 8, sessionId: "synthetic-hash" };
   assert.equal((await api(request(), "owned")).status, 404);
   identity.id = 7; state = "stopped";
-  assert.equal((await api(request(), "owned")).status, 409);
+  const stopped = await api(request(), "owned");
+  assert.equal(stopped.status, 409);
+  assert.deepEqual(await stopped.json(), { errorCode: "phone_stopped" });
   state = "running"; android_state = "booting";
-  assert.equal((await api(request(), "owned")).status, 409);
+  const booting = await api(request(), "owned");
+  assert.equal(booting.status, 409);
+  assert.equal(await booting.text(), "");
   android_state = "ready";
   assert.equal((await api(request("https://evil.test"), "owned")).status, 403);
   const response = await api(request(), "owned");
