@@ -15,6 +15,16 @@ Show a screenshot in the chat only in these cases:
 Do not show a screenshot after every step. Screenshots that you take to check your own
 work stay in the scratchpad. Read them yourself, and do not show them.
 
+## The first screenshot after a start
+
+The home screen and apps load a few seconds after `android_state` is `ready`. A screenshot
+taken too early shows only the wallpaper, and the user thinks the phone has no apps.
+
+- Wait about 15 seconds after `ready`, then take the screenshot.
+- Look at it. If it shows only the wallpaper, wait 10 seconds and take it again.
+- If you show it before the apps load, say: "The home screen is still loading. The apps
+  will show in a few seconds."
+
 ## Where to save it
 
 Save every file to the agent scratchpad or a temporary folder. Never save it to the user's
