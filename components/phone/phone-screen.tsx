@@ -147,7 +147,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
   useEffect(() => {
     if (!lastAgentAt) return;
     const ticker = setInterval(() => setAgentNow(Date.now()), 1000);
-    const stop = setTimeout(() => clearInterval(ticker), 10_000);
+    const stop = setTimeout(() => { setAgentNow(lastAgentAt + 10_000); clearInterval(ticker); }, 10_000);
     return () => { clearInterval(ticker); clearTimeout(stop); };
   }, [lastAgentAt]);
 
