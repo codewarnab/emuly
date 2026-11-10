@@ -12,6 +12,8 @@ These notes apply only to Claude Code. The rest of the playbook still applies.
   30-60 seconds.
 - **Links:** write each Emuly link as a plain URL on its own line so the user can click it.
 - **Screenshots:** save `screen.png` to the scratchpad or a temporary folder, not to the
-  user's repository, then read the image to see the phone screen.
+  user's repository, then read the image to see the phone screen. To show it to the user,
+  follow `references/screenshots.md`. If you have a send-file tool (for example
+  `SendUserFile`), use it; otherwise give the full path.
 - **Permissions:** if the user denies a tool call, do not retry it the same way. Ask what
   they want instead.
