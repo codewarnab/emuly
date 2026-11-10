@@ -104,6 +104,15 @@ export async function startScrcpy(ws, { adb, ADB, SERIAL, ROOT, quality }) {
     });
     clearTimeout(timer);
     video.resume();
+    // Do not remove this wakeup "to save work". The emulator encoder often sends no frame while
+    // the screen is static, so a new viewer saw no picture until a user touched the phone.
+    // KEYCODE_WAKEUP (224) makes Android redraw without changing any app or screen state.
+    // Do not use home, back, or a touch here; those change what the user sees.
+    const wake = setTimeout(() => {
+      if (closed || !control?.writable) return;
+      try { control.write(controlMessage({ type: "key", key: "wakeup" })); } catch { close(); }
+    }, 300);
+    wake.unref();
   } catch { close(); }
   finally { clearTimeout(timer); }
 }

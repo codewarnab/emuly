@@ -2,7 +2,7 @@
 export const qualities = { auto: [1080, 30, 4_000_000], sharp: [1080, 30, 8_000_000], saver: [720, 15, 1_500_000] };
 const keys = {
   ...Object.fromEntries(Array.from({ length: 26 }, (_, i) => ["Key" + String.fromCharCode(65 + i), 29 + i])),
-  ...Object.fromEntries(Array.from({ length: 10 }, (_, i) => ["Digit" + i, 7 + i])), home: 3, back: 4, recent: 187, volumeUp: 24, volumeDown: 25,
+  ...Object.fromEntries(Array.from({ length: 10 }, (_, i) => ["Digit" + i, 7 + i])), wakeup: 224, home: 3, back: 4, recent: 187, volumeUp: 24, volumeDown: 25,
   Enter: 66, Backspace: 67, Delete: 112, Tab: 61, Escape: 4,
   ArrowUp: 19, ArrowDown: 20, ArrowLeft: 21, ArrowRight: 22, PageUp: 92, PageDown: 93,
   Home: 122, End: 123 };

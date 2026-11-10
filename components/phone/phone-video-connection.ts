@@ -4,6 +4,7 @@ import { phoneTiming } from "./phone-timing.ts";
 
 const HIDDEN_DISCONNECT_MS = 60_000;
 const RESUME_FRAME_WAIT_MS = 5_000;
+const FIRST_FRAME_WAIT_MS = 6_000;
 
 export type VideoConnectionState = "connecting" | "streaming" | "retrying" | "suspended" | "fallback" | "disposed";
 type VideoConnectionOptions = {
@@ -37,6 +38,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
   const current = (ws: WebSocket, attempt: AbortController) => state !== "disposed" && socket === ws && request === attempt && !attempt.signal.aborted;
   let calibrated = false;
   let watchdog: ReturnType<typeof setInterval> | undefined;
+  let firstFrame: ReturnType<typeof setTimeout> | undefined;
   let hiddenTimer: ReturnType<typeof setTimeout> | undefined;
   let resumeTimer: ReturnType<typeof setTimeout> | undefined;
   let presence: ReturnType<typeof setInterval> | undefined;
@@ -46,7 +48,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
   let request: AbortController | undefined, frames = 0, tick = performance.now(), offset = 0, delay = 0;
   const sent = new Map<number, { sent: number; receivedAt: number }>();
   const stop = () => {
-    request?.abort(); clearTimeout(timer); clearInterval(watchdog); clearTimeout(resumeTimer);
+    request?.abort(); clearTimeout(timer); clearInterval(watchdog); clearTimeout(firstFrame); clearTimeout(resumeTimer);
     clearInterval(presence);
     const ws = socket; socket = null;
     if (ws) { ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null; ws.close(); }
@@ -110,14 +112,23 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
       url.searchParams.set("ticket", ticket);
       url.searchParams.set("quality", quality);
       const ws = new WebSocket(url); socket = ws; ws.binaryType = "arraybuffer";
-      let config = new Uint8Array(), needKey = true, lastMessage = Date.now();
+      let config = new Uint8Array(), needKey = true, lastMessage = Date.now(), lastVideo = lastMessage;
+      let decoded = false, painted = false;
+      // Do not remove or merge this check into the pong-based watchdog "for efficiency".
+      // Pongs prove only that the socket is open, not that video works. When pongs counted as
+      // liveness, a socket with no video stayed open for minutes. The page showed an old image
+      // ("Reconnecting · showing last image") until the user pressed a key or reloaded.
+      // Rule: no painted frame within FIRST_FRAME_WAIT_MS after connect -> close and retry.
+      // After the first paint, a static screen may send no frames. That is normal, so do not close then.
+      const stale = () => { report?.("reconnect", "stale"); ws.close(); };
+      firstFrame = setTimeout(() => { if (current(ws, attempt) && !painted) stale(); }, FIRST_FRAME_WAIT_MS);
       watchdog = setInterval(() => {
         if (!current(ws, attempt)) return;
+        if (!painted && Date.now() - lastVideo >= FIRST_FRAME_WAIT_MS) { stale(); return; }
         if (Date.now() - lastMessage > 15_000) { ws.close(); return; }
         // Heartbeats must continue even when Android's screen is static.
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ping", time: Date.now() }));
       }, 5000);
-      let decoded = false, painted = false;
       decoder = new VideoDecoder({
         output(frame) {
           try {
@@ -128,7 +139,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
             if (document.hidden || !timing || timing.receivedAt < acceptFramesAfter) return;
             if (!onFrame(frame)) return;
             if (!painted) {
-              painted = true;
+              painted = true; clearTimeout(firstFrame);
               // Two animation callbacks observe a rendering opportunity after canvas submission.
               afterPaint(() => afterPaint(() => {
                 if (current(ws, attempt) && !document.hidden) report?.("first_painted");
@@ -163,6 +174,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
             return;
           }
           const packet = videoPacket(event.data);
+          lastVideo = Date.now();
           if (packet.config) {
             config = new Uint8Array(packet.data);
             decoder!.configure({ codec: avcCodec(config), optimizeForLatency: true });

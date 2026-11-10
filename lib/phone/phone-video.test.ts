@@ -36,6 +36,9 @@ test("split and coalesced scrcpy packets preserve config, keyframe, PTS, and pay
 });
 test("scrcpy controls match independent big-endian wire fixtures and reject unsafe inputs", () => {
   assert.equal(controlMessage({ type: "key", key: "home" }).toString("hex"), "00000000000300000000000000000001000000030000000000000000");
+  const wakeup = controlMessage({ type: "key", key: "wakeup" });
+  assert.equal(wakeup.length, 28); assert.equal(wakeup[1], 0); assert.equal(wakeup[15], 1);
+  assert.equal(wakeup.readUInt32BE(2), 224); assert.equal(wakeup.readUInt32BE(16), 224);
   const touch = controlMessage({ type: "touch", action: "down", pointer: 1, x: 10, y: 20, width: 720, height: 1280 });
   assert.equal(touch.toString("hex"), "020000000000000000010000000a0000001402d00500ffff0000000000000000");
   assert.equal(controlMessage({ type: "touch", action: "up", pointer: 1, x: 10, y: 20, width: 720, height: 1280 }).readUInt16BE(22), 0);
