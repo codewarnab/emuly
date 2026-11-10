@@ -18,7 +18,10 @@ export function createPhoneStreamApi({ user, phone, open, observation, issue }: 
     if (!identity) return new Response(null, { status: 401 });
     const stored = await phone(identity.id, id);
     if (!stored) return new Response(null, { status: 404 });
-    if (stored.state !== "running" || stored.android_state !== "ready") return new Response(null, { status: 409 });
+    // GitHub reports ShuttingDown/Shutdown/Queued while the forwarded port may still answer /health.
+    // A retry or tunnel cannot work then, so give the page a distinct code it can show as "Phone stopped".
+    if (stored.state !== "running") return Response.json({ errorCode: "phone_stopped" }, { status: 409 });
+    if (stored.android_state !== "ready") return new Response(null, { status: 409 });
     try {
       const ticket = issue ? await issue({ userId: identity.id, phoneId: id, sessionId: identity.sessionId, origin, cookie: request.headers.get("cookie") ?? "" }) : issueStreamTicket({ userId: identity.id, phoneId: id, origin, cookie: request.headers.get("cookie") ?? "",
         open: () => open(identity.id, id, identity.sessionId) });

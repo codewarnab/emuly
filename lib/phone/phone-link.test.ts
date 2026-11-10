@@ -241,3 +241,37 @@ test("the proxy relay refuses paths outside the agent-device prefix", async () =
     await assert.rejects(links.proxy(phone, "/agent-device/a\nb", { method: "GET", headers: new Headers() }), /Invalid proxy route/);
   } finally { links.close(phone); }
 });
+
+test("a stream lease reports its route and can drop a dead bridge for the next start", async () => {
+  let opens = 0, closes = 0;
+  const links = createEmulyLinks({ token: async () => "synthetic",
+    fetch: async () => new Response(null, { status: 403 }),
+    tunnel: async () => { opens++; return { url: `http://bridge-${opens}.invalid`, close: () => { closes++; } }; } });
+  try {
+    const first = await links.stream(phone);
+    assert.equal(first.route, "tunnel");
+    assert.equal(first.viewers, 1);
+    first.drop(); first.release();
+    assert.equal(first.signal.aborted, true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(closes, 1);
+    // A new stream after the phone starts again must build a fresh bridge.
+    const next = await links.stream(phone);
+    assert.equal(opens, 2);
+    next.release();
+  } finally { links.close(phone); }
+});
+
+test("a failed keep-awake logs a bounded error without the credential", async t => {
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (...args: unknown[]) => { warnings.push(args.map(String).join(" ")); });
+  const links = createEmulyLinks({ token: async () => "gho_SECRET123",
+    fetch: async () => new Response(null, { status: 403 }),
+    tunnel: async () => ({ url: "http://bridge.invalid", close() {} }),
+    keepAwake: async () => { throw new Error("codespace exec failed for gho_SECRET123"); } });
+  const stream = await links.stream(phone);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  stream.release(); links.close(phone);
+  assert.ok(warnings.some(line => line.includes("keep_awake_failed")));
+  assert.ok(warnings.every(line => !line.includes("gho_SECRET123")), "logs never contain the token");
+});

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { usePhoneVideo } from "@/components/phone/use-phone-video";
 import { pngConnection } from "@/components/phone/png-connection";
 import { screenPoint, phoneKeys } from "@/lib/phone/phone-video";
@@ -34,6 +35,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
   const [clipboardEmpty, setClipboardEmpty] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null);
   const video = usePhoneVideo(id, live, quality, canvas);
+  const router = useRouter();
   const stage = useRef<HTMLDivElement>(null);
   const pressed = useRef(new Set<string>());
   const pointers = useRef(new Map<number, number>());
@@ -53,7 +55,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
     let nextFrame = pngConnection(id, streamController.signal);
     let lastHttp = -Infinity;
     async function poll() {
-      if (!live || activeVideo.current || disposed || controller || document.visibilityState !== "visible") return;
+      if (!live || video.stopped || activeVideo.current || disposed || controller || document.visibilityState !== "visible") return;
       const attempt = new AbortController();
       controller = attempt;
       const epoch = generation;
@@ -124,8 +126,11 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
       window.removeEventListener("focus", focus);
       // Keep the displayed frame when live changes. Release it after the replacement loads or unmounts.
     };
-  }, [endpoint, id, live, video.active, video.lastFrameAt]);
+  }, [endpoint, id, live, video.stopped, video.active, video.lastFrameAt]);
   const lastFrame = useRef("");
+  // Reuse the page's existing server-rendered stopped state and Wake control. The page only renders
+  // PhoneScreen while the phone is running, so refreshing here replaces the old image with "Phone stopped".
+  useEffect(() => { if (video.stopped) router.refresh(); }, [video.stopped, router]);
   useEffect(() => {
     if (lastFrame.current && lastFrame.current !== frame) URL.revokeObjectURL(lastFrame.current);
     lastFrame.current = frame;
@@ -176,9 +181,9 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
     return () => element?.removeEventListener("wheel", handler);
   }, []);
   const showCanvas = video.painted && (video.active || !frame || video.lastFrameAt.current >= screenshotAt);
-  const fresh = live && (video.active || screenshotFresh);
-  const reconnecting = live && !fresh;
-  const connectionLabel = !live ? resting ? "Resting" : "Waiting for Android"
+  const fresh = live && !video.stopped && (video.active || screenshotFresh);
+  const reconnecting = live && !video.stopped && !fresh;
+  const connectionLabel = video.stopped ? "Phone stopped" : !live ? resting ? "Resting" : "Waiting for Android"
     : video.active ? "Live" : screenshotFresh ? "Screenshot view" : frame || video.painted ? "Reconnecting · showing last image" : "Connecting";
   function control(key: "home" | "back" | "recent" | "volumeUp" | "volumeDown", label: string) {
     return <button type="button" className={s.control} aria-label={label} title={label}
@@ -208,7 +213,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
     </header>
     <div className={s.viewer}>
     <div className={s.display}>
-    <div ref={stage} className={`${s.screenTouch} ${!live ? s.screenDim : ""}`}
+    <div ref={stage} className={`${s.screenTouch} ${!live || video.stopped ? s.screenDim : ""}`}
       role="application" tabIndex={fresh ? 0 : -1} aria-label="Phone screen. Focus to use keyboard and paste."
       onPointerDown={event => {
         event.currentTarget.focus();
@@ -260,7 +265,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
       }}>
       <canvas ref={canvas} className={s.screenImage} style={{ display: showCanvas ? "block" : "none" }} aria-label="Live Android screen" />
       {frame && <img ref={image} src={frame} alt="Android screen" className={s.screenImage} style={{ display: showCanvas ? "none" : "block" }} />}
-      {!frame && !video.painted && <div className={s.screenPlaceholder}>{live ? "Connecting to the screen..." : resting ? "Resting" : "Waiting for Android..."}</div>}
+      {!frame && !video.painted && <div className={s.screenPlaceholder}>{video.stopped ? "Phone stopped" : live ? "Connecting to the screen..." : resting ? "Resting" : "Waiting for Android..."}</div>}
     </div>
     <div className={s.navigation} role="group" aria-label="Android navigation">
       {control("back", "Back")}{control("home", "Home")}{control("recent", "Recent apps")}
@@ -283,8 +288,8 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
     </div>
     </div>
     <footer className={s.footer}>
-      <span>{reconnecting ? "Controls resume when a fresh image arrives" : video.active ? "Click to control · Type to send text" : "Click the screen to tap"}</span>
-      <span role="status">{video.active ? `${video.stats.fps} fps · ${video.stats.delay} ms` : live && video.supported ? "Reconnecting…" : ""}</span>
+      <span>{video.stopped ? "The phone stopped. Wake it to resume this device." : reconnecting ? "Controls resume when a fresh image arrives" : video.active ? "Click to control · Type to send text" : "Click the screen to tap"}</span>
+      <span role="status">{video.active ? `${video.stats.fps} fps · ${video.stats.delay} ms` : video.stopped ? "Phone stopped" : live && video.supported ? "Reconnecting…" : ""}</span>
     </footer>
     {(phoneClipboard || clipboardPending || clipboardEmpty) && <div className={s.clipboardPanel} role="status">
       <div className={s.clipboardHead}>
@@ -300,7 +305,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
         <Button type="button" tiny variant="ghost" disabled={!video.active} onClick={() => readClipboard(1)}>Copy selected text</Button>
       </div>
     </div>}
-    {error && live && !video.active && <p className={s.error} role="status">{error}</p>}
+    {error && live && !video.stopped && !video.active && <p className={s.error} role="status">{error}</p>}
   </div>;
 
 }
