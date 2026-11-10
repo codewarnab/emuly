@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agentDeviceBaseUrl, agentDeviceInfo, agentDevicePath, agentDeviceSession, agentDeviceUnavailable,
-  bearerToken, proxyRequestHeaders } from "./agent-device.ts";
+import { createHash } from "node:crypto";
+import { agentDeviceBaseUrl, agentDeviceInfo, agentDevicePath, agentDeviceSession, agentDeviceTokenHash,
+  agentDeviceTokenMatches, agentDeviceUnavailable, bearerToken, proxyRequestHeaders } from "./agent-device.ts";
 
 test("the public base URL is the app's proxy route, not the codespace", () => {
   assert.equal(agentDeviceBaseUrl("https://emuly.test/", "phone-quiet-falcon"),
@@ -21,6 +22,22 @@ test("runner info becomes a proxy token only when it says ready", () => {
   assert.equal(agentDeviceInfo({ ready: true }), null);
   assert.equal(agentDeviceInfo({ ready: "true", token: "secret-token" }), null);
   assert.equal(agentDeviceInfo(null), null);
+});
+
+test("a stored digest matches only the token it was derived from", () => {
+  const hash = agentDeviceTokenHash("secret-token");
+  assert.equal(hash, createHash("sha256").update("secret-token").digest("hex"));
+  assert.equal(hash.length, 64);
+  assert.ok(!hash.includes("secret-token"));
+  assert.equal(agentDeviceTokenMatches(hash, "secret-token"), true);
+  assert.equal(agentDeviceTokenMatches(hash, "secret-token2"), false);
+  assert.equal(agentDeviceTokenMatches(hash, ""), false);
+  assert.equal(agentDeviceTokenMatches(hash, "SECRET-TOKEN"), false);
+});
+
+test("a missing or malformed digest never matches a token", () => {
+  for (const hash of [null, undefined, "", "a".repeat(63), "a".repeat(65), "Z".repeat(64), "a".repeat(64) + "\n"])
+    assert.equal(agentDeviceTokenMatches(hash, "secret-token"), false, String(hash));
 });
 
 test("unavailable is one 404 with no reason attached", async () => {

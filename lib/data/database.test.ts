@@ -29,6 +29,7 @@ test("migrate applies a migration added after the connection was opened", () => 
     // Simulate a connection opened before the agent login migrations existed.
     database.exec(`DROP TABLE IF EXISTS agent_keys; DROP TABLE IF EXISTS agent_setup_codes;
       DROP TABLE IF EXISTS agent_device_codes; ALTER TABLE user_settings DROP COLUMN agent_delete_phones;
+      ALTER TABLE phones DROP COLUMN agent_device_token_hash;
       PRAGMA user_version = 11`);
     migrate(database);
     assert.equal((database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, latest);
@@ -121,8 +122,8 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
       phone_id: "phone-bbbb", display_name: "phone-bbbb", outcome: "unconfirmed", requested_at: "2026-11-02",
     });
     assert.deepEqual(database.prepare("SELECT * FROM users").get(), user);
-    const { idle_timeout_min, cores, retention_min, stop_reason, android_state, android_started_at, android_error, ...preserved } = database.prepare("SELECT * FROM phones WHERE id = 'phone-aaaa'").get()!;
-    assert.deepEqual([android_state, android_started_at, android_error], ["idle", null, null]);
+    const { idle_timeout_min, cores, retention_min, stop_reason, android_state, android_started_at, android_error, agent_device_token_hash, ...preserved } = database.prepare("SELECT * FROM phones WHERE id = 'phone-aaaa'").get()!;
+    assert.deepEqual([android_state, android_started_at, android_error, agent_device_token_hash], ["idle", null, null, null]);
     assert.equal(stop_reason, null);
     assert.deepEqual(preserved, { ...phone });
     assert.deepEqual([idle_timeout_min, cores, retention_min], [240, null, 43200]);
@@ -157,6 +158,31 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
     for (const table of ["phones", "phone_creations", "runs", "phone_keeps", "user_settings", "webhooks", "webhook_deliveries"]) {
       assert.equal(database.prepare(`SELECT count(*) AS n FROM ${table}`).get()?.n, 0);
     }
+  } finally {
+    database.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("the agent-device token digest is a nullable column added to existing phones", () => {
+  const directory = mkdtempSync(join(tmpdir(), "emuly-agent-device-token-"));
+  const filename = join(directory, "test.db");
+  let database = new DatabaseSync(filename);
+  try {
+    database.exec(v1);
+    database.exec(`INSERT INTO users (id, github_id, login, token_cipher, token_scopes, created_at, last_seen_at)
+      VALUES (1, 11, 'synthetic-user', x'00', 'codespace', '2026-11-01', '2026-11-01');
+      INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state, created_at, runner_secret)
+      VALUES ('phone-aaaa', 1, 'github-generated', 'fixture/template', 'fixture-machine', 'running', '2026-11-01', x'00');`);
+    database.close();
+    database = openDatabase(filename);
+    const column = database.prepare("PRAGMA table_info(phones)").all().find(row => row.name === "agent_device_token_hash");
+    assert.deepEqual({ type: column?.type, notnull: column?.notnull, dflt_value: column?.dflt_value },
+      { type: "TEXT", notnull: 0, dflt_value: null });
+    // A phone created before the migration has no digest, so the proxy refuses it until the agent asks again.
+    assert.equal(database.prepare("SELECT agent_device_token_hash FROM phones WHERE id = 'phone-aaaa'").get()?.agent_device_token_hash, null);
+    database.prepare("UPDATE phones SET agent_device_token_hash = ? WHERE id = 'phone-aaaa'").run("a".repeat(64));
+    assert.equal(database.prepare("SELECT agent_device_token_hash FROM phones WHERE id = 'phone-aaaa'").get()?.agent_device_token_hash, "a".repeat(64));
   } finally {
     database.close();
     rmSync(directory, { recursive: true, force: true });
