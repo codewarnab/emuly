@@ -1,4 +1,5 @@
 import "server-only";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 /** The agent-device CLI talks to /v1/phones/<id>/agent-device-proxy/agent-device/<path>.
     These helpers keep the public URL, the internal path and the relayed headers in one place. */
@@ -28,6 +29,17 @@ export function agentDeviceInfo(value: unknown): AgentDeviceInfo | null {
   if (typeof token !== "string" || !token || token.length > 512) return null;
   const version = typeof record.version === "string" && record.version.length <= 64 ? record.version : null;
   return { token, version };
+}
+
+/** What the database stores instead of the proxy token: its sha256 hex digest. */
+export function agentDeviceTokenHash(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+/** Constant-time check of a presented bearer against the stored digest. A missing or malformed digest never matches. */
+export function agentDeviceTokenMatches(hash: string | null | undefined, token: string) {
+  if (typeof hash !== "string" || !/^[0-9a-f]{64}$/.test(hash)) return false;
+  return timingSafeEqual(createHash("sha256").update(token).digest(), Buffer.from(hash, "hex"));
 }
 
 /** The same answer for a missing phone, a stopped phone and a runner without the route. */
