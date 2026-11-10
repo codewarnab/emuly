@@ -6,7 +6,7 @@ const HIDDEN_DISCONNECT_MS = 60_000;
 const RESUME_FRAME_WAIT_MS = 5_000;
 const FIRST_FRAME_WAIT_MS = 6_000;
 
-export type VideoConnectionState = "connecting" | "streaming" | "retrying" | "suspended" | "fallback" | "disposed";
+export type VideoConnectionState = "connecting" | "streaming" | "retrying" | "suspended" | "fallback" | "stopped" | "disposed";
 type VideoConnectionOptions = {
   id: string;
   quality: string;
@@ -18,6 +18,15 @@ type VideoConnectionOptions = {
   onCapabilities?: (capabilities: string[]) => void;
   onClipboard?: (clipboard: { text: string; at: number }) => void;
 };
+
+/** The ticket route answers 409 with a distinct code once the phone row is no longer running. */
+async function phoneStopped(response: Response) {
+  if (response.status !== 409) return false;
+  try {
+    const body = await response.json() as { errorCode?: unknown };
+    return body?.errorCode === "phone_stopped";
+  } catch { return false; }
+}
 
 /** Starts one live session. dispose() is idempotent and prevents all later delivery.
  * Attempts move connecting -> streaming/retrying; visibility suspends and resumes them.
@@ -86,7 +95,18 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
     const attemptStart = performance.now();
     try {
       const response = await fetch(`/app/phones/${encodeURIComponent(id)}/stream-ticket`, { method: "POST", signal: AbortSignal.any([request.signal, AbortSignal.timeout(90_000)]) });
-      if (!response.ok) throw new Error("Stream unavailable");
+      if (!response.ok) {
+        // GitHub answers 401 on the forwarded port while a codespace shuts down. Retrying or switching
+        // to the tunnel cannot work then, so we tell the page the phone stopped. Do not remove this check.
+        if (await phoneStopped(response)) {
+          if (attempt === request && !attempt.signal.aborted) {
+            report?.("reconnect", "phone_stopped");
+            stop(); transition("stopped");
+          }
+          return;
+        }
+        throw new Error("Stream unavailable");
+      }
       const { ticket, attemptId } = await readPhoneResponse(response, parseStreamTicket);
       if (disposed() || document.hidden || attempt !== request || attempt.signal.aborted) return;
       report = phoneTiming(id, attemptId, attemptStart);
@@ -190,8 +210,12 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
         } catch { ws.close(); }
       };
       ws.onerror = () => { if (current(ws, attempt)) ws.close(); };
-      ws.onclose = () => {
+      ws.onclose = event => {
         if (!current(ws, attempt)) return;
+        // The proxy classifies an upgrade failure against the codespace state and closes with 4001.
+        // GitHub answers 401 on the forwarded port while a codespace shuts down; retrying or using
+        // the tunnel cannot work then, so do not schedule a retry. Do not remove this check.
+        if (event?.code === 4001) { report?.("reconnect", "phone_stopped"); stop(); transition("stopped"); return; }
         report?.("reconnect", "socket_closed"); stop();
         scheduleRetry();
       };
@@ -241,7 +265,13 @@ function createFallback({ id, onState }: VideoConnectionOptions) {
     const started = performance.now();
     try {
       const response = await fetch(`/app/phones/${encodeURIComponent(id)}/stream-ticket`, { method: "POST", signal: request.signal });
-      if (!response.ok) return;
+      if (!response.ok) {
+        // A stopped phone never recovers on a timer; the page refresh shows its Wake control.
+        if (await phoneStopped(response)) {
+          enabled = false; clearInterval(presence); clearInterval(renewal); onState("stopped");
+        }
+        return;
+      }
       const { attemptId } = await readPhoneResponse(response, parseStreamTicket);
       if (request.signal.aborted) return;
       enabled = typeof attemptId === "string";

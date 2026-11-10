@@ -21,12 +21,12 @@ function browser(t: TestContext, supported = true) {
     onopen: (() => void) | null = null;
     onmessage: ((event: { data: string | ArrayBuffer }) => void) | null = null;
     onerror: (() => void) | null = null;
-    onclose: (() => void) | null = null;
+    onclose: ((event: { code: number }) => void) | null = null;
     messages: string[] = [];
     url: URL;
     constructor(url: URL) { this.url = url; sockets.push(this); }
     send(message: string) { this.messages.push(message); }
-    close() { this.readyState = 3; this.onclose?.(); }
+    close(code = 1006) { this.readyState = 3; this.onclose?.({ code }); }
   }
   class Decoder {
     state = "unconfigured";
@@ -59,8 +59,13 @@ function browser(t: TestContext, supported = true) {
   replace("requestAnimationFrame", (callback: FrameRequestCallback) => { animations.set(++animation, callback); return animation; });
   replace("cancelAnimationFrame", (id: number) => animations.delete(id));
   let ticket: () => Promise<unknown> = async () => ({ ticket: "synthetic", attemptId: "attempt" });
+  let failure: { status: number; body: unknown } | undefined;
   replace("fetch", async (url: string, init: RequestInit) => {
     requests.push({ url, signal: init.signal });
+    if (failure) {
+      const current = failure;
+      return { ok: false, status: current.status, json: async () => current.body };
+    }
     return { ok: true, json: ticket };
   });
   const states: VideoConnectionState[] = [];
@@ -79,7 +84,8 @@ function browser(t: TestContext, supported = true) {
     socket.onmessage?.({ data: bytes });
   }
   return { start, states, sockets, decoders, requests, document, window, animations, packet,
-    frames: () => frames, saver: () => saver, ticket: (next: typeof ticket) => { ticket = next; } };
+    frames: () => frames, saver: () => saver, ticket: (next: typeof ticket) => { ticket = next; },
+    fail: (status: number, body: unknown) => { failure = { status, body }; } };
 }
 
 test("live sessions decode, send controls, retry, and reject callbacks from the previous attempt", async t => {
@@ -110,6 +116,32 @@ test("live sessions decode, send controls, retry, and reject callbacks from the 
   assert.equal(b.states.at(-1), "disposed");
   assert.equal(b.sockets[1].readyState, 3);
   assert.equal(session.send({ type: "key" }), false);
+});
+
+test("close code 4001 stops without scheduling a retry", async t => {
+  const b = browser(t), session = b.start(); await setImmediate();
+  const ws = b.sockets[0];
+  ws.close(4001);
+  await setImmediate();
+  assert.equal(b.states.at(-1), "stopped");
+  const sockets = b.sockets.length;
+  t.mock.timers.tick(60000); await setImmediate();
+  assert.equal(b.sockets.length, sockets, "a stopped phone is not retried");
+  assert.equal(b.states.at(-1), "stopped");
+  session.dispose();
+});
+
+test("a phone_stopped ticket response stops without retrying", async t => {
+  const b = browser(t);
+  b.fail(409, { errorCode: "phone_stopped" });
+  const session = b.start(); await setImmediate();
+  assert.equal(b.states.at(-1), "stopped");
+  assert.equal(b.sockets.length, 0);
+  const requests = b.requests.length;
+  t.mock.timers.tick(60000); await setImmediate();
+  assert.equal(b.requests.length, requests, "a stopped phone is not retried");
+  assert.equal(b.states.at(-1), "stopped");
+  session.dispose();
 });
 
 test("visibility keeps brief switches alive and suspends longer hidden sessions", async t => {

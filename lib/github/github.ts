@@ -21,7 +21,9 @@ export function githubFetch(url: string, init: RequestInit, fetcher: typeof fetc
   if (target.protocol !== "https:" || !["api.github.com", "github.com"].includes(target.host)) {
     throw new Error("Invalid GitHub URL");
   }
-  return fetcher(url, { ...init, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(15_000) });
+  const timeout = AbortSignal.timeout(15_000);
+  return fetcher(url, { ...init, cache: "no-store", redirect: "error",
+    signal: init.signal ? AbortSignal.any([init.signal, timeout]) : timeout });
 }
 
 export class GitHubError extends Error {
@@ -72,7 +74,7 @@ export function createGitHubClient({ database, accessToken, fetch: fetcher = fet
   accessToken: (userId: number) => Promise<string>;
   fetch?: typeof fetch;
 }) {
-  async function request(userId: number, path: string, method = "GET", body?: unknown) {
+  async function request(userId: number, path: string, method = "GET", body?: unknown, signal?: AbortSignal) {
     const token = await accessToken(userId);
     const response = await githubFetch(`https://api.github.com${path}`, {
       method,
@@ -82,6 +84,7 @@ export function createGitHubClient({ database, accessToken, fetch: fetcher = fet
         ...(body === undefined ? {} : { "Content-Type": "application/json" }),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
+      ...(signal ? { signal } : {}),
     }, fetcher);
     if (!response.ok) {
       const data = await response.json().catch(() => null);
@@ -100,9 +103,11 @@ export function createGitHubClient({ database, accessToken, fetch: fetcher = fet
     return phone;
   }
 
-  async function getCodespace(userId: number, phoneId: string) {
+  // The optional signal lets the stream proxy bound this lookup without changing the default transport timeout.
+  async function getCodespace(userId: number, phoneId: string, options?: { signal?: AbortSignal }) {
     const phone = await assertOwnedCodespace(userId, phoneId);
-    return readCodespace(await request(userId, `/user/codespaces/${encodeURIComponent(phone.codespace_name)}`));
+    return readCodespace(await request(userId, `/user/codespaces/${encodeURIComponent(phone.codespace_name)}`,
+      "GET", undefined, options?.signal));
   }
 
   async function mutate(userId: number, phoneId: string, operation: "start" | "stop") {

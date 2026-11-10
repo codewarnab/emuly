@@ -625,6 +625,13 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
     start: (userId: number, id: string) => change(userId, id, "start"),
     stop: (userId: number, id: string) => change(userId, id, "stop"),
     autoStop: (userId: number, id: string) => change(userId, id, "stop", true, true),
+    /** Record a codespace state observed outside the poller through the same transition code, without new SQL. */
+    async observeCodespace(userId: number, id: string, codespace: Codespace) {
+      if (busy.has(id)) return;
+      busy.add(id);
+      try { await apply(userId, id, codespace, "reconciled"); }
+      finally { busy.delete(id); }
+    },
     async sync(userId: number) {
       void diagnostics.reconcile();
       void diagnostics.prune();
@@ -674,6 +681,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
     sync: (...args: Parameters<typeof service.sync>) => withLease(database, `phones:${args[0]}`, () => service.sync(...args)),
     stopAll: (...args: Parameters<typeof service.stopAll>) => withLease(database, `phones:${args[0]}`, () => service.stopAll(...args)),
     autoStop: (...args: Parameters<typeof service.autoStop>) => withLease(database, `phones:${args[0]}`, () => service.autoStop(...args)),
+    observeCodespace: (...args: Parameters<typeof service.observeCodespace>) => withLease(database, `phones:${args[0]}`, () => service.observeCodespace(...args)),
     autoKeep: (...args: Parameters<typeof service.autoKeep>) => withLease(database, `phones:${args[0]}`, () => service.autoKeep(...args)),
     retryBoot: (...args: Parameters<typeof service.retryBoot>) => withLease(database, `phones:${args[0]}`, () => service.retryBoot(...args)),
   };

@@ -78,7 +78,7 @@ function createPhoneObservations(database: Client) {
       if (!await store.sameRun(a.window.operationId)) return false;
       if (!["first_decoded", "first_painted", "presence", "reconnect", "screenshot_fallback"].includes(String(r.code))) return false;
       if (!Number.isSafeInteger(r.durationMs) || Number(r.durationMs) < 0 || Number(r.durationMs) > 1800000
-        || typeof r.visible !== "boolean" || !["none", "socket_closed", "decoder_failed", "queue_full", "hidden", "stale"].includes(String(r.reason))) return false;
+        || typeof r.visible !== "boolean" || !["none", "socket_closed", "decoder_failed", "queue_full", "hidden", "stale", "phone_stopped"].includes(String(r.reason))) return false;
       if (["first_decoded", "first_painted", "screenshot_fallback"].includes(String(r.code))) {
         if (a.milestones.has(String(r.code))) return true;
         a.milestones.add(String(r.code));
