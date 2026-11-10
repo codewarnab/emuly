@@ -6,7 +6,7 @@
 .connection[data-live="true"] i { background: var(--safe); box-shadow: 0 0 0 3px var(--safe-soft); }
 .viewer { display: flex; align-items: center; justify-content: center; gap: 8px; }
 .display { min-width: 0; max-width: 100%; }
-.screenTouch { width: fit-content; max-width: 100%; margin: auto; background: #0b0e14; border-radius: 14px; overflow: hidden; cursor: url("/cursors/touch.svg") 16 16, pointer; touch-action: none; outline: 1px solid var(--line); box-shadow: 0 4px 16px var(--shadow); }
+.screenTouch { position: relative; width: fit-content; max-width: 100%; margin: auto; background: #0b0e14; border-radius: 14px; overflow: hidden; cursor: url("/cursors/touch.svg") 16 16, pointer; touch-action: none; outline: 1px solid var(--line); box-shadow: 0 4px 16px var(--shadow); }
 .screenTouch:active { cursor: url("/cursors/touch-pressed.svg") 16 16, pointer; }
 .screenTouch.screenDim { cursor: default; }
 .screenTouch:focus-visible { outline: 2px solid #b6caff; outline-offset: 4px; }
@@ -34,6 +34,20 @@
 .clipboardHint { margin: 0; color: var(--dim); font-size: 12px; }
 .clipboardActions { display: flex; flex-wrap: wrap; gap: 6px; }
 .error { margin: 0; padding: 0 20px 16px; color: var(--danger); font-size: 12px; }
+.agentLayer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.agentTap { position: absolute; box-sizing: border-box; width: 22px; height: 22px; border: 2px solid #fff; border-radius: 50%; background: rgba(70,120,255,.85); box-shadow: 0 0 0 1px rgba(70,120,255,.5), 0 2px 10px rgba(0,0,0,.4); transform: translate(-50%,-50%); }
+.agentTap::after { content: ""; position: absolute; inset: -5px; border: 2px solid rgba(70,120,255,.8); border-radius: 50%; animation: agentRipple .9s ease-out forwards; }
+@keyframes agentRipple {
+  from { opacity: .9; transform: scale(.55); }
+  to { opacity: 0; transform: scale(2.4); }
+}
+.agentSwipe { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.agentSwipe path { fill: none; stroke: #fff; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 1.5px #000) drop-shadow(0 1px 2px #0008); }
+.agentChip { position: absolute; top: 10px; left: 50%; max-width: calc(100% - 20px); overflow: hidden; padding: 5px 10px; border: 1px solid rgba(255,255,255,.18); border-radius: 999px; background: rgba(10,14,22,.82); box-shadow: 0 2px 10px rgba(0,0,0,.35); color: #fff; font-size: 11px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; transform: translateX(-50%); backdrop-filter: blur(6px); }
+.agentStatus { color: var(--accent); }
+@media (prefers-reduced-motion: reduce) {
+  .agentTap::after { display: none; animation: none; }
+}
 @media (max-width: 420px) {
   .viewer { gap: 6px; }
   .control { width: 36px; height: 44px; }
