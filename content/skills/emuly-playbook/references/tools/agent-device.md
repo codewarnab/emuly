@@ -30,8 +30,9 @@ Emuly calls still need the `EMULY_KEY` header. The proxy token is a different se
    agent-device connect proxy --daemon-base-url <base_url>
    ```
 
-4. **Drive the app in a loop.** Take a fresh snapshot after any change to the screen, then
-   use the new refs. Refs look like `@e2`.
+4. **Drive the app in a loop.** `open` must come first: snapshot, press and screenshot all
+   need an open session. Take a fresh snapshot after any change to the screen, then use
+   the new refs. Refs look like `@e2`.
 
    ```sh
    agent-device open com.example.app --platform android
@@ -39,6 +40,7 @@ Emuly calls still need the `EMULY_KEY` header. The proxy token is a different se
    agent-device press @e2 --settle
    agent-device fill @e7 "text" --settle
    agent-device diff snapshot
+   agent-device screenshot <scratchpad path>.png
    ```
 
    The first snapshot installs a small Android helper on the phone, so it is slow once.
@@ -51,9 +53,16 @@ Emuly calls still need the `EMULY_KEY` header. The proxy token is a different se
 
 7. **Errors:**
 
-   - `401`: the token rotated, usually because the phone restarted. Call the route again
-     once, re-export both variables, and reconnect.
-   - `DAEMON_POLICY_DENIED`: `boot` and `shutdown` are blocked on Emuly phones. Use
-     `POST /v1/phones/<id>/start` or `POST /v1/phones/<id>/stop` instead.
+   - `Invalid proxy token` (HTTP 401): the token is wrong or rotated, usually because the
+     phone restarted. Call the route again once, re-export `AGENT_DEVICE_DAEMON_AUTH_TOKEN`,
+     and run `agent-device connect proxy` again.
+   - A message containing "policy denies", for example
+     `Error (UNAUTHORIZED): This daemon's policy denies the boot command.`: `boot` and
+     `shutdown` are blocked on Emuly phones, and shutdown fails the same way. Use
+     `POST /v1/phones/<id>/start` or `POST /v1/phones/<id>/stop` instead. Do not retry the
+     command.
+   - `No active proxy device lease for this session; run open first.`: the session has no
+     open app. Every device command needs one, so run
+     `agent-device open <package> --platform android` first.
    - Anything else: `agent-device disconnect`, tell the user in one line (no stack trace),
      and continue with adb from `references/adb.md`.
