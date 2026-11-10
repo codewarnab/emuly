@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseAdbAction } from "./agent-action.ts";
+import { adbEventMeta, parseAdbAction } from "./agent-action.ts";
 
 test("taps parse with or without a shell prefix and round fractional coordinates", () => {
   assert.deepEqual(parseAdbAction(["shell", "input", "tap", "540", "1200"]), { type: "tap", x: 540, y: 1200 });
@@ -54,6 +54,26 @@ test("installs and screenshots become labelled commands", () => {
   assert.deepEqual(parseAdbAction(["install-multiple", "-r", "@file0", "@file1"]), { type: "command", label: "Installing app" });
   assert.deepEqual(parseAdbAction(["shell", "screencap"]), { type: "command", label: "Taking screenshot" });
   assert.deepEqual(parseAdbAction(["exec-out", "screencap", "-p"]), { type: "command", label: "Taking screenshot" });
+});
+
+test("event meta carries the action only, merged with the agent key", () => {
+  assert.deepEqual(JSON.parse(adbEventMeta(["shell", "input", "tap", "540", "1200"], 0)!),
+    { action: { type: "tap", x: 540, y: 1200 } });
+  assert.deepEqual(JSON.parse(adbEventMeta(["shell", "input", "tap", "540", "1200"], 0, 7)!),
+    { agent_key_id: 7, action: { type: "tap", x: 540, y: 1200 } });
+  assert.deepEqual(JSON.parse(adbEventMeta(["shell", "dumpsys", "battery"], 0, 7)!), { agent_key_id: 7 });
+  assert.equal(adbEventMeta(["shell", "dumpsys", "battery"], 0), null);
+});
+
+test("failed adb calls keep attribution but never claim an action", () => {
+  assert.equal(adbEventMeta(["shell", "input", "tap", "540", "1200"], 1), null);
+  assert.deepEqual(JSON.parse(adbEventMeta(["shell", "input", "tap", "540", "1200"], 1, 7)!), { agent_key_id: 7 });
+});
+
+test("event meta never stores typed text", () => {
+  const meta = adbEventMeta(["shell", "input", "text", "hello%sworld"], 0)!;
+  assert.deepEqual(JSON.parse(meta), { action: { type: "text" } });
+  assert.equal(meta.includes("hello"), false);
 });
 
 test("unrelated adb commands are not agent actions", () => {
