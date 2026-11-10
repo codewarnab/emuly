@@ -23,6 +23,8 @@ GitHub plan. Never ask the user to pay Emuly, and never say that Emuly bills the
 - If a call returns **401**, clear `EMULY_KEY` and ask the user for a new **Copy prompt**.
 - Reuse a running or stopped phone. Create one only when none exists or the user asks.
 - Drive the phone with the HTTP adb route. Use native adb only when the user asks for it.
+- Give the browser link for viewing. When suitable, also offer scrcpy (see
+  `references/phones.md`).
 - Install nothing for Emuly except what the OS file names.
 - Give a short progress line at each stage, and every 30-60 seconds during a boot.
 - At the end, ask whether to stop the phone. Stopping keeps the phone and its apps.
