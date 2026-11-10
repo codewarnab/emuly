@@ -5,13 +5,18 @@
 // carry agent-device traffic without exposing a second port. The token is minted here
 // and handed out only by GET /agent-device-info, which sits behind the runner secret.
 //
+// The proxy gets its own state directory, so any other agent-device CLI on the box
+// (which shares ~/.agent-device) can neither replace nor shut down our upstream daemon.
+// Its idle reap is disabled too: a managed daemon otherwise exits after 5 idle minutes
+// and leaves a live proxy with nothing to forward to.
+//
 // No tokens are logged: the CLI prints its own token to stdout, so the log file is
 // opened 0600 and the token never touches the runner's output.
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { accessSync, chmodSync, closeSync, constants, mkdtempSync, openSync, writeFileSync } from "node:fs";
+import { accessSync, chmodSync, closeSync, constants, mkdirSync, mkdtempSync, openSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
 const PROXY_HOST = "127.0.0.1"; // the CLI's default, pinned so the forward target is known
@@ -22,8 +27,11 @@ const POLICY_SERIAL = "emulator-5554";
 const LOG_PATH = "/tmp/agent-device-proxy.log";
 const HEALTH_INTERVAL_MS = 10_000;
 const HEALTH_TIMEOUT_MS = 2_000;
+const HEALTH_FAILURE_LIMIT = 3; // consecutive non-200 probes before the proxy is replaced
 const RESTART_MIN_MS = 1_000;
 const RESTART_MAX_MS = 30_000;
+const DEFAULT_SDK = "/opt/android-sdk";
+const STATE_DIR_NAME = ".emuly-agent-device";
 
 // Hop-by-hop headers describe one connection, never the forwarded message. `host` is
 // rebuilt by the client and `x-phone-secret` is the runner's own credential, so neither
@@ -62,8 +70,40 @@ export function findOnPath(name, path = process.env.PATH ?? "") {
   return null;
 }
 
+/** Our own daemon state directory, so another agent-device CLI cannot replace the daemon. */
+export function daemonStateDir(home = homedir()) {
+  return join(home, STATE_DIR_NAME);
+}
+
+/** SDK directories the daemon must find on PATH: adb and the emulator console binary. */
+export function sdkPathEntries(sdk) {
+  return [join(sdk, "platform-tools"), join(sdk, "emulator")];
+}
+
+/**
+ * Child environment: the SDK on PATH, its roots set, and the daemon idle reap disabled.
+ * @param {string} [sdk]
+ * @param {Record<string, string | undefined>} [env]
+ * @returns {Record<string, string | undefined>}
+ */
+export function proxyEnv(sdk = DEFAULT_SDK, env = process.env) {
+  return { ...env,
+    PATH: [...sdkPathEntries(sdk), env.PATH ?? ""].filter(Boolean).join(delimiter),
+    ANDROID_HOME: sdk,
+    ANDROID_SDK_ROOT: sdk,
+    // The managed daemon is detached and would otherwise exit after 5 idle minutes.
+    AGENT_DEVICE_DAEMON_IDLE_TIMEOUT_MS: "0" };
+}
+
+/** argv for the supervised proxy: a private state dir and the runner-minted token. */
+export function proxyArguments({ host = PROXY_HOST, port = PROXY_PORT, token, stateDir }) {
+  return ["proxy", "--host", host, "--port", String(port), "--state-dir", stateDir,
+    "--daemon-auth-token", token];
+}
+
 const state = { binary: null, policyPath: null, child: null, token: null, healthy: false,
-  restarts: 0, health: null, retry: null, logFd: null, stopped: false };
+  restarts: 0, failures: 0, health: null, retry: null, logFd: null, stopped: false,
+  sdk: DEFAULT_SDK, stateDir: null };
 
 function version() {
   const pinned = process.env.AGENT_DEVICE_VERSION?.trim();
@@ -79,17 +119,33 @@ function send(res, status, value) {
 /** Probes the local proxy. An explicit token is not needed: health is unauthenticated. */
 function probe() {
   if (!state.child) { state.healthy = false; return; }
+  let settled = false; // one probe may emit both a response and an error
+  const settle = healthy => { if (settled) return; settled = true; recordProbe(healthy); };
   const req = request({ host: PROXY_HOST, port: PROXY_PORT, path: HEALTH_PATH, method: "GET",
     headers: { accept: "application/json" }, timeout: HEALTH_TIMEOUT_MS }, res => {
     res.resume();
-    res.on("end", () => {
-      state.healthy = res.statusCode === 200;
-      if (state.healthy) state.restarts = 0;
-    });
+    res.on("end", () => settle(res.statusCode === 200));
+    res.on("error", () => settle(false));
   });
   req.on("timeout", () => req.destroy());
-  req.on("error", () => { state.healthy = false; });
+  req.on("error", () => settle(false));
   req.end();
+}
+
+/**
+ * Records one probe. A live proxy whose daemon is gone never recovers on its own, so
+ * consecutive failures replace it; the exit handler relaunches with the usual backoff.
+ */
+function recordProbe(healthy) {
+  state.healthy = healthy;
+  if (healthy) { state.failures = 0; state.restarts = 0; return; }
+  state.failures += 1;
+  if (state.failures < HEALTH_FAILURE_LIMIT) return;
+  state.failures = 0;
+  const child = state.child;
+  if (!child || child.exitCode !== null) return;
+  console.log(`agent-device proxy: health failed ${HEALTH_FAILURE_LIMIT} times, restarting the proxy`);
+  try { child.kill("SIGTERM"); } catch { /* already gone */ }
 }
 
 function scheduleRestart() {
@@ -105,17 +161,19 @@ function launch() {
   const token = randomBytes(32).toString("base64url");
   // The CLI only accepts its auth token as a flag, so it is visible in this process's
   // argv; the runner never prints it and the policy file holds no secret.
-  const child = spawn(state.binary, ["proxy", "--host", PROXY_HOST, "--port", String(PROXY_PORT),
-    "--daemon-auth-token", token], {
-    env: { ...process.env, AGENT_DEVICE_DAEMON_POLICY: state.policyPath }, stdio: ["ignore", state.logFd, state.logFd],
+  const child = spawn(state.binary, proxyArguments({ token, stateDir: state.stateDir }), {
+    env: proxyEnv(state.sdk, { ...process.env, AGENT_DEVICE_DAEMON_POLICY: state.policyPath }),
+    stdio: ["ignore", state.logFd, state.logFd],
   });
   state.child = child;
   state.token = token;
   state.healthy = false;
+  state.failures = 0;
   child.on("error", () => { if (state.child === child) { state.child = null; state.healthy = false; } scheduleRestart(); });
   child.on("exit", () => {
     if (state.child === child) { state.child = null; state.token = null; }
     state.healthy = false;
+    state.failures = 0;
     scheduleRestart();
   });
   console.log(`agent-device proxy: started (pid ${child.pid ?? "unknown"}, log ${LOG_PATH})`);
@@ -157,19 +215,22 @@ const controller = { start: startAgentDeviceProxy, stop, info, forward };
 let started = false;
 
 /** Starts the supervised proxy once; a second call returns the running controller. */
-export function startAgentDeviceProxy() {
+export function startAgentDeviceProxy({ sdk = process.env.SDK_DIR ?? DEFAULT_SDK } = {}) {
   if (started) return controller;
   started = true;
+  state.sdk = sdk;
   state.binary = findOnPath("agent-device");
   if (!state.binary) {
     console.log("agent-device proxy: disabled, agent-device is not on PATH");
     return controller;
   }
   try {
+    state.stateDir = daemonStateDir();
+    mkdirSync(state.stateDir, { recursive: true, mode: 0o700 });
     state.policyPath = writePolicy();
     state.logFd = openLog();
   } catch (error) {
-    console.log(`agent-device proxy: disabled, could not prepare policy (${error?.message ?? error})`);
+    console.log(`agent-device proxy: disabled, could not prepare state (${error?.message ?? error})`);
     state.stopped = true;
     return controller;
   }
