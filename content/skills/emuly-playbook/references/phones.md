@@ -17,6 +17,11 @@ until `state` is `running` and `android_state` is `ready`. Booting can take seve
 minutes. Send a short progress line every 30-60 seconds while it boots. Do not create a
 second phone while the first one is booting.
 
+After a start, `android_state` is `ready` a little before the home screen and its apps load.
+When you give the link after a start, add this line: "Android is ready. The home screen and
+apps can take a few more seconds to load." Before the first screenshot after a start, wait
+until the home screen shows its apps (see `references/screenshots.md`).
+
 Create only when the list is empty, or when the user explicitly asks for another phone.
 
 The browser link `<base>/app/phones/<id>` is the way to watch and touch the phone. The same
