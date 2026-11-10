@@ -1,4 +1,4 @@
-import { test, type TestContext } from "node:test";
+﻿import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { setImmediate } from "node:timers/promises";
 import { createPhoneVideoConnection, type VideoConnectionState } from "../../components/phone/phone-video-connection.ts";
@@ -115,13 +115,20 @@ test("live sessions decode, send controls, retry, and reject callbacks from the 
 test("visibility keeps brief switches alive and suspends longer hidden sessions", async t => {
   const b = browser(t), session = b.start(); await setImmediate();
   const ws = b.sockets[0]; b.packet(ws, 2); b.packet(ws, 1);
+  b.window.dispatchEvent(new Event("focus"));
+  t.mock.timers.tick(10000); await setImmediate(); assert.equal(b.sockets.length, 1, "focus on a healthy stream keeps it");
   b.document.hidden = true; b.document.dispatchEvent(new Event("visibilitychange"));
-  t.mock.timers.tick(2999); assert.equal(ws.readyState, 1);
+  // The server answers each heartbeat, so the watchdog keeps the socket open.
+  for (let waited = 0; waited < 59999; waited += 4999) {
+    t.mock.timers.tick(Math.min(4999, 59999 - waited));
+    ws.onmessage?.({ data: JSON.stringify({ type: "pong", server: Date.now(), time: Date.now() }) });
+  }
+  assert.equal(ws.readyState, 1);
   b.document.hidden = false; b.document.dispatchEvent(new Event("visibilitychange"));
   t.mock.timers.tick(1); b.packet(ws, 1, 101);
-  t.mock.timers.tick(2000); await setImmediate(); assert.equal(b.sockets.length, 1);
+  t.mock.timers.tick(5000); await setImmediate(); assert.equal(b.sockets.length, 1);
   b.document.hidden = true; b.document.dispatchEvent(new Event("visibilitychange"));
-  t.mock.timers.tick(3000); assert.equal(ws.readyState, 3);
+  t.mock.timers.tick(60000); assert.equal(ws.readyState, 3);
   t.mock.timers.tick(5000); await setImmediate(); assert.equal(b.sockets.length, 1);
   b.document.hidden = false; b.window.dispatchEvent(new Event("focus")); await setImmediate();
   assert.equal(b.sockets.length, 2);
@@ -131,7 +138,8 @@ test("visibility keeps brief switches alive and suspends longer hidden sessions"
 test("resume reconnects a static screen and queue pressure requests saver quality", async t => {
   const b = browser(t); b.start(); await setImmediate();
   b.window.dispatchEvent(new Event("focus"));
-  t.mock.timers.tick(2000); await setImmediate();
+  t.mock.timers.tick(4999); await setImmediate(); assert.equal(b.sockets.length, 1);
+  t.mock.timers.tick(1); await setImmediate();
   assert.equal(b.sockets.length, 2);
   const ws = b.sockets[1]; b.packet(ws, 2); b.decoders[1].decodeQueueSize = 6; b.packet(ws, 1);
   assert.equal(b.saver(), 1); assert.equal(ws.readyState, 3);

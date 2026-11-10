@@ -2,6 +2,9 @@ import { avcCodec, retryDelays, videoPacket } from "../../lib/phone/phone-video.
 import { parseStreamTicket, readPhoneResponse } from "../../lib/phone/phone-response.ts";
 import { phoneTiming } from "./phone-timing.ts";
 
+const HIDDEN_DISCONNECT_MS = 60_000;
+const RESUME_FRAME_WAIT_MS = 5_000;
+
 export type VideoConnectionState = "connecting" | "streaming" | "retrying" | "suspended" | "fallback" | "disposed";
 type VideoConnectionOptions = {
   id: string;
@@ -187,6 +190,8 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
   const resume = () => {
     if (document.hidden || state === "disposed") return;
     clearTimeout(hiddenTimer);
+    // A window change while the stream still delivers frames needs no reconnect.
+    if (state === "streaming" && socket?.readyState === WebSocket.OPEN) return;
     if (performance.now() - lastResume < 250) return;
     lastResume = performance.now();
     acceptFramesAfter = lastResume;
@@ -196,9 +201,9 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
     const ws = socket;
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "ping", time: Date.now() }));
-      // A static screen may not produce another frame. Reconnect for a fresh keyframe.
+      // Keep the open socket. Reconnect only if no new frame arrives, for example on a static screen.
       clearTimeout(resumeTimer);
-      resumeTimer = setTimeout(() => { void connect(); }, 2000);
+      resumeTimer = setTimeout(() => { void connect(); }, RESUME_FRAME_WAIT_MS);
     } else { void connect(); }
   };
   const visibility = () => {
@@ -208,8 +213,8 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
     report?.("presence", "hidden");
     clearTimeout(hiddenTimer);
     clearTimeout(resumeTimer);
-    // Brief window switches keep the capture process and connection alive.
-    hiddenTimer = setTimeout(stop, 3000);
+    // Short absences keep the capture process and connection alive. Long ones free them.
+    hiddenTimer = setTimeout(stop, HIDDEN_DISCONNECT_MS);
   };
   onState(state);
   document.addEventListener("visibilitychange", visibility); void connect();
