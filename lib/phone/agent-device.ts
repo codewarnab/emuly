@@ -70,6 +70,19 @@ export function bearerToken(authorization: string | null | undefined): string | 
   return match ? match[1] : null;
 }
 
+const COMMAND = /^[a-z][a-z0-9_.:-]{0,39}$/i;
+
+/** The command name for the activity log, such as `press`. Never refs, selectors, typed text or file data. */
+export function agentDeviceCommand(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  const record = body as Record<string, unknown>;
+  const params = record.params && typeof record.params === "object" ? record.params as Record<string, unknown> : {};
+  for (const value of [params.command, params.cmd, record.command, record.method]) {
+    if (typeof value === "string" && COMMAND.test(value)) return value;
+  }
+  return null;
+}
+
 /** Replays the request without hop-by-hop, session or runner-credential headers. Never logs values. */
 export function proxyRequestHeaders(input: Headers): Headers {
   const headers = new Headers();

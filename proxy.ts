@@ -8,7 +8,9 @@ import { env } from "./lib/env";
 export async function proxy(request: NextRequest) {
   const value = request.cookies.get(cookieName("session"))?.value;
   if (!value || !(await readSession(asyncDb(), value))) {
-    const response = NextResponse.redirect(new URL("/login", env.baseUrl));
+    const login = new URL("/login", env.baseUrl);
+    login.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
+    const response = NextResponse.redirect(login);
     response.headers.set("Cache-Control", "no-store");
     return response;
   }
