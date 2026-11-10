@@ -6,8 +6,27 @@ import type { phoneObservations } from "./phone-observation.ts";
 type Bridge = { url: string; close: () => void };
 type Owner = { userId: number; id: string; codespaceName: string };
 type Connection = Bridge & { forwarded: boolean };
-type Entry = { connection: Promise<Connection>; abort: AbortController; active: number; viewers: number; timer?: NodeJS.Timeout; awake?: NodeJS.Timeout };
+type Entry = { connection: Promise<Connection>; abort: AbortController; active: number; viewers: number; timer?: NodeJS.Timeout; awake?: NodeJS.Timeout;
+  lastAwakeSuccess?: number };
 class RunnerResponseError extends Error {}
+
+/** key=value only. Never log headers, tokens, ticket values, cookies, or URLs with query strings. */
+function streamLog(event: string, fields: Record<string, string | number | undefined>) {
+  const clean = (value: string | number) => String(value).replace(/gh[opsu]_[A-Za-z0-9_]{8,}/g, "[redacted]")
+    .replace(/\b(token|ticket|secret|cookie)=[^&\s]+/gi, "$1=[redacted]")
+    .replace(/[^\w.@:+-]/g, "_");
+  console.warn(`[stream] ${event} ${Object.entries(fields).filter(([, value]) => value !== undefined)
+    .map(([key, value]) => `${key}=${clean(value!)}`).join(" ")}`);
+}
+
+/** A provider message may quote the credential or a ticket; strip both before it reaches a log. */
+function safeErrorText(error: unknown, secret = "") {
+  const message = error instanceof Error ? `${error.name}:${error.message}` : String(error);
+  return (secret ? message.replaceAll(secret, "[redacted]") : message)
+    .replace(/gh[opsu]_[A-Za-z0-9_]{8,}/g, "[redacted]")
+    .replace(/\b(token|ticket|secret|cookie)=[^&\s]+/gi, "$1=[redacted]")
+    .slice(0, 120);
+}
 export type RunnerPath = "/health" | "/boot" | "/stop" | "/screenshot" | "/tap" | "/key" | "/agent-device-info";
 export type AppsPath = "/apps" | "/apps/open" | "/app-installs" | `/app-installs/${string}`;
 export type AppsRequest = { method: "GET" | "POST" | "PUT"; json?: Record<string, unknown>; bytes?: Uint8Array; offset?: number; digest?: string; signal?: AbortSignal };
@@ -217,9 +236,10 @@ export function createEmulyLinks({ token, tunnel, keepAwake, observations, fetch
               return;
             }
             pending = true;
+            let secret = "";
             try {
               const work = () => measure("keep_awake", async () => {
-                const secret = await measure("credential_lookup", () => token(phone.userId));
+                secret = await measure("credential_lookup", () => token(phone.userId));
                 if (entry.abort.signal.aborted || !entry.viewers) {
                   observations?.mark(phone, "keep_awake", { outcome: "skipped", errorCode: "connection_aborted" });
                   return;
@@ -227,12 +247,18 @@ export function createEmulyLinks({ token, tunnel, keepAwake, observations, fetch
                 const result = await keepAwake(secret, phone.codespaceName);
                 if (result && typeof result === "object" && "code" in result && result.code !== 0) throw new Error("Keep-awake command failed");
                 lastSuccess = Date.now();
+                entry.lastAwakeSuccess = lastSuccess;
                 consecutiveFailures = 0;
                 if (gap) { gap = false; observations?.mark(phone, "coverage_recovered"); }
               }, { scheduledAt, count: entry.viewers, retryDelayMs: 60000, consecutiveFailures,
                 ...(lastSuccess ? { sinceSuccessMs: Math.min(86400000, Date.now() - lastSuccess) } : {}) });
               await (observations ? observations.scope(phone, work) : work());
-            } catch { consecutiveFailures++; /* A failed keep-awake must not interrupt the video. */ }
+            } catch (error) {
+              consecutiveFailures++;
+              // A failed keep-awake must not interrupt the video. Log only the redacted error, never the token.
+              streamLog("keep_awake_failed", { phone: phone.id, viewers: entry.viewers,
+                awake_ms: lastSuccess ? Date.now() - lastSuccess : "none", error: safeErrorText(error, secret) });
+            }
             finally { pending = false; }
           };
           entry.awake = setInterval(() => { void pulse(); }, 60_000);
@@ -251,6 +277,11 @@ export function createEmulyLinks({ token, tunnel, keepAwake, observations, fetch
           release();
         };
         return { url: connection.url.replace(/^http/, "ws") + "/stream", headers, signal: entry.abort.signal, release: releaseStream,
+          // The proxy needs to report which transport carried the stream and drop this bridge when GitHub stops the phone.
+          route: connection.forwarded ? "forwarded" as const : "tunnel" as const,
+          get viewers() { return entry.viewers; },
+          get lastAwakeSuccess() { return entry.lastAwakeSuccess; },
+          drop() { if (entries.get(key(phone)) === entry) close(phone); },
           acceptedInput() { observations?.input(phone); },
           failed() { if (connection.forwarded && entries.get(key(phone)) === entry) { close(phone); streamFallback.add(key(phone)); } } };
       } catch { release(); if (entries.get(key(phone)) === entry) close(phone); throw new Error("Stream unavailable"); }

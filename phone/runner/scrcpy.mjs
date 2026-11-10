@@ -4,6 +4,21 @@ import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { controlMessage, DeviceMessages, qualities, ScrcpyPackets } from "./scrcpy-protocol.mjs";
 
+// The boot id of the Android boot that already has the jar. A new boot (or a wiped emulator) has a new
+// id, so the jar is copied again. Do not drop the boot id check "to simplify": /data/local/tmp can be
+// empty after a wipe, and scrcpy then fails to start with no clear error.
+let pushedBoot;
+
+// Copying the jar on every connection made each new viewer wait for adb push. Copy it one time per boot.
+async function pushJar(adb, ROOT) {
+  const boot = (await adb(["shell", "cat", "/proc/sys/kernel/random/boot_id"])).trim();
+  if (boot && boot === pushedBoot) return false;
+  pushedBoot = undefined;
+  await adb(["push", join(ROOT, "runner/scrcpy-server.jar"), "/data/local/tmp/emuly-scrcpy.jar"]);
+  pushedBoot = boot || undefined;
+  return true;
+}
+
 export async function startScrcpy(ws, { adb, ADB, SERIAL, ROOT, quality }) {
   const scid = randomBytes(4).readUInt32BE() & 0x7fffffff;
   const name = `scrcpy_${scid.toString(16).padStart(8, "0")}`;
@@ -25,8 +40,12 @@ export async function startScrcpy(ws, { adb, ADB, SERIAL, ROOT, quality }) {
   };
   ws.on("close", close); ws.on("error", close);
   const timer = setTimeout(close, 20_000);
+  // Step times in ms, so the logs show which step makes the first picture slow. No secrets here.
+  const started = Date.now(), steps = {};
+  const mark = name => { steps[name] = Date.now() - started; };
+  let firstFrame = true;
   try {
-    await adb(["push", join(ROOT, "runner/scrcpy-server.jar"), "/data/local/tmp/emuly-scrcpy.jar"]);
+    steps.pushed = await pushJar(adb, ROOT); mark("jar");
     if (closed) return;
     port = Number((await adb(["forward", "tcp:0", `localabstract:${name}`])).trim());
     if (closed) { void adb(["forward", "--remove", `tcp:${port}`]).catch(() => {}); return; }
@@ -55,6 +74,7 @@ export async function startScrcpy(ws, { adb, ADB, SERIAL, ROOT, quality }) {
       } catch { if (closed || Date.now() >= deadline) throw new Error("scrcpy timeout"); await new Promise(resolve => setTimeout(resolve, 100)); }
     }
     if (closed) { video?.destroy(); return; }
+    mark("scrcpy");
     video.on("error", close); video.on("close", close);
     control = connect({ host: "127.0.0.1", port });
     control.on("error", close); control.on("close", close);
@@ -75,6 +95,8 @@ export async function startScrcpy(ws, { adb, ADB, SERIAL, ROOT, quality }) {
         for (const packet of parser.push(chunk)) {
           if (ws.bufferedAmount > 4 * 1024 * 1024) return close();
           ws.send(packet);
+          if (firstFrame) { firstFrame = false; mark("first_packet");
+            console.log(`[scrcpy] start ${Object.entries(steps).map(([key, value]) => `${key}=${value}`).join(" ")}`); }
         }
       } catch { close(); }
     });
@@ -104,6 +126,24 @@ export async function startScrcpy(ws, { adb, ADB, SERIAL, ROOT, quality }) {
     });
     clearTimeout(timer);
     video.resume();
-  } catch { close(); }
+    // Do not remove this wakeup "to save work". The emulator encoder often sends no frame while
+    // the screen is static, so a new viewer saw no picture until a user touched the phone.
+    // KEYCODE_WAKEUP (224) makes Android redraw without changing any app or screen state.
+    // Do not use home, back, or a touch here; those change what the user sees.
+    // Future option, if a stuck static screen still happens: add the scrcpy server option
+    // "video_codec_options=repeat-previous-frame-after:100000" to the spawn args above. The encoder then
+    // repeats the last frame when nothing changes. It uses more bandwidth all the time, and support
+    // in scrcpy 3.3.4 is not confirmed yet, so we do not use it now.
+    const wake = setTimeout(() => {
+      if (closed || !control?.writable) return;
+      try { control.write(controlMessage({ type: "key", key: "wakeup" })); } catch { close(); }
+    }, 300);
+    wake.unref();
+  } catch (error) {
+    // A failed start can mean the jar is missing or broken, so copy it again next time.
+    pushedBoot = undefined;
+    console.log(`[scrcpy] start_failed error=${String(error?.message ?? error).slice(0, 120).replace(/\s+/g, "_")} ${Object.entries(steps).map(([key, value]) => `${key}=${value}`).join(" ")}`);
+    close();
+  }
   finally { clearTimeout(timer); }
 }
