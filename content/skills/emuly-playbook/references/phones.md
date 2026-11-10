@@ -21,6 +21,12 @@ Create only when the list is empty, or when the user explicitly asks for another
 
 The browser link `<base>/app/phones/<id>` is the way to watch and touch the phone. The same
 link is in `browser_url`.
+
+When Android is ready, put the link in the chat as a clickable link, with this line:
+"Open this link to view the phone now: <browser_url>". Do not open the browser yourself.
+Give the link again when you report that the task is done. If the user is signed out, the
+link opens sign-in first and then returns to the phone page.
+
 ## Hours and storage
 
 - D1. The phone runs on the user's included GitHub Codespaces hours, not Emuly credit.

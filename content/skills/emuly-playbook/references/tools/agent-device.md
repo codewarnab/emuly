@@ -46,6 +46,19 @@ Emuly calls still need the `EMULY_KEY` header. The proxy token is a different se
    The first snapshot installs a small Android helper on the phone, so it is slow once.
    Later snapshots are quick.
 
+   **Recommended: check the screen before you say "done".** Use this when a step must
+   change the screen, for example a sign-in, a save or a navigation. It is not needed for
+   every tap. After the step, prove the result with one of these:
+
+   ```sh
+   agent-device wait text "Welcome"
+   agent-device diff snapshot
+   ```
+
+   `wait text` waits until the text appears on the screen. `diff snapshot` shows what
+   changed since the last snapshot. If the screen does not show the expected result, do not
+   report the step as done. Tell the user what the screen shows instead.
+
 5. **Screenshots and video** go to the agent scratchpad or a temporary folder, never to the
    user's repository. Read them as images to check what the screen shows.
 
