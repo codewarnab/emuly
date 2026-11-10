@@ -1,6 +1,8 @@
 ﻿import { randomBytes } from "node:crypto";
 
-type Lease = { url: string; headers: Record<string, string>; signal: AbortSignal; release: () => void; failed?: () => void; acceptedInput?: () => void };
+type Lease = { url: string; headers: Record<string, string>; signal: AbortSignal; release: () => void; failed?: () => void;
+  acceptedInput?: () => void; route?: "forwarded" | "tunnel"; drop?: () => void;
+  viewers?: number; lastAwakeSuccess?: number };
 type Ticket = { userId: number; phoneId: string; origin: string; cookie: string; expires: number; open: () => Promise<Lease> };
 const g = globalThis as unknown as { __phoneTickets?: Map<string, Ticket> };
 const tickets = () => g.__phoneTickets ??= new Map();
