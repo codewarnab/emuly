@@ -88,6 +88,7 @@ Topics (paths relative to this file):
 - `references/native-adb.md`: native adb or scrcpy over `gh codespace ssh`.
 - `references/remote.md`: you run on a remote machine (SSH or Tailscale); links, scrcpy and
   screenshots for a user at another computer.
+- `references/t3code.md`: show an Emuly phone in T3 Code (Linux).
 
 Commands for one OS (pick yours; adapt the closest one if none matches):
 
