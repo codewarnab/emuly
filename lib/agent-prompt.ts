@@ -28,6 +28,9 @@ command -v tailscale >/dev/null && tailscale status --self --peers=false
 - **Over Tailscale:** remote, and the first address in \`SSH_CONNECTION\` is a Tailscale
   address (100.64.0.0/10). \`tailscale whois <that address>\` names my computer.
 
+If your sandbox blocks the network (Codex does by default), ask me to approve network
+access for your first Emuly \`curl\` instead of reporting an error.
+
 Tell me in one line what you found, for example "You are on a remote Linux machine over
 Tailscale from <computer>, so I will give you links to open there." The skill uses this.
 
@@ -48,7 +51,7 @@ Ask me once: "Should I install the ${SKILL_NAME} skill so I can run Emuly phones
   Use your own agent id, for example \`claude-code\` or \`cursor\`.
 - **Yes, without npx:** read ${base}/.well-known/skills/index.json and download each file
   in \`files\` from ${skillUrl(base, "<file>")} into your agent's user skills folder, keeping
-  the paths. Claude Code: \`~/.claude/skills/${SKILL_NAME}/\`. Cursor: \`~/.cursor/skills/${SKILL_NAME}/\`.
+  the paths. Claude Code: \`~/.claude/skills/${SKILL_NAME}/\`. Codex: \`~/.agents/skills/${SKILL_NAME}/\`. Cursor: \`~/.cursor/skills/${SKILL_NAME}/\`.
   For another agent, use its documented skills folder.
 - **No:** do not install anything. Fetch ${skillUrl(base)} and follow it for this session only.
 

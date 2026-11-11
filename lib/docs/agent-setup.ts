@@ -18,6 +18,10 @@ const PASTE: Step = { title: "Paste the Emuly prompt", text: "Copy the prompt fr
 /** The agent runs on a Linux VM; the user sits at another computer and reaches it over SSH or Tailscale. */
 const CONNECT: Step = { title: "Connect to the machine", text: "From Windows, macOS or Linux, open a terminal and SSH into the Linux machine. Over Tailscale, use its Tailscale name. Run every command below on that machine.", code: "ssh <user>@<machine>" };
 const PASTE_REMOTE: Step = { title: "Paste the Emuly prompt", text: "Copy the prompt from the Emuly home page and paste it into the agent. It notices it runs remotely, says so, and gives you links to open on your own computer. Over Tailscale it can also send screenshots to your computer and open scrcpy there." };
+/** Codex sandboxes commands without network by default; Emuly is reached with curl. */
+const CODEX_NETWORK: Step = { title: "Allow network for Emuly", text: "Codex blocks network in its sandbox by default. Approve the network request when Codex asks, or start it with network on in the workspace.", code: "codex -c sandbox_workspace_write.network_access=true" };
+/** Signing in over SSH: the browser is on your computer, not the VM. */
+const CODEX_REMOTE_LOGIN: Step = { title: "Sign in to Codex on the machine", text: "The VM has no browser. Use device sign-in and open the link on your own computer. Or skip the terminal: in the ChatGPT desktop app, add the machine under Settings > Connections > SSH hosts.", code: "codex login --device-auth" };
 const remote = (linux: Step[]) => [CONNECT, ...linux.slice(0, -1), PASTE_REMOTE];
 
 export const AGENT_DOCS: AgentDoc[] = [
@@ -43,12 +47,14 @@ export const AGENT_DOCS: AgentDoc[] = [
         { title: "Install Node.js", text: "Install Node.js 20 or later from nodejs.org. Codex installs with npm." },
         { title: "Install Codex", text: "Open PowerShell and run this command.", code: "npm install -g @openai/codex" },
         { title: "Start it in a folder", text: "Go to any folder and start the agent. Sign in with your ChatGPT account when it asks.", code: "codex" },
+        CODEX_NETWORK,
         PASTE,
       ],
       linux: [
         { title: "Install Node.js", text: "Install Node.js 20 or later. Codex installs with npm." },
         { title: "Install Codex", text: "Open a terminal and run this command.", code: "npm install -g @openai/codex" },
         { title: "Start it in a folder", text: "Go to any folder and start the agent. Sign in with your ChatGPT account when it asks.", code: "codex" },
+        CODEX_NETWORK,
         PASTE,
       ],
     },
@@ -73,6 +79,8 @@ export const AGENT_DOCS: AgentDoc[] = [
 
 // Remote Linux is the Linux install, run over SSH, with a remote-aware last step.
 for (const agent of AGENT_DOCS) if (agent.steps.linux) agent.steps.remote = remote(agent.steps.linux);
+// Codex over SSH: sign in with device auth before starting it.
+{ const codex = findAgent("codex")!.steps.remote!; codex.splice(codex.findIndex(step => step.code === "codex"), 0, CODEX_REMOTE_LOGIN); }
 
 export function findAgent(id: string | null | undefined) {
   return AGENT_DOCS.find(agent => agent.id === id);

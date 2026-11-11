@@ -97,3 +97,4 @@ Commands for one OS (pick yours; adapt the closest one if none matches):
 Notes for one agent (pick yours; skip if none matches):
 
 - `references/agents/claude-code.md`
+- `references/agents/codex.md`
