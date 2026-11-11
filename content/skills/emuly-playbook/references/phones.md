@@ -56,7 +56,8 @@ Do you want me to open the scrcpy window?
 ```
 
 Offer it once per session. Do not set it up until the user says yes. The steps are in
-`references/native-adb.md`.
+`references/native-adb.md`. On a remote machine, use the wording and steps in
+`references/remote.md` instead: the window opens on the user's computer, not here.
 
 ## Hours and storage
 

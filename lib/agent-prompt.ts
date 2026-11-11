@@ -13,6 +13,24 @@ function prompt(baseUrl: string, keyLine: string) {
 - ${keyLine}
 - Prompt version: ${AGENT_RUNBOOK_VERSION}
 
+## 0. Where you run
+
+Find out, without asking me, where you run and where I sit. On Linux or macOS run:
+
+\`\`\`sh
+uname -s; echo "ssh=\${SSH_CONNECTION:-none} display=\${DISPLAY:-}\${WAYLAND_DISPLAY:-}"
+command -v tailscale >/dev/null && tailscale status --self --peers=false
+\`\`\`
+
+- **Local:** no SSH connection. Links open on this computer.
+- **Remote:** \`SSH_CONNECTION\` is set, or there is no display. I sit at another computer, so
+  every link is for me to open there, and nothing here can open a window for me.
+- **Over Tailscale:** remote, and the first address in \`SSH_CONNECTION\` is a Tailscale
+  address (100.64.0.0/10). \`tailscale whois <that address>\` names my computer.
+
+Tell me in one line what you found, for example "You are on a remote Linux machine over
+Tailscale from <computer>, so I will give you links to open there." The skill uses this.
+
 ## 1. Get a key
 
 Fetch the setup commands for the OS you run on. If none matches, adapt the closest one.

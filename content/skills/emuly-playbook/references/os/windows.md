@@ -10,7 +10,7 @@ $headers = @{ Authorization = "Bearer $key" }
 
 ~~~bash
 base="{{EMULY_BASE_URL}}"
-key=$(powershell.exe -NoProfile -Command "[Environment]::GetEnvironmentVariable('EMULY_KEY','User')" | tr -d '')
+key=$(powershell.exe -NoProfile -Command "[Environment]::GetEnvironmentVariable('EMULY_KEY','User')" | tr -d '\r')
 auth="Authorization: Bearer $key"
 ~~~
 

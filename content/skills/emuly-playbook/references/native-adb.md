@@ -7,6 +7,9 @@ step below.
 You do all the steps. Do not give the user a list of commands to run, and do not ask them
 to open terminals. Ask the user to act only for a sign-in that needs their browser.
 
+On a remote machine (SSH or Tailscale, no display), scrcpy cannot open a window here. Do
+steps 1 and 2 here with gh only, then follow `references/remote.md` section 4.
+
 ## 1. Check the tools
 
 - `gh --version`, `adb --version` and `scrcpy --version` must succeed.

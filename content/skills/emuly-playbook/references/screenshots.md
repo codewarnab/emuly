@@ -63,6 +63,8 @@ Use the first way that you can.
 
 - If your tools can send or attach a file to the chat, send the image or video with a
   one-line caption, for example "The login screen after the fix".
+- On a remote machine, a path here is no use to the user: follow `references/remote.md`
+  section 5 (Taildrop over Tailscale, or one `scp` command).
 - Otherwise, give the full file path on its own line, so the user can open it.
 - Give the phone link too if the user may want to see the live screen:
   "Open this link to view the phone now: <browser_url>".

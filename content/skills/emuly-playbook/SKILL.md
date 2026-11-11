@@ -10,17 +10,22 @@ GitHub plan. Never ask the user to pay Emuly, and never say that Emuly bills the
 
 ## Before each task
 
-1. Read the key from the `EMULY_KEY` user variable. If it is empty, stop and ask the user
-   to click **Copy prompt** in the Emuly console. Key setup is not part of this skill.
+1. Read the key: the `EMULY_KEY` user variable on Windows; `EMULY_KEY`, then
+   `~/.config/emuly/key` on Linux and macOS. If it is empty, stop and ask the user to click
+   **Copy prompt** in the Emuly console. Key setup is not part of this skill.
 2. The Emuly base URL is `{{EMULY_BASE_URL}}`.
 3. Read the OS file and the agent file that match you (see References). Read the topic
    files only when the task needs them.
+4. If you run over SSH or Tailscale, or with no display, also read `references/remote.md`.
+   It changes how you give links, scrcpy and screenshots.
 
 ## Rules
 
 - Send the key only in an `Authorization: Bearer` header to the Emuly base URL. Never print
-  it, log it, put it in a URL, or write it to a file.
-- If a call returns **401**, clear `EMULY_KEY` and ask the user for a new **Copy prompt**.
+  it, log it, put it in a URL, or write it to a file (the one exception is the saved key
+  file `~/.config/emuly/key` on Linux and macOS).
+- If a call returns **401**, clear the saved key (the OS file says how) and ask the user for
+  a new **Copy prompt**.
 - Reuse a running or stopped phone. Create one only when none exists or the user asks.
 - Drive the phone with the HTTP adb route. Use native adb only when the user asks for it.
 - Give the browser link for viewing. When suitable, also offer scrcpy (see
@@ -81,10 +86,13 @@ Topics (paths relative to this file):
 - `references/screenshots.md`: when and how to show a screenshot or video in the chat.
 - `references/delete-and-errors.md`: delete approval, errors, settings, webhooks.
 - `references/native-adb.md`: native adb or scrcpy over `gh codespace ssh`.
+- `references/remote.md`: you run on a remote machine (SSH or Tailscale); links, scrcpy and
+  screenshots for a user at another computer.
 
 Commands for one OS (pick yours; adapt the closest one if none matches):
 
 - `references/os/windows.md`
+- `references/os/linux.md`
 
 Notes for one agent (pick yours; skip if none matches):
 

@@ -1,6 +1,7 @@
 # Get an Emuly key
 
-First check for a saved key in the `EMULY_KEY` user variable. If one exists, skip this section.
+First check for a saved key: the `EMULY_KEY` user variable on Windows, or `EMULY_KEY` and
+then `~/.config/emuly/key` on Linux and macOS. If one exists, skip this section.
 
 The prompt either contains a setup code such as `emuly_sc_...` or it has no code:
 
@@ -9,8 +10,9 @@ The prompt either contains a setup code such as `emuly_sc_...` or it has no code
 - **No setup code (A2):** start the device sign-in flow, show the user one short link, and
   wait for them to approve it in the browser.
 
-Both return `key`, `expires_at`, `save`, `read` and `clear`. `save` is a command that stores
-the key in the user variable `EMULY_KEY`. Run it once. Never print the key in the chat.
+Both return `key`, `expires_at`, `save`, `read` and `clear`. On Windows, `save` stores the
+key in the user variable `EMULY_KEY`; run it once. On Linux and macOS, ignore those three and
+save the key the way the OS file says. Never print the key in the chat.
 
 ### A2. Device sign-in flow
 
@@ -19,6 +21,10 @@ Run `POST /v1/agent/device`. It returns `device_code`, `user_code`,
 `verification_uri_complete` link, on one short line:
 
 > Approve this sign-in: {{EMULY_BASE_URL}}/link?code=WXYZ-2345
+
+If you run on a remote machine (see "Where you run" in the prompt), say instead:
+
+> Open this on your own computer and approve: {{EMULY_BASE_URL}}/link?code=WXYZ-2345
 
 Ask the user to open it and approve the code. Then poll
 `POST /v1/agent/device/token` with `{"device_code":"..."}` every `interval` seconds
@@ -32,11 +38,11 @@ Ask the user to open it and approve the code. Then poll
 
 ### Later sessions and 401
 
-Each new shell reads `EMULY_KEY` again; it is the only setup a later session needs. Never
+Each new shell reads the saved key again; it is the only setup a later session needs. Never
 exchange a second setup code unless the user clicks **Copy prompt** again in the console.
 
 If a request that uses the saved key returns **401**, the key is expired or revoked:
 
-1. Clear the saved key (the `clear` command from the response).
+1. Clear the saved key (the clear command in the OS file).
 2. Ask the user to click **Copy prompt** in the Emuly console and send you the new code.
 3. Exchange the new code once. Do not reuse the old code.
