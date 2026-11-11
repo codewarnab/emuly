@@ -39,7 +39,6 @@ export function Topbar({
               {n.label}
             </Link>
           ))}
-          <Link href="/docs">Docs</Link>
         </nav>
       )}
       {breadcrumb && (

@@ -8,12 +8,9 @@ import { ConnectedAgents } from "@/components/settings/connected-agents";
 import s from "../../../../../components/console.module.css";
 
 export default function AgentsPage() {
-  return <>
-    <p className={s.settingHint}>Agents connect with a key from a copied prompt. The key can use phones, but cannot change settings or delete a phone unless you allow it below.</p>
-    <Suspense fallback={<div role="status" aria-label="Loading connected agents" className={s.skeletonLine} />}>
+  return <Suspense fallback={<div role="status" aria-label="Loading connected agents" className={s.skeletonLine} />}>
       <AgentsContent />
-    </Suspense>
-  </>;
+  </Suspense>;
 }
 
 async function AgentsContent() {

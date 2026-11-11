@@ -445,7 +445,8 @@
 @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } }
 
 /* Quiet settings feedback and compact webhook controls. */
-.saveStatus { min-height: 20px; margin: -12px 0 16px; color: var(--dim); font-size: 13px; }
+/* Out of the flow, so an empty status leaves no gap under the tabs. */
+.saveStatus { position: fixed; right: 24px; bottom: 24px; margin: 0; color: var(--dim); font-size: 13px; pointer-events: none; }
 .saveStatus[data-saved="true"] { animation: savedFade 1.5s forwards; }
 @keyframes savedFade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
 .settingsTabs kbd { color: var(--dim); font: 11px var(--font-mono, monospace); margin-left: 5px; }
@@ -572,7 +573,7 @@
 
 /* Settings: connected agent keys. */
 .agents { display: grid; gap: 8px; min-width: 0; }
-.agentHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.agentHeader { display: flex; align-items: center; justify-content: flex-end; gap: 16px; flex-wrap: wrap; }
 .agentHeader .settingHint { margin: 0; }
 .agentTableWrap { overflow-x: auto; margin-top: 8px; min-width: 0; }
 .agentTable { border-collapse: collapse; width: 100%; font-size: 13px; text-align: left; }

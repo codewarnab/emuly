@@ -26,7 +26,7 @@ const AGENTS = [
 export default function LandingPage() {
   return <div className={s.root}>
     <KeyboardTools />
-    <nav className={s.nav} aria-label="Main"><Brand /><div><Link href="/docs">Docs</Link><ThemeToggle /><Suspense fallback={<Link href="/login">Sign in</Link>}><NavAuth /></Suspense></div></nav>
+    <nav className={s.nav} aria-label="Main"><Brand /><div><ThemeToggle /><Suspense fallback={<Link href="/login">Sign in</Link>}><NavAuth /></Suspense></div></nav>
     <main id="main-content" tabIndex={-1} className={s.wrap}>
       <section className={s.hero}>
         <div>

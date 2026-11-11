@@ -49,25 +49,24 @@ export function ConnectedAgents({ initial, deleteWithoutAsking, deletions }: {
   }
 
   return <div className={s.agents}>
-    <div className={s.agentHeader}>
-      <p className={s.settingHint}>Each key is one device or coding agent. Revoking it signs that agent out on its next request.</p>
-      {active > 0 && (confirmAll
+    {active > 0 && <div className={s.agentHeader}>
+      {(confirmAll
         ? <div className={s.inlineConfirm}>
             <span>Revoke all {active} active {active === 1 ? "agent" : "agents"}?</span>
             <Button tiny variant="danger" disabled={pending} onClick={revokeAll}>Revoke all</Button>
             <Button tiny variant="ghost" onClick={() => setConfirmAll(false)}>Cancel</Button>
           </div>
         : <Button tiny variant="ghost" disabled={pending} onClick={() => setConfirmAll(true)}>Revoke all</Button>)}
-    </div>
+    </div>}
     <p className={s.saveStatus} role="status">{status}</p>
     <label className={s.settingToggle}>
       <span><b>Let agents delete phones without asking</b>
-        <small>Off by default. When off, an agent sends you a link to approve each deletion.</small></span>
+        <small>Otherwise you approve each delete.</small></span>
       <input type="checkbox" role="switch" className={s.switch} checked={deletePhones} disabled={pending}
         onChange={event => toggleDeleteWithoutAsking(event.target.checked)} />
     </label>
     {keys.length === 0
-      ? <p className={s.settingHint}>No connected agents yet. Click Copy prompt on the Phones page to add one.</p>
+      ? <p className={s.settingHint}>No agents yet.</p>
       : <div className={s.agentTableWrap}>
           <table className={s.agentTable}>
             <caption className={s.agentCaption}>Connected agents</caption>
