@@ -1,7 +1,5 @@
 # Emuly
 
-The GitHub repository rename is pending. The repository remains `codewarnab/phonelink`.
-
 Run an Android emulator in the cloud, for free.
 
 Emuly runs a real Android emulator inside the user's own GitHub Codespace, on the
@@ -54,7 +52,7 @@ pnpm dev                     # http://localhost:4321
 | `EMULY_DB` | SQLite path, e.g. `.data/emuly.db` |
 | `EMULY_MAX_TUNNELS` | relay guard, e.g. `6` (used from Phase 5) |
 | `EMULY_MAX_PHONES` | Optional operator safety cap across all users for local tests (positive integer). Unset by default: no Emuly cap. GitHub still applies its own codespace limits. |
-| `EMULY_TEMPLATE_REPO` | Optional. Leave unset to use this repository, `codewarnab/phonelink`, with `.devcontainer/phone/devcontainer.json`. It is private for now, so each user must be a collaborator to create a phone. Emuly installs the emulator and runner from `phone/` over the codespace tunnel (`lib/codespace-tunnel.ts`); the server needs no `gh` |
+| `EMULY_TEMPLATE_REPO` | Optional. Leave unset to use this repository, `codewarnab/emuly`, with `.devcontainer/phone/devcontainer.json`. It is private for now, so each user must be a collaborator to create a phone. Emuly installs the emulator and runner from `phone/` over the codespace tunnel (`lib/codespace-tunnel.ts`); the server needs no `gh` |
 | `EMULY_TEMPLATE_REPOSITORY_ID` | Required only with `EMULY_TEMPLATE_REPO`: the numeric GitHub repository ID of that repository. Do not use a repository in the `github` org: it blocks OAuth apps |
 | `EMULY_DEVCONTAINER_PATH` | Optional. Used only with `EMULY_TEMPLATE_REPO`; sent only when set |
 

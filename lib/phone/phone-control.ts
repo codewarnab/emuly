@@ -55,7 +55,7 @@ export async function recordCodespaceState(userId: number, phoneId: string, code
 // to create a phone. github/codespaces-blank does not work here, because the github org
 // blocks OAuth apps that it has not approved.
 const PHONE_TEMPLATE = {
-  repository: "codewarnab/phonelink", repositoryId: 1448948156,
+  repository: "codewarnab/emuly", repositoryId: 1448948156,
   devcontainerPath: ".devcontainer/phone/devcontainer.json",
 };
 
@@ -65,7 +65,7 @@ export function templateRepository() {
   const repositoryId = custom ? Number(process.env.EMULY_TEMPLATE_REPOSITORY_ID) : PHONE_TEMPLATE.repositoryId;
   const devcontainerPath = custom ? process.env.EMULY_DEVCONTAINER_PATH || undefined : PHONE_TEMPLATE.devcontainerPath;
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository) || !Number.isSafeInteger(repositoryId) || repositoryId <= 0) {
-    throw new PhoneInputError("EMULY_TEMPLATE_REPO needs a matching EMULY_TEMPLATE_REPOSITORY_ID. Unset both to use codewarnab/phonelink.");
+    throw new PhoneInputError("EMULY_TEMPLATE_REPO needs a matching EMULY_TEMPLATE_REPOSITORY_ID. Unset both to use codewarnab/emuly.");
   }
   return { repository, repositoryId, devcontainerPath };
 }
