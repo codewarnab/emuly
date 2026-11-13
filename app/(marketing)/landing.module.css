@@ -6,6 +6,8 @@
 .hero { display: grid; grid-template-columns: minmax(0, 760px) 1fr; align-items: center; gap: 64px; padding: 64px 0 72px; }
 .hero h1 { font: 500 clamp(38px, 4.3vw, 62px)/1.14 var(--font-display), sans-serif; letter-spacing: -.055em; margin: 0 0 24px; max-width: 17ch; }
 .lead { font-size: 18px; line-height: 1.65; color: var(--dim); max-width: 62ch; margin: 0 0 28px; }
+.gh { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; color: var(--accent); text-decoration: none; }
+.gh:hover { text-decoration: underline; text-underline-offset: 3px; }
 .cta { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; }
 .cta > button { min-width: 180px; padding: 14px 28px; font-size: 16px; }
 .note { font-size: 13px; color: var(--dim); max-width: 70ch; margin: 16px 0; }
@@ -28,7 +30,7 @@
  .faq { grid-template-columns: 1fr; gap: 12px; padding: 36px 0 40px; } .faq h2 { font-size: 25px; } .footer { margin: 0 20px; }
 }
 
-.agents { list-style: none; display: flex; flex-wrap: wrap; gap: 10px 22px; padding: 0; margin: 4px 0 24px; }
+.agents { list-style: none; display: flex; flex-wrap: wrap; gap: 10px 22px; padding: 0; margin: 4px 0 20px; }
 .agents li { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; color: var(--text); }
 .agents img { width: 20px; height: 20px; object-fit: contain; }
 .onDark { display: none; }

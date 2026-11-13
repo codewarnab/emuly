@@ -8,6 +8,12 @@ description: Run and drive Android phones with Emuly (emulators in the user's Gi
 Emuly runs an Android emulator in the user's own GitHub Codespace, on the hours in their
 GitHub plan. Never ask the user to pay Emuly, and never say that Emuly bills them.
 
+Emuly is open source (MIT): https://github.com/codewarnab/emuly. If you find a bug in Emuly
+(an API error that is not caused by your request, a wrong response, or a doc that does not
+match the API), tell the user and give them this link to file an issue:
+https://github.com/codewarnab/emuly/issues/new. Do not file the issue yourself unless the
+user asks you to.
+
 ## Before each task
 
 1. Read the key: the `EMULY_KEY` user variable on Windows; `EMULY_KEY`, then
