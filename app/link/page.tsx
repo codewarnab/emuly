@@ -7,6 +7,7 @@ import { HeroPhone } from "@/components/marketing/hero-phone";
 import { getUser } from "@/lib/auth/auth";
 import { asyncDb } from "@/lib/data/async-db";
 import { getDeviceRequest, type DeviceRequest, type DeviceRequestStatus } from "@/lib/data/agents";
+import { chosenPlan } from "@/lib/data/settings";
 import { DeviceActions } from "@/components/link/device-actions";
 import { timeAgo, utcLabel } from "@/lib/shared/relative-time";
 import s from "@/components/link/link.module.css";
@@ -28,6 +29,10 @@ async function LinkContent({ searchParams }: Props) {
   const user = await getUser();
   if (!user) redirect(`/login?next=${encodeURIComponent(returnTo)}`);
   const request = raw ? await getDeviceRequest(asyncDb(), raw) : null;
+  // A new user chooses a GitHub plan before approving, so phone hours are right from the start.
+  if (request?.status === "pending" && !(await chosenPlan(asyncDb(), user.id))) {
+    redirect(`/app/welcome?next=${encodeURIComponent(returnTo)}`);
+  }
   return (
     <>
       <KeyboardTools /><Topbar>{null}</Topbar>

@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "../../lib/auth/auth";
 import { asyncDb } from "../../lib/data/async-db";
 import { redirect } from "next/navigation";
+import { safeNext } from "../../lib/auth/next-path";
 import { choosePlan, saveHoursSetting, type HoursField } from "../../lib/data/settings";
 import { acknowledgeAutoStops } from "../../lib/shared/hours";
 import { saveStreamQuality } from "../../lib/shared/display-settings";
@@ -36,7 +37,7 @@ export async function savePlan(form: FormData) {
   if (plan !== "free" && plan !== "pro") return;
   await choosePlan(asyncDb(), user.id, plan);
   revalidatePath("/app");
-  redirect("/app");
+  redirect(safeNext(form.get("next")) ?? "/app");
 }
 
 export async function dismissAutoStops(ids: number[]) {

@@ -3,6 +3,7 @@ import { requireUser } from "../../../../lib/auth/auth";
 import { asyncDb } from "../../../../lib/data/async-db";
 import { chosenPlan } from "../../../../lib/data/settings";
 import { savePlan } from "../../../actions/settings";
+import { safeNext } from "../../../../lib/auth/next-path";
 import { Topbar, Avatar } from "@/components/shell/topbar";
 import { ConsoleLoading } from "@/components/ui/console-loading";
 import s from "../../../../components/console.module.css";
@@ -12,11 +13,16 @@ const PLANS = [
   { id: "pro", name: "GitHub Pro", hours: 45, core: 180 },
 ] as const;
 
-export default function WelcomePage() {
-  return <Suspense fallback={<ConsoleLoading />}><Welcome /></Suspense>;
+type Props = { searchParams: Promise<{ next?: string | string[] }> };
+
+export default function WelcomePage(props: Props) {
+  return <Suspense fallback={<ConsoleLoading />}><Welcome {...props} /></Suspense>;
 }
 
-async function Welcome() {
+/** `next` returns the user to the agent sign-in page after the plan choice. */
+async function Welcome({ searchParams }: Props) {
+  const raw = (await searchParams).next;
+  const next = safeNext(Array.isArray(raw) ? raw[0] : raw);
   const user = await requireUser();
   const current = await chosenPlan(asyncDb(), user.id);
   return <>
@@ -27,6 +33,7 @@ async function Welcome() {
       <h1>Which GitHub plan do you have?</h1>
       <p className={s.welcomeLede}>Your plan sets your free phone hours each month.</p>
       <form action={savePlan} className={s.planGrid}>
+        {next && <input type="hidden" name="next" value={next} />}
         {PLANS.map(plan => <button key={plan.id} name="plan" value={plan.id} type="submit"
           className={`${s.planCard} ${current === plan.id ? s.planCurrent : ""}`}>
           <span className={s.planName}>{plan.name}{current === plan.id && <small>Current</small>}</span>
