@@ -5,13 +5,13 @@ import { createClient } from "../data/async-database.ts";
 import { migrateHosted } from "../data/hosted-migrations.ts";
 import { createSetupCode, exchangeSetupCode, findAgentKey, revokeAgentKey,
   AGENT_KEY_PREFIX, SETUP_CODE_PREFIX, DEVICE_CODE_PREFIX, DEVICE_CODE_TTL_MS, DEVICE_POLL_INTERVAL_MS,
-  approveDeviceCode, createDeviceCode, denyDeviceCode, getDeviceRequest, normalizeUserCode,
+  AgentDeviceLimitError, approveDeviceCode, createDeviceCode, denyDeviceCode, getDeviceRequest, normalizeUserCode,
   pollDeviceCode } from "../data/agents.ts";
 import { createSettingsApi } from "../data/settings-api.ts";
 import { createWebhookApi } from "../webhooks/webhook-api.ts";
 import type { createWebhookService } from "../webhooks/webhooks.ts";
 import { resolveUser } from "./identity.ts";
-import { agentKeyCommands } from "./agent.ts";
+import { agentKeyCommands, clientIp, allowAgentExchange, allowAgentDeviceStart } from "./agent.ts";
 import { AGENT_DEVICE_MESSAGE, forbidAgent } from "./scope.ts";
 
 const NOW = Date.parse("2026-11-09T12:00:00Z");
@@ -229,4 +229,56 @@ test("key commands store the key in the EMULY_KEY user variable and refuse unsaf
     clear: 'setx EMULY_KEY ""',
   });
   assert.throws(() => agentKeyCommands(`${AGENT_KEY_PREFIX}a" & calc`));
+});
+
+
+test("client IP ignores spoofed forwarded values and local x-real-ip", t => {
+  const previous = process.env.VERCEL;
+  t.after(() => {
+    if (previous === undefined) delete process.env.VERCEL;
+    else process.env.VERCEL = previous;
+  });
+  process.env.VERCEL = "";
+  const request = (headers: Record<string, string>) => new Request("https://emuly.test", { headers });
+  assert.equal(clientIp(request({ "x-forwarded-for": "fake, 203.0.113.1", "x-real-ip": "fake" })), "203.0.113.1");
+  assert.equal(clientIp(request({ "x-real-ip": "fake" })), "unknown");
+  assert.equal(clientIp(request({})), "unknown");
+  process.env.VERCEL = "1";
+  assert.equal(clientIp(request({ "x-real-ip": "203.0.113.2", "x-forwarded-for": "fake, other" })), "203.0.113.2");
+  assert.equal(clientIp(request({ "x-forwarded-for": "fake, 203.0.113.1" })), "203.0.113.1");
+});
+
+test("database agent limits allow ten hits per bucket and expire after sixty seconds", async () => {
+  const client = await fixture();
+  try {
+    const ip = "203.0.113.1";
+    for (const allow of [allowAgentExchange, allowAgentDeviceStart]) {
+      const attempts = await Promise.all(Array.from({ length: 11 }, () => allow(ip, client, NOW)));
+      assert.equal(attempts.filter(Boolean).length, 10);
+      assert.equal(await allow(ip, client, NOW + 59_999), false);
+    }
+    const rows = (await client.execute("SELECT key FROM rate_limit_hits")).rows;
+    assert.equal(rows.length, 20);
+    assert.ok(rows.every(row => row.key === createHash("sha256").update(ip).digest("base64url")));
+    assert.equal(await allowAgentExchange(ip, client, NOW + 60_000), true);
+    assert.equal(await allowAgentDeviceStart(ip, client, NOW + 60_000), true);
+    assert.equal(Number((await client.execute("SELECT count(*) AS n FROM rate_limit_hits")).rows[0]!.n), 2);
+  } finally { client.close(); }
+});
+
+test("device code cap refuses the 501st non-expired row and frees capacity on expiry", async () => {
+  const client = await fixture();
+  try {
+    await client.execute({ sql: `WITH RECURSIVE codes(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM codes WHERE n < 499)
+      INSERT INTO agent_device_codes (device_code_hash, user_code, status, created_at, expires_at)
+      SELECT 'hash-' || n, 'code-' || n, 'pending', ?, ? FROM codes`,
+      args: [new Date(NOW).toISOString(), new Date(NOW + DEVICE_CODE_TTL_MS).toISOString()] });
+    const starts = await Promise.allSettled([createDeviceCode(client, NOW), createDeviceCode(client, NOW)]);
+    assert.equal(starts.filter(result => result.status === "fulfilled").length, 1);
+    const refused = starts.find(result => result.status === "rejected");
+    assert.ok(refused?.status === "rejected" && refused.reason instanceof AgentDeviceLimitError);
+    await assert.rejects(createDeviceCode(client, NOW), AgentDeviceLimitError);
+    assert.equal(Number((await client.execute("SELECT count(*) AS n FROM agent_device_codes")).rows[0]!.n), 500);
+    assert.ok(await createDeviceCode(client, NOW + DEVICE_CODE_TTL_MS));
+  } finally { client.close(); }
 });

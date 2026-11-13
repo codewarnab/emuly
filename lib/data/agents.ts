@@ -21,6 +21,7 @@ const USER_CODE_DIGITS = "23456789";
 const DEVICE_KEY_NAME = "Agent device login";
 
 export class AgentInputError extends Error {}
+export class AgentDeviceLimitError extends Error {}
 
 export type AgentKey = {
   id: number;
@@ -123,9 +124,12 @@ export async function createDeviceCode(database: DatabaseQueries, now = Date.now
       args: [userCode] })).rows.length;
     if (pending) continue;
     try {
-      await database.execute({ sql: `INSERT INTO agent_device_codes
+      const inserted = await database.execute({ sql: `INSERT INTO agent_device_codes
         (device_code_hash, user_code, status, user_id, created_at, expires_at, last_polled_at)
-        VALUES (?, ?, 'pending', NULL, ?, ?, NULL)`, args: [sha256(deviceCode), userCode, createdAt, expiresAt] });
+        SELECT ?, ?, 'pending', NULL, ?, ?, NULL
+        WHERE (SELECT count(*) FROM agent_device_codes WHERE expires_at > ?) < 500`,
+        args: [sha256(deviceCode), userCode, createdAt, expiresAt, createdAt] });
+      if (!inserted.rowsAffected) throw new AgentDeviceLimitError();
       return {
         deviceCode,
         userCode,
@@ -134,7 +138,7 @@ export async function createDeviceCode(database: DatabaseQueries, now = Date.now
         interval: DEVICE_POLL_INTERVAL_MS / 1000,
       };
     } catch (error) {
-      if (attempt === 4) throw error;
+      if (error instanceof AgentDeviceLimitError || attempt === 4) throw error;
     }
   }
   throw new Error("Could not create a device code.");

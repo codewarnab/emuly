@@ -1,4 +1,7 @@
 import "server-only";
+import { ipAddress } from "@vercel/functions";
+import { transaction } from "../data/async-database.ts";
+import { sha256 } from "./crypto-core.ts";
 import type { Client } from "@libsql/client";
 import { asyncDb } from "../data/async-db.ts";
 import { findAgentKey } from "../data/agents.ts";
@@ -16,32 +19,29 @@ export async function authenticateAgent(authorization: string | null, database: 
   return value ? findAgentKey(database, value, now) : null;
 }
 
-const exchangeWindowMs = 60_000;
-const exchangeLimit = 10;
-const exchanges = new Map<string, number[]>();
-const deviceStarts = new Map<string, number[]>();
-
-/** Small in-process guard. A hosted deployment should replace this with a shared limiter. */
-function allowAttempts(attempts: Map<string, number[]>, ip: string, now: number) {
-  const recent = (attempts.get(ip) ?? []).filter(at => now - at < exchangeWindowMs);
-  if (recent.length >= exchangeLimit) {
-    attempts.set(ip, recent);
-    return false;
-  }
-  recent.push(now);
-  attempts.set(ip, recent);
-  if (attempts.size > 10_000) {
-    for (const [key, times] of attempts) if (!times.some(at => now - at < exchangeWindowMs)) attempts.delete(key);
-  }
-  return true;
+/** Vercel overwrites x-real-ip; local proxies append their client to x-forwarded-for. */
+export function clientIp(request: Request): string {
+  const vercelIp = process.env.VERCEL === "1" ? ipAddress(request)?.trim() : undefined;
+  return vercelIp || request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim() || "unknown";
 }
 
-export function allowAgentExchange(ip: string, now = Date.now()) {
-  return allowAttempts(exchanges, ip, now);
+async function allowAttempts(bucket: string, ip: string, database: Client, now: number) {
+  const key = sha256(ip);
+  return transaction(database, async queries => {
+    await queries.execute({ sql: "DELETE FROM rate_limit_hits WHERE ts <= ?", args: [now - 60_000] });
+    const hit = await queries.execute({ sql: `INSERT INTO rate_limit_hits (bucket, key, ts)
+      SELECT ?, ?, ? WHERE (SELECT count(*) FROM rate_limit_hits WHERE bucket = ? AND key = ?) < 10`,
+      args: [bucket, key, now, bucket, key] });
+    return hit.rowsAffected === 1;
+  });
 }
 
-export function allowAgentDeviceStart(ip: string, now = Date.now()) {
-  return allowAttempts(deviceStarts, ip, now);
+export function allowAgentExchange(ip: string, database: Client = asyncDb(), now = Date.now()) {
+  return allowAttempts("agent_exchange", ip, database, now);
+}
+
+export function allowAgentDeviceStart(ip: string, database: Client = asyncDb(), now = Date.now()) {
+  return allowAttempts("agent_device", ip, database, now);
 }
 
 const SAFE_KEY = /^emuly_key_[A-Za-z0-9_-]+$/;

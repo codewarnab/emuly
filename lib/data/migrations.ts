@@ -289,4 +289,13 @@ export const MIGRATIONS = [
   `,
   // The proxy token is stored as a digest; NULL means the agent must ask GET /agent-device again.
   `ALTER TABLE phones ADD COLUMN agent_device_token_hash TEXT;`,
+  `
+  CREATE TABLE IF NOT EXISTS rate_limit_hits (
+    bucket TEXT NOT NULL,
+    key TEXT NOT NULL,
+    ts INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS rate_limit_hits_bucket_key_ts ON rate_limit_hits(bucket, key, ts);
+  CREATE INDEX IF NOT EXISTS rate_limit_hits_ts ON rate_limit_hits(ts);
+  `,
 ];
