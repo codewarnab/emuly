@@ -589,3 +589,8 @@
 @media (max-width: 680px) {
   .agentTable th, .agentTable td { white-space: normal; }
 }
+
+.syncAction:disabled { opacity: .7; cursor: progress; }
+.syncSpin { animation: syncSpin .8s linear infinite; }
+@keyframes syncSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .syncSpin { animation: none; } }

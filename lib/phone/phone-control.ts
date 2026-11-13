@@ -8,6 +8,7 @@ import { createPhoneService, PhoneInputError } from "./phone-mutations.ts";
 import { createPhoneSetup } from "./phone-setup.ts";
 import { runnerRequest, closeRunner } from "./phone-runner.ts";
 import { syncError, type SyncError } from "../shared/sync-error.ts";
+import { CoordinationBusyError } from "../data/coordination.ts";
 
 // Share mutation guards across requests and development hot reloads.
 // Hot reload keeps globalThis but runs this module again, so a service built by older code
@@ -33,6 +34,9 @@ export const latestPhoneControl = () => (global.__latestPhoneControl ?? phoneCon
 export async function syncPhoneState(userId: number): Promise<SyncError | null> {
   try { await phoneControl().sync(userId); return null; }
   catch (error) {
+    // Another request (a start, the scheduler, a second tab) holds the phone lock and is
+    // updating the same state now. The stored state is current, so this is not an error.
+    if (error instanceof CoordinationBusyError) return null;
     return syncError(error);
   }
 }
