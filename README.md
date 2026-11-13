@@ -82,30 +82,6 @@ Users do not see a change. They stay signed in.
 - Use one GitHub account per person. Do not pool free accounts. See the
   [GitHub Terms of Service](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service).
 
-## Project layout
-
-```
-app/
-  (marketing)/      landing page
-  login/            sign-in page
-  (app)/app/        console: dashboard, phones/[id]
-  auth/             OAuth start, callback and logout routes
-  v1/               public API
-components/         phone, settings, ui, shell and marketing components
-lib/
-  phone/            lifecycle, setup, runner link, stream, apps, poller
-  auth/             sessions, cookies, crypto, GitHub OAuth, key rotation
-  github/           API client, tokens, billing, codespace tunnel
-  data/             database, migrations, events, settings, usage, rate limits
-  webhooks/         fan-out, signing, outbox, delivery API
-  diagnostics/      startup reports
-  shared/           display settings, hours, idle, keyboard, formatting
-phone/              emulator runner installed in the codespace
-deploy/vm/          scheduler deployment guide
-docs/               webhook, billing and diagnostics docs
-proxy.ts            protects /app/* (Next.js 16 replacement for middleware)
-```
-
 ## Keyboard
 
 `⌘K` / `Ctrl K` command menu · `?` shortcuts · `g p` phones · `g 1`…`g 9` open a phone ·
