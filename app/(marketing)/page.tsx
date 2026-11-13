@@ -26,7 +26,7 @@ const AGENTS = [
 export default function LandingPage() {
   return <div className={s.root}>
     <KeyboardTools />
-    <nav className={s.nav} aria-label="Main"><Brand /><div><ThemeToggle /><Suspense fallback={<Link href="/login">Sign in</Link>}><NavAuth /></Suspense></div></nav>
+    <nav className={s.nav} aria-label="Main"><Brand /><div><ThemeToggle /><Suspense fallback={<NavAuthPlaceholder />}><NavAuth /></Suspense></div></nav>
     <main id="main-content" tabIndex={-1} className={s.wrap}>
       <section className={s.hero}>
         <div>
@@ -61,6 +61,12 @@ export default function LandingPage() {
     </main>
     <footer className={s.footer}>Emuly — your codespace, your phone.</footer>
   </div>;
+}
+
+/** Holds the space while the session streams in. It never shows "Sign in", because the
+    session is not known yet and a signed-in user must not see a wrong link. */
+function NavAuthPlaceholder() {
+  return <span aria-hidden="true" style={{ visibility: "hidden" }}>Console</span>;
 }
 
 async function NavAuth() {
