@@ -143,7 +143,7 @@ proxy.ts            protects /app/* (Next.js 16 replacement for middleware)
 
 ## Contributing
 
-Issues and pull requests are welcome. Run `pnpm lint` and `pnpm test` before you open a pull request.
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
