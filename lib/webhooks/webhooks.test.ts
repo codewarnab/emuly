@@ -10,7 +10,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "../data/database.ts";
-import { seal, open } from "../auth/crypto-core.ts";
+import { seal, open, contexts } from "../auth/crypto-core.ts";
 import { createWebhookService } from "./webhooks.ts";
 import { createWebhookOutbox } from "./webhook-outbox.ts";
 import { createWebhookApi } from "./webhook-api.ts";
@@ -28,11 +28,11 @@ function fixture() {
   const key = randomBytes(32).toString("base64");
   let time = Date.parse("2026-11-07T12:00:00Z");
   const clock = () => time;
-  const encrypt = (value: string) => seal(value, key);
-  const decrypt = (box: Uint8Array) => open(box, key);
+  const encrypt = (value: string, context: string) => seal(value, key, context);
+  const decrypt = (box: Uint8Array, context: string) => open(box, key, context);
   for (const id of [1, 2]) database.prepare(`INSERT INTO users
     (id, github_id, login, token_cipher, token_scopes, created_at, last_seen_at)
-    VALUES (?, ?, 'fixture', ?, 'codespace', '2026-11-01', '2026-11-01')`).run(id, id, encrypt("synthetic-token"));
+    VALUES (?, ?, 'fixture', ?, 'codespace', '2026-11-01', '2026-11-01')`).run(id, id, encrypt("synthetic-token", contexts.githubAccess(id)));
   const service = (resolve = publicDns, baseUrl = "https://emuly.example", send?: SendWebhook) =>
     createWebhookService({ database: asyncDatabase, encrypt, clock, baseUrl, resolve,
       deliver: createWebhookOutbox({ database: asyncDatabase, decrypt, clock, baseUrl, resolve, send }) });
@@ -126,7 +126,7 @@ test("fan-out honors ownership and subscriptions, stores encrypted secrets, and 
     await assert.rejects(service.update(2, all.id, { roll_secret: true }));
     const rotated = await service.update(1, all.id, { roll_secret: true });
     assert.notEqual(rotated.secret, all.secret);
-    assert.equal(f.decrypt(f.database.prepare("SELECT secret_cipher FROM webhooks WHERE id = ?").get(all.id)!.secret_cipher as Uint8Array), rotated.secret);
+    assert.equal(f.decrypt(f.database.prepare("SELECT secret_cipher FROM webhooks WHERE id = ?").get(all.id)!.secret_cipher as Uint8Array, contexts.webhookSecret(all.id)), rotated.secret);
     for (let i = 0; i < 55; i++) { f.advance(5000); await service.test(1, all.id); }
     assert.equal((await service.deliveries(1, all.id)).length, 50);
     await service.remove(1, all.id);

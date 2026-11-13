@@ -14,7 +14,7 @@ import { updateSettings, userSettings } from "../data/settings.ts";
 import { readUsage, saveAllowance } from "../data/usage.ts";
 import { createPhoneApi } from "./phone-api.ts";
 import { createStatePoller } from "./poller.ts";
-import { seal, open } from "../auth/crypto-core.ts";
+import { seal, open, contexts } from "../auth/crypto-core.ts";
 
 const key = Buffer.alloc(32, 7).toString("base64");
 const input = { repository: "fixture/template", repositoryId: 123, idleTimeoutMin: 30,
@@ -33,13 +33,13 @@ function fixture(fetcher: typeof fetch) {
     VALUES (?, ?, ?, ?, 'codespace', '2026-11-01', '2026-11-01')`).run(id, id, `fixture-${id}`, Buffer.from("encrypted"));
   let time = Date.parse("2026-11-07T00:00:00.000Z");
   const github = createGitHubClient({ database: asyncDatabase, accessToken: async id => `synthetic-${id}`, fetch: fetcher });
-  const service = createPhoneService({ database: asyncDatabase, github, encrypt: plain => seal(plain, key), clock: () => time });
+  const service = createPhoneService({ database: asyncDatabase, github, encrypt: (plain, context) => seal(plain, key, context), clock: () => time });
   return {
     asyncDatabase, database, github, service, advance: (ms: number) => { time += ms; },
     add(id: string, user = 1, name = `generated-${id}`) {
       database.prepare(`INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state,
         created_at, runner_secret) VALUES (?, ?, ?, 'fixture/template', 'fixture-machine', 'stopped', '2026-11-01', ?)`)
-        .run(id, user, name, seal("synthetic-runner-secret", key));
+        .run(id, user, name, seal("synthetic-runner-secret", key, contexts.runnerSecret(id)));
     },
     async close() {
       asyncDatabase.close();
@@ -103,7 +103,7 @@ test("create records intent before HTTP, chooses an available machine, sends tim
       assert.equal(row.cores, 2);
       assert.equal(row.idle_timeout_min, n === 1 ? 240 : 30);
       assert.equal(row.retention_min, 43200);
-      const secret = open(row.runner_secret as Uint8Array, key);
+      const secret = open(row.runner_secret as Uint8Array, key, contexts.runnerSecret(id));
       assert.equal(secret.length, 43);
       assert.ok(!JSON.stringify(f.database.prepare("SELECT message FROM events").all()).includes(secret));
       f.advance(60_000);
@@ -201,7 +201,7 @@ test("interrupted creation survives a restart, blocks replacement, and recovers 
     f.add("phone-bbbb", 2, "pending:phone-bbbb");
     f.database.prepare(`INSERT INTO phone_creations VALUES ('phone-bbbb', 'phone-bbbb', 'unconfirmed', '2026-11-07')`).run();
     f.advance(60_000);
-    const restarted = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: value => seal(value, key),
+    const restarted = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (value, context) => seal(value, key, context),
       clock: () => Date.parse("2026-11-07T00:01:00Z") });
     await assert.rejects(restarted.create(1, input), /unconfirmed/);
     assert.equal(posts, 1);
@@ -357,7 +357,7 @@ test("rate limits share an account's mutation budget, isolate accounts, survive 
     await assert.rejects(f.service.start(1, "phone-aaaa"), RateLimitError);
     assert.equal(calls, full);
     await f.service.start(2, "phone-bbbb");
-    const other = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
+    const other = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
       clock: () => Date.parse("2026-11-07T00:00:59.999Z") });
     await assert.rejects(other.start(1, "phone-aaaa"), RateLimitError);
     f.advance(60_000);
@@ -590,7 +590,7 @@ test("an Available codespace starts phone setup, checks it until ready, then the
   const f = fixture(async () => Response.json({ codespaces: [space("generated-phone-cccc", "Available")] }));
   const runs: string[] = [];
   let fail = true;
-  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
     setup: async (_user, name) => { runs.push(name); if (fail) throw new Error("apt failed"); return "ready"; } });
   const state = () => f.database.prepare("SELECT state, state_detail FROM phones WHERE id = 'phone-cccc'").get() as
     { state: string; state_detail: string | null };
@@ -610,7 +610,7 @@ test("an Available codespace starts phone setup, checks it until ready, then the
     f.database.prepare("UPDATE phones SET state_detail = ? WHERE id = 'phone-cccc'").run("Setup needs another attempt. New wording.");
     let now = Date.now();
     let status: "working" | "ready" = "working";
-    const ready = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
+    const ready = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
       clock: () => now, setup: async (_user, name) => { runs.push(name); return status; } });
     await ready.sync(1);
     await flush();
@@ -646,7 +646,7 @@ test("a pending start watches GitHub and starts setup when Available without a s
     return Response.json(current);
   });
   const runs: string[] = [];
-  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
     sleep: async () => { await flush(); },
     setup: async (_user, name) => { runs.push(name); return "ready"; } });
   try {
@@ -671,7 +671,7 @@ test("the start watch stops at once on a GitHub rate limit", async () => {
     return Response.json({ message: "Rate limit" }, { status: 429 });
   });
   let setupCalls = 0;
-  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
     sleep: async () => { await flush(); }, setup: async () => { setupCalls++; return "working"; } });
   try {
     f.add("phone-aaaa", 1, current.name);
@@ -696,7 +696,7 @@ test("the start watch stops when the phone is no longer booting", async () => {
     return Response.json(current);
   });
   let setupCalls = 0;
-  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
     sleep: async () => {
       f.database.prepare("UPDATE phones SET state = 'stopping' WHERE id = 'phone-aaaa'").run();
       await flush();
@@ -717,7 +717,7 @@ test("a working setup check re-checks at once and boots without another sync", a
   let checks = 0, boots = 0;
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
     setup: async () => { checks++; if (checks === 1) { entered.resolve(); await release.promise; return "working"; } return "ready"; },
     runner: async () => { boots++; return Response.json({ booted: true }); } });
   try {
@@ -735,7 +735,7 @@ test("a working setup check re-checks at once and boots without another sync", a
 test("a failed setup check does not re-call setup", async () => {
   const f = fixture(async () => Response.json({ codespaces: [space("generated-phone-aaaa", "Available")] }));
   let checks = 0;
-  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
     setup: async () => { checks++; throw new Error("setup failed"); } });
   try {
     f.add("phone-aaaa");
@@ -751,7 +751,7 @@ test("setup boots Android once, persists failures until Retry boot, and records 
   const f = fixture(async () => Response.json({ codespaces: [space("generated-phone-aaaa", "Available")] }));
   let boot = Promise.withResolvers<Response>();
   let boots = 0;
-  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
     setup: async () => "ready", runner: async (_user, _id, path, body) => {
       assert.equal(path, "/boot");
       assert.deepEqual(body, {});
@@ -796,7 +796,7 @@ test("Stop waits for the runner before stopping GitHub and ignores a late boot c
   const boot = Promise.withResolvers<Response>();
   const stop = Promise.withResolvers<Response>();
   const enteredStop = Promise.withResolvers<void>();
-  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
     runner: async (_user, _id, path) => {
       if (path === "/boot") return boot.promise;
       enteredStop.resolve();
@@ -826,7 +826,7 @@ test("runner and GitHub stop failures preserve the running codespace and leave a
     if (init?.method === "POST") { githubStops++; throw new GitHubError("synthetic GitHub stop refusal", 503); }
     return Response.json(space("generated-phone-aaaa", "Available"));
   });
-  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: plain => seal(plain, key),
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
     runner: async () => {
       if (runnerFails) throw new Error("synthetic transport failure");
       return Response.json({ stopped: true });

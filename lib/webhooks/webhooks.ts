@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { contexts } from "../auth/crypto-core.ts";
 import type { Client } from "@libsql/client";
 import { transaction, type DatabaseQueries } from "../data/async-database.ts";
 import { createEventEmitter, emitEvent, WEBHOOK_EVENTS } from "../data/events.ts";
@@ -11,7 +12,7 @@ type StoredWebhook = Omit<Webhook, "events" | "enabled"> & { events: string; ena
 export class WebhookRateLimitError extends WebhookInputError {}
 
 export function createWebhookService({ database, encrypt, baseUrl, resolve, deliver, clock = Date.now }: {
-  database: Client; encrypt: (plain: string) => Uint8Array; baseUrl: string; resolve?: ResolveHost; clock?: () => number;
+  database: Client; encrypt: (plain: string, context: string) => Uint8Array; baseUrl: string; resolve?: ResolveHost; clock?: () => number;
   deliver?: (id: string) => Promise<void>;
 }) {
   const iso = () => new Date(clock()).toISOString();
@@ -64,7 +65,7 @@ export function createWebhookService({ database, encrypt, baseUrl, resolve, deli
       const id = `wh_${randomUUID()}`;
       const secret = `whsec_${randomBytes(32).toString("base64url")}`;
       await database.execute({ sql: `INSERT INTO webhooks (id, user_id, url, events, secret_cipher, enabled, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`, args: [id, userId, target.url.href, events, encrypt(secret), body.enabled === false ? 0 : 1, iso()] });
+        VALUES (?, ?, ?, ?, ?, ?, ?)`, args: [id, userId, target.url.href, events, encrypt(secret, contexts.webhookSecret(id)), body.enabled === false ? 0 : 1, iso()] });
       return { ...publicHook(await owned(userId, id)), secret };
     },
     async update(userId: number, id: string, value: unknown) {
@@ -77,7 +78,7 @@ export function createWebhookService({ database, encrypt, baseUrl, resolve, deli
       await owned(userId, id);
       await database.execute({ sql: `UPDATE webhooks SET url = COALESCE(?, url), events = COALESCE(?, events),
         enabled = COALESCE(?, enabled), secret_cipher = COALESCE(?, secret_cipher),
-        failing_since = CASE WHEN ? IS NOT NULL THEN NULL ELSE failing_since END WHERE id = ? AND user_id = ?`, args: [url ?? null, events ?? null, body.enabled === undefined ? null : Number(body.enabled), secret ? encrypt(secret) : null, body.enabled === undefined ? null : Number(body.enabled), id, userId] });
+        failing_since = CASE WHEN ? IS NOT NULL THEN NULL ELSE failing_since END WHERE id = ? AND user_id = ?`, args: [url ?? null, events ?? null, body.enabled === undefined ? null : Number(body.enabled), secret ? encrypt(secret, contexts.webhookSecret(id)) : null, body.enabled === undefined ? null : Number(body.enabled), id, userId] });
       return { ...publicHook(await owned(userId, id)), ...(secret ? { secret } : {}) };
     },
     async remove(userId: number, id: string) {

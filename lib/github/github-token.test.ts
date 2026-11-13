@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { getAccessToken } from "./github-token.ts";
 import { asyncDb } from "../data/async-db.ts";
 import { openDatabase } from "../data/database.ts";
-import { seal, open } from "../auth/crypto.ts";
+import { seal, open, contexts } from "../auth/crypto.ts";
 import { insertSession } from "../auth/session-store.ts";
 
 test("tokens refresh once for concurrent callers, persist encrypted, and invalidate sessions on failure", async () => {
@@ -39,7 +39,7 @@ test("tokens refresh once for concurrent callers, persist encrypted, and invalid
   try {
     database.prepare(`INSERT INTO users (github_id, login, token_cipher, token_expires_at, refresh_cipher,
       refresh_expires_at, token_scopes, created_at, last_seen_at) VALUES (123, 'test-user', ?, ?, ?, ?, 'codespace', ?, ?)`)
-      .run(seal("synthetic-old-access"), new Date(timestamp + 240_000).toISOString(), seal("synthetic-refresh"),
+      .run(seal("synthetic-old-access", contexts.githubAccess(123)), new Date(timestamp + 240_000).toISOString(), seal("synthetic-refresh", contexts.githubRefresh(123)),
         new Date(timestamp + 86_400_000).toISOString(), "2026-01-01", "2026-01-01");
     const userId = Number(database.prepare("SELECT id FROM users").get()?.id);
     const values = await Promise.all([getAccessToken(userId, options), getAccessToken(userId, options), getAccessToken(userId, options)]);
@@ -47,8 +47,8 @@ test("tokens refresh once for concurrent callers, persist encrypted, and invalid
     assert.equal(calls, 1);
     const row = database.prepare("SELECT token_cipher, refresh_cipher, token_expires_at FROM users").get() as
       { token_cipher: Uint8Array; refresh_cipher: Uint8Array; token_expires_at: string };
-    assert.equal(open(row.token_cipher), "synthetic-new-access");
-    assert.equal(open(row.refresh_cipher), "synthetic-new-refresh");
+    assert.equal(open(row.token_cipher, contexts.githubAccess(123)), "synthetic-new-access");
+    assert.equal(open(row.refresh_cipher, contexts.githubRefresh(123)), "synthetic-new-refresh");
     assert.equal(row.token_expires_at, "2026-11-07T08:00:00.000Z");
     assert.equal(await getAccessToken(userId, options), "synthetic-new-access");
     assert.equal(calls, 1);

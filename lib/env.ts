@@ -20,6 +20,11 @@ export const env = {
   get tokenKey() {
     return need("EMULY_TOKEN_KEY");
   },
+  /** Current key first. EMULY_TOKEN_KEY_OLD is read only during a rotation. */
+  get tokenKeys(): string[] {
+    const old = process.env.EMULY_TOKEN_KEY_OLD;
+    return old ? [need("EMULY_TOKEN_KEY"), old] : [need("EMULY_TOKEN_KEY")];
+  },
   get dbPath() {
     return process.env.EMULY_DB || ".data/emuly.db";
   },

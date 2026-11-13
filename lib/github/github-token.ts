@@ -3,10 +3,11 @@ import { withLease } from "../data/coordination.ts";
 import { asyncDb } from "../data/async-db.ts";
 import { transaction } from "../data/async-database.ts";
 import type { Client } from "@libsql/client";
-import { open, seal } from "../auth/crypto.ts";
+import { open, seal, contexts } from "../auth/crypto.ts";
 import { exchangeTokens } from "../auth/github-oauth.ts";
 
 type TokenRow = {
+  github_id: number;
   token_cipher: Uint8Array;
   token_expires_at: string | null;
   refresh_cipher: Uint8Array | null;
@@ -16,26 +17,27 @@ type Options = { clock?: () => number; fetch?: typeof fetch };
 
 export function createAccessTokenProvider({ database, encrypt = seal, decrypt = open }: {
   database: Client;
-  encrypt?: (value: string) => Uint8Array;
-  decrypt?: (value: Uint8Array) => string;
+  encrypt?: (value: string, context: string) => Uint8Array;
+  decrypt?: (value: Uint8Array, context: string) => string;
 }) {
   // Register before the first database await so callers share rotated refresh tokens.
   const refreshing = new Map<number, Promise<string>>();
   async function resolve(userId: number, options: Options): Promise<string> {
-    const row = (await database.execute({ sql: `SELECT token_cipher, token_expires_at, refresh_cipher,
+    const row = (await database.execute({ sql: `SELECT github_id, token_cipher, token_expires_at, refresh_cipher,
       refresh_expires_at FROM users WHERE id = ? AND blocked = 0`, args: [userId] })).rows[0] as unknown as TokenRow | undefined;
     if (!row) throw new Error("Sign in again");
     const clock = options.clock ?? Date.now;
     if (row.token_expires_at && Date.parse(row.token_expires_at) > clock() + 5 * 60_000) {
-      return decrypt(row.token_cipher);
+      return decrypt(row.token_cipher, contexts.githubAccess(row.github_id));
     }
     try {
       if (!row.refresh_cipher || !row.refresh_expires_at
         || !(Date.parse(row.refresh_expires_at) > clock())) throw new Error("Refresh expired");
-      const pair = await exchangeTokens({ grant_type: "refresh_token", refresh_token: decrypt(row.refresh_cipher) }, { ...options, clock });
+      const pair = await exchangeTokens({ grant_type: "refresh_token", refresh_token: decrypt(row.refresh_cipher, contexts.githubRefresh(row.github_id)) }, { ...options, clock });
       const result = await transaction(database, queries => queries.execute({ sql: `UPDATE users SET token_cipher = ?, token_expires_at = ?, refresh_cipher = ?,
         refresh_expires_at = ?, token_scopes = ? WHERE id = ? AND blocked = 0 AND refresh_cipher = ?`,
-        args: [encrypt(pair.accessToken), pair.accessExpiresAt, encrypt(pair.refreshToken), pair.refreshExpiresAt, pair.scopes, userId, row.refresh_cipher] }));
+        args: [encrypt(pair.accessToken, contexts.githubAccess(row.github_id)), pair.accessExpiresAt,
+          encrypt(pair.refreshToken, contexts.githubRefresh(row.github_id)), pair.refreshExpiresAt, pair.scopes, userId, row.refresh_cipher] }));
       if (!result.rowsAffected) throw new Error("Sign in again");
       return pair.accessToken;
     } catch {

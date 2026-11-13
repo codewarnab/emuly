@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 import { env } from "../../../lib/env";
 import { asyncDb } from "../../../lib/data/async-db.ts";
-import { seal } from "../../../lib/auth/crypto";
+import { seal, contexts } from "../../../lib/auth/crypto";
 import { createSession } from "../../../lib/auth/session";
 import { cookieName, cookieOptions } from "../../../lib/auth/auth-cookies";
 import { exchangeTokens, githubIdentity, githubGet, SignInError } from "../../../lib/auth/github-oauth";
@@ -47,7 +47,8 @@ export async function GET(request: NextRequest) {
       refresh_expires_at=excluded.refresh_expires_at, token_scopes=excluded.token_scopes,
       last_seen_at=excluded.last_seen_at RETURNING id, blocked`, args: [
       identity.githubId, identity.login, identity.name, identity.avatarUrl,
-      seal(pair.accessToken), pair.accessExpiresAt, seal(pair.refreshToken), pair.refreshExpiresAt,
+      seal(pair.accessToken, contexts.githubAccess(identity.githubId)), pair.accessExpiresAt,
+      seal(pair.refreshToken, contexts.githubRefresh(identity.githubId)), pair.refreshExpiresAt,
       pair.scopes, timestamp, timestamp,
     ] })).rows[0] as unknown as { id: number; blocked: number };
     if (user.blocked) return result(loginFailure("blocked", next));

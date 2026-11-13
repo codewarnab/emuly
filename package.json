@@ -8,7 +8,8 @@
     "start": "node server.mjs --production",
     "lint": "tsc --noEmit",
     "test": "node --expose-gc --conditions=react-server --test --experimental-strip-types \"lib/**/*.test.ts\"",
-    "db:migrate": "node --experimental-strip-types scripts/migrate-database.ts"
+    "db:migrate": "node --experimental-strip-types scripts/migrate-database.ts",
+    "db:rotate-key": "node --experimental-strip-types scripts/rotate-token-key.ts"
   },
   "dependencies": {
     "@grpc/grpc-js": "1.14.3",

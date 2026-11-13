@@ -1,4 +1,5 @@
 import type { Client } from "@libsql/client";
+import { contexts } from "../auth/crypto-core.ts";
 import { transaction } from "../data/async-database.ts";
 import { webhookTarget, signWebhook, sendWebhook, type SendWebhook, type ResolveHost } from "./webhook-security.ts";
 
@@ -7,7 +8,7 @@ const RETRY_MS = [60_000, 300_000, 1_800_000, 7_200_000, 21_600_000];
 const FAILURE_WINDOW = 3 * 86_400_000;
 
 export function createWebhookOutbox({ database, decrypt, baseUrl, resolve, send = sendWebhook, clock = Date.now }: {
-  database: Client; decrypt: (cipher: Uint8Array) => string; baseUrl: string;
+  database: Client; decrypt: (cipher: Uint8Array, context: string) => string; baseUrl: string;
   resolve?: ResolveHost; send?: SendWebhook; clock?: () => number;
 }) {
   let running = false;
@@ -47,7 +48,7 @@ export function createWebhookOutbox({ database, decrypt, baseUrl, resolve, send 
         if (!hook?.enabled || hook.url !== row.url) { canceled = true; return 0; }
         return send(target, row.body, {
           "content-type": "application/json", "emuly-event": row.type, "emuly-delivery": row.id,
-          "emuly-signature": signWebhook(decrypt(new Uint8Array(hook.secret_cipher as ArrayBuffer)), row.body, Math.floor(clock() / 1000)),
+          "emuly-signature": signWebhook(decrypt(new Uint8Array(hook.secret_cipher as ArrayBuffer), contexts.webhookSecret(String(row.webhook_id))), row.body, Math.floor(clock() / 1000)),
         }, signal);
       })()]);
     } catch { /* No provider text or URL enters the log. A missing status means network failure. */ }

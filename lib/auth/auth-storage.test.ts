@@ -1,23 +1,44 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createHash, randomBytes } from "node:crypto";
-import { seal, open } from "./crypto-core.ts";
+import { createCipheriv, createHash, randomBytes } from "node:crypto";
+import { seal, open, contexts, isLegacy } from "./crypto-core.ts";
 import { createClient } from "../data/async-database.ts";
 import { migrateHosted } from "../data/hosted-migrations.ts";
 import { insertSession, readSession, deleteSession } from "./session-store.ts";
 
 test("encryption survives serialization and rejects tampered boxes and wrong keys", () => {
   const key = randomBytes(32).toString("base64");
-  const box = seal("test credential", key);
-  assert.equal(open(new Uint8Array(box), key), "test credential");
-  assert.notDeepEqual(seal("test credential", key), box);
+  const ctx = contexts.githubAccess(5);
+  const box = seal("test credential", key, ctx);
+  assert.equal(box[0], 2);
+  assert.equal(open(new Uint8Array(box), key, ctx), "test credential");
+  assert.notDeepEqual(seal("test credential", key, ctx), box);
   for (const offset of [0, 1, 13, 29]) {
     const changed = Buffer.from(box);
     changed[offset] ^= 1;
-    assert.throws(() => open(changed, key));
+    assert.throws(() => open(changed, key, ctx));
   }
-  assert.throws(() => open(box, randomBytes(32).toString("base64")));
-  assert.throws(() => open(box.subarray(0, 10), key));
+  assert.throws(() => open(box, randomBytes(32).toString("base64"), ctx));
+  assert.throws(() => open(box.subarray(0, 10), key, ctx));
+});
+
+test("a value copied into another row or column does not decrypt", () => {
+  const key = randomBytes(32).toString("base64");
+  const box = seal("user five token", key, contexts.githubAccess(5));
+  assert.throws(() => open(box, key, contexts.githubAccess(9)));
+  assert.throws(() => open(box, key, contexts.githubRefresh(5)));
+  assert.throws(() => open(box, key, ""));
+});
+
+test("legacy version 1 values without a context still decrypt", () => {
+  const key = randomBytes(32).toString("base64");
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", Buffer.from(key, "base64"), iv);
+  const ct = Buffer.concat([cipher.update("old token", "utf8"), cipher.final()]);
+  const legacy = Buffer.concat([Buffer.from([1]), iv, cipher.getAuthTag(), ct]);
+  assert.ok(isLegacy(legacy));
+  assert.equal(open(legacy, key, contexts.githubAccess(9)), "old token");
+  assert.ok(!isLegacy(seal("new", key, "x")));
 });
 
 test("async sessions never persist raw cookies and reject expired or blocked users", async () => {

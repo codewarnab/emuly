@@ -10,7 +10,7 @@ import { insertSession, readSession, deleteSession } from "../auth/session-store
 import { createDiagnostics } from "../diagnostics/diagnostics.ts";
 import { createWebhookService } from "../webhooks/webhooks.ts";
 import { createWebhookOutbox } from "../webhooks/webhook-outbox.ts";
-import { seal, open } from "../auth/crypto-core.ts";
+import { seal, open, contexts } from "../auth/crypto-core.ts";
 import { createPhoneService } from "../phone/phone-mutations.ts";
 import { createGitHubClient, GitHubError, type Codespace } from "../github/github.ts";
 import { createStatePoller } from "../phone/poller.ts";
@@ -83,8 +83,8 @@ for (const hosted of [false, true]) {
       const resolve = async () => [{ address: "93.184.216.34", family: 4 }];
       let sends = 0;
       const deliver = createWebhookOutbox({ database: client, baseUrl, resolve,
-        decrypt: box => open(box, key), send: async () => { sends++; return 204; } });
-      const hooks = createWebhookService({ database: client, baseUrl, resolve, deliver, encrypt: value => seal(value, key) });
+        decrypt: (box, context) => open(box, key, context), send: async () => { sends++; return 204; } });
+      const hooks = createWebhookService({ database: client, baseUrl, resolve, deliver, encrypt: (value, context) => seal(value, key, context) });
       const hook = await hooks.create(1, { url: "https://receiver.example", events: ["phone.ready"] });
       await hooks.emit({ userId: 1, type: "phone.ready", createdAt: new Date().toISOString(), data: { message: "token=private" } });
       assert.equal((await hooks.deliveries(1, hook.id)).length, 1);
@@ -145,7 +145,7 @@ for (const hosted of [false, true]) {
           }
           return Response.json({ codespaces: created ? [created] : [] });
         } });
-      const phones = createPhoneService({ database: client, github, encrypt: value => seal(value, key), clock: () => phoneClock });
+      const phones = createPhoneService({ database: client, github, encrypt: (value, context) => seal(value, key, context), clock: () => phoneClock });
       await assert.rejects(phones.create(2, { repository: "fixture/template", repositoryId: 123, idleTimeoutMin: 30 }));
       await phones.sync(2);
       assert.equal(creates, 1, "reconciliation never resubmits an uncertain POST");
@@ -200,9 +200,9 @@ for (const hosted of [false, true]) {
       try {
         const now = Date.parse("2026-11-08T00:00:00.000Z");
         await client.execute({ sql: "UPDATE users SET token_cipher = ?, token_expires_at = ?, refresh_cipher = ?, refresh_expires_at = ? WHERE id = 2",
-          args: [seal("synthetic-access", key), new Date(now).toISOString(), seal("synthetic-refresh", key), new Date(now + 86_400_000).toISOString()] });
-        const accessToken = createAccessTokenProvider({ database: client, encrypt: value => seal(value, key), decrypt: value => open(value, key) });
-        const secondInstance = createAccessTokenProvider({ database: client, encrypt: value => seal(value, key), decrypt: value => open(value, key) });
+          args: [seal("synthetic-access", key, contexts.githubAccess(2)), new Date(now).toISOString(), seal("synthetic-refresh", key, contexts.githubRefresh(2)), new Date(now + 86_400_000).toISOString()] });
+        const accessToken = createAccessTokenProvider({ database: client, encrypt: (value, context) => seal(value, key, context), decrypt: (value, context) => open(value, key, context) });
+        const secondInstance = createAccessTokenProvider({ database: client, encrypt: (value, context) => seal(value, key, context), decrypt: (value, context) => open(value, key, context) });
         let exchanges = 0;
         const options = { clock: () => now, fetch: async (_url: unknown, init?: RequestInit) => {
           exchanges++;
@@ -214,8 +214,8 @@ for (const hosted of [false, true]) {
           ["synthetic-rotated", "synthetic-rotated", "synthetic-rotated"]);
         assert.equal(exchanges, 1);
         const storedTokens = (await client.execute("SELECT token_cipher, refresh_cipher FROM users WHERE id = 2")).rows[0];
-        assert.equal(open(storedTokens.token_cipher as unknown as Uint8Array, key), "synthetic-rotated");
-        assert.equal(open(storedTokens.refresh_cipher as unknown as Uint8Array, key), "synthetic-next-refresh");
+        assert.equal(open(storedTokens.token_cipher as unknown as Uint8Array, key, contexts.githubAccess(2)), "synthetic-rotated");
+        assert.equal(open(storedTokens.refresh_cipher as unknown as Uint8Array, key, contexts.githubRefresh(2)), "synthetic-next-refresh");
         assert.equal(await accessToken(2, options), "synthetic-rotated");
         assert.equal(exchanges, 1);
         await insertSession(client, 2);

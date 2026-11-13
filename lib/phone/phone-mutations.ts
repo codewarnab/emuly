@@ -4,6 +4,7 @@ import { withLease, independentWork } from "../data/coordination.ts";
 import type { SetupResult } from "./phone-setup.ts";
 import { validIdle } from "../shared/idle.ts";
 import { randomBytes } from "node:crypto";
+import { contexts } from "../auth/crypto-core.ts";
 import { transaction, type DatabaseQueries } from "../data/async-database.ts";
 import { GitHubError, type Codespace, type createGitHubClient } from "../github/github.ts";
 import { assertMutationRate } from "../data/rate-limit.ts";
@@ -39,7 +40,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
   runner?: (userId: number, id: string, path: "/boot" | "/stop", body: Record<string, unknown>) => Promise<Response>;
   disconnect?: (userId: number, id: string, codespaceName: string) => void;
   github: GitHub;
-  encrypt: (value: string) => Uint8Array;
+  encrypt: (value: string, context: string) => Uint8Array;
   clock?: () => number;
   maxPhones?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -581,7 +582,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
           if (count >= maxPhones) throw new PhoneInputError("You reached the local operator's phone safety cap (EMULY_MAX_PHONES).");
         }
         await queries.execute({ sql: `INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state,
-          created_at, runner_secret, idle_timeout_min, retention_min) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, 43200)`, args: [id, userId, `pending:${id}`, input.repository, input.machine ?? "Choosing machine", iso(), encrypt(randomBytes(32).toString("base64url")), input.idleTimeoutMin] });
+          created_at, runner_secret, idle_timeout_min, retention_min) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, 43200)`, args: [id, userId, `pending:${id}`, input.repository, input.machine ?? "Choosing machine", iso(), encrypt(randomBytes(32).toString("base64url"), contexts.runnerSecret(id)), input.idleTimeoutMin] });
         await queries.execute({ sql: `INSERT INTO phone_creations (phone_id, display_name, outcome, requested_at)
           VALUES (?, ?, 'unconfirmed', ?)`, args: [id, id, iso()] });
       });
