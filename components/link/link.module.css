@@ -79,6 +79,9 @@
 
 .foot { margin: 28px 0 0; color: var(--dim); font-size: 13px; }
 .foot strong { color: var(--text); font-weight: 500; }
+.console { margin: 12px 0 0; font-size: 14px; }
+.console a { color: var(--text); font-weight: 500; text-decoration: none; }
+.console a:hover { text-decoration: underline; }
 
 .form { display: flex; gap: 8px; }
 .input {

@@ -226,7 +226,7 @@ test("key commands store the key in the EMULY_KEY user variable and refuse unsaf
   assert.deepEqual(agentKeyCommands(key), {
     save: `setx EMULY_KEY "${key}"`,
     read: "[Environment]::GetEnvironmentVariable('EMULY_KEY','User')",
-    clear: 'setx EMULY_KEY ""',
+    clear: "reg delete HKCU\\Environment /v EMULY_KEY /f",
   });
   assert.throws(() => agentKeyCommands(`${AGENT_KEY_PREFIX}a" & calc`));
 });

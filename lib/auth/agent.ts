@@ -53,6 +53,6 @@ export function agentKeyCommands(key: string) {
   return {
     save: `setx EMULY_KEY "${key}"`,
     read: "[Environment]::GetEnvironmentVariable('EMULY_KEY','User')",
-    clear: 'setx EMULY_KEY ""',
+    clear: "reg delete HKCU\\Environment /v EMULY_KEY /f",
   };
 }

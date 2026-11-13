@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { KeyboardTools } from "@/components/shell/keyboard-tools";
 import { Topbar } from "@/components/shell/topbar";
@@ -53,11 +54,14 @@ function Code({ value }: { value: string }) {
 }
 
 function Footer({ login, createdAt }: { login: string; createdAt: string }) {
-  return <p className={s.foot}>
-    Signed in as <strong>{login}</strong>
-    <span aria-hidden="true"> · </span>
-    <time dateTime={createdAt} title={utcLabel(createdAt)}>Requested {timeAgo(createdAt, Date.now())}</time>
-  </p>;
+  return <>
+    <p className={s.foot}>
+      Signed in as <strong>{login}</strong>
+      <span aria-hidden="true"> · </span>
+      <time dateTime={createdAt} title={utcLabel(createdAt)}>Requested {timeAgo(createdAt, Date.now())}</time>
+    </p>
+    <p className={s.console}><Link href="/app">Go to console <span aria-hidden="true">→</span></Link></p>
+  </>;
 }
 
 const DONE: Record<Exclude<DeviceRequestStatus, "pending">, { eyebrow: string; title: string; message: string }> = {

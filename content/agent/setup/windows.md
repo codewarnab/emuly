@@ -115,4 +115,4 @@ fi
 auth="Authorization: Bearer $key"
 ~~~
 
-Clear a saved key after a **401**: `setx EMULY_KEY ""`.
+Clear a saved key after a **401** (PowerShell or cmd): `reg delete HKCU\Environment /v EMULY_KEY /f`.
