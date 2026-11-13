@@ -594,3 +594,16 @@
 .syncSpin { animation: syncSpin .8s linear infinite; }
 @keyframes syncSpin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .syncSpin { animation: none; } }
+
+.skelSide span { display: block; background: var(--line2); border-radius: 6px; }
+.skelTabs { display: flex; gap: 30px; padding-bottom: 14px; border-bottom: 1px solid var(--line); margin-bottom: 22px; }
+.skelTabs span { height: 18px; }
+.skelLog { display: flex; gap: 40px; margin-bottom: 20px; }
+.skelLog span { height: 16px; }
+.skelLog span:first-child { width: 36px; }
+.skelSpecs { max-width: 420px; margin-top: 44px; padding-top: 30px; border-top: 1px solid var(--line); }
+.skelSpecTitle { width: 130px; height: 18px; margin-bottom: 28px; }
+.skelSpec { display: flex; justify-content: space-between; margin-bottom: 22px; }
+.skelSpec span { height: 16px; width: 70px; }
+.skelSpec span:last-child { width: 50px; }
+.skeletonStage { height: 600px; }
