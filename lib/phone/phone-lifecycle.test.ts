@@ -33,3 +33,13 @@ test("a phone leaves stopping after the stop grace when an external restart repo
   assert.equal(stateFor("Available", null), "booting");
   assert.equal(stateFor("ShuttingDown", now - 60 * 60_000), "stopping");
 });
+
+test("GitHub's Unavailable state keeps the phone booting with a recovery hint", () => {
+  const result = decidePhoneTransition({
+    previous: { state: "booting", last_started_at: null, last_stopped_at: null, retention_at: null } as never,
+    codespace: { state: "Unavailable" } as never, androidState: "idle", setupAvailable: true,
+    stopRequestedAt: null, now: Date.parse("2026-11-13T00:00:00Z"),
+  });
+  assert.equal(result.state, "booting");
+  assert.match(result.detail ?? "", /Unavailable.*Stop, then Start/);
+});

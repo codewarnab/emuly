@@ -36,6 +36,7 @@ export function decidePhoneTransition({ previous, codespace, androidState, setup
   const detail = state === "running" ? null : codespace.state === "Available"
     ? (setupFailure ?? (setupAvailable ? "Installing Android and starting the runner. The first setup takes several minutes."
       : "Codespace available. Phone setup is not connected yet."))
+    : codespace.state === "Unavailable" ? "GitHub reports the codespace as Unavailable. This is usually short. If it stays for 5 minutes, choose Stop, then Start."
     : state === "error" ? `GitHub reports ${codespace.state}. Check the codespace on GitHub.` : null;
   return { state, detail, lastStarted, lastStopped, retention };
 }
@@ -78,6 +79,8 @@ function phoneState(state: string) {
   // the codespace as stopped, while it saves the disk. Trust the API: stay "stopping" until
   // it reports Shutdown. A long "stopping" is not a poller fault.
   if (state === "ShuttingDown") return "stopping";
-  if (["Available", "Starting", "Creating", "Provisioning", "Rebuilding", "Queued", "Awaiting"].includes(state)) return "booting";
+  // Unavailable is GitHub's short host problem while it creates or resumes a codespace. It
+  // clears on its own or after a new start request, so it is not a phone error.
+  if (["Available", "Starting", "Creating", "Provisioning", "Rebuilding", "Queued", "Awaiting", "Unavailable"].includes(state)) return "booting";
   return "error";
 }
