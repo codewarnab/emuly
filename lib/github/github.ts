@@ -132,7 +132,7 @@ export function createGitHubClient({ database, accessToken, fetch: fetcher = fet
         const response = await request(userId, `/user/codespaces?per_page=100&page=${page}`);
         const data = await response.json();
         if (!Array.isArray(data.codespaces)) throw new Error("Invalid GitHub codespaces response");
-        // GitHub generates identifiers without our prefix. See docs/SPIKE-RESULTS.md.
+        // GitHub generates identifiers without our prefix.
         for (const item of data.codespaces) {
           if (names.has(item.name) || displays.has(item.display_name)) result.push(validateCodespace(item));
         }
