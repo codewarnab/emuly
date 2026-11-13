@@ -6,8 +6,8 @@ T3 Code shows Android only when it finds an Android SDK: `adb`, `emulator` and
 `avdmanager`. An Emuly phone runs in a codespace, so the user has no SDK. Until T3 Code
 supports adb on its own, you add 3 small helper files that make T3 Code find one.
 
-This file covers Linux only. On Windows or macOS, say in one line that this is not
-supported yet, and keep the browser link.
+This file covers Linux. On Windows, read `references/t3code-windows.md`. On macOS, say in
+one line that this is not supported yet, and keep the browser link.
 
 ## 1. Check that this is the right machine
 

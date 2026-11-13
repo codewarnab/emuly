@@ -89,6 +89,7 @@ Topics (paths relative to this file):
 - `references/remote.md`: you run on a remote machine (SSH or Tailscale); links, scrcpy and
   screenshots for a user at another computer.
 - `references/t3code.md`: show an Emuly phone in T3 Code (Linux).
+- `references/t3code-windows.md`: show an Emuly phone in T3 Code (Windows).
 
 Commands for one OS (pick yours; adapt the closest one if none matches):
 
