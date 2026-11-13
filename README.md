@@ -21,19 +21,6 @@ such as the GitHub sign-in. You can also watch and touch the phone in the browse
 Only deleting the codespace erases the phone. Each phone uses one codespace, so more
 phones share the same monthly hours.
 
-## Status
-
-Emuly is in early development. The control plane, console and API work. Tests use fake
-GitHub responses and fake clocks, so some real-account behavior is not verified yet.
-
-| Area | State |
-|---|---|
-| Landing page, GitHub sign-in, sessions | done |
-| Console: dashboard, phone page, ⌘K menu, light and dark themes | done |
-| Codespaces: create, start, stop, many phones, hours budget, retention | done |
-| Webhooks with signed deliveries | done ([docs](docs/WEBHOOKS.md)) |
-| Runner boot, snapshot save, screen stream | in progress |
-
 ## Run it locally
 
 You need Node 26 and pnpm.
