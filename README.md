@@ -27,7 +27,7 @@ You need Node 26 and pnpm.
 
 ```sh
 pnpm install
-cp .env.example .env.local   # fill in the values (see below)
+cp .env.example .env.local   # set the OAuth client and EMULY_TOKEN_KEY
 pnpm db:migrate              # apply the database schema
 pnpm dev                     # http://localhost:4321
 ```
@@ -38,23 +38,6 @@ pnpm dev                     # http://localhost:4321
 2. Set the callback URL to `http://localhost:4321/auth/callback`.
 3. Turn on expiring user tokens. Keep the device flow off.
 4. Copy the client ID and a new client secret into `.env.local`.
-
-### Environment keys
-
-| Key | Required | What |
-|---|---|---|
-| `EMULY_BASE_URL` | yes | `http://localhost:4321`. Use `localhost`, not `127.0.0.1`, or the OAuth state cookie is lost. |
-| `EMULY_GITHUB_CLIENT_ID` / `EMULY_GITHUB_CLIENT_SECRET` | yes | Your GitHub OAuth App. |
-| `EMULY_TOKEN_KEY` | yes | 32 random bytes, base64 (`openssl rand -base64 32`). Encrypts tokens at rest. |
-| `EMULY_TOKEN_KEY_OLD` | no | The previous key during a key rotation. See [Key rotation](#key-rotation). |
-| `EMULY_DB` | no | Local SQLite path. Default `.data/emuly.db`. |
-| `EMULY_DATABASE_URL` / `EMULY_DATABASE_AUTH_TOKEN` | no | A hosted libSQL (Turso) database instead of the local file. |
-| `EMULY_MAX_TUNNELS` | no | Relay guard, for example `6`. |
-| `EMULY_MAX_PHONES` | no | Safety cap on phones across all users. Unset means no Emuly cap. |
-| `EMULY_TEMPLATE_REPO` | no | Use your fork as the phone template, for example `you/emuly`. Default `codewarnab/emuly`. |
-| `EMULY_TEMPLATE_REPOSITORY_ID` | with `EMULY_TEMPLATE_REPO` | The numeric GitHub ID of that repository. Do not use a repository in the `github` org: it blocks OAuth apps. |
-| `EMULY_DEVCONTAINER_PATH` | no | A different devcontainer file in the template repository. |
-| `EMULY_DIAGNOSTICS` | no | Startup diagnostics. See [docs](docs/startup-diagnostics.md). |
 
 ### Checks
 
