@@ -8,6 +8,7 @@ const display = Sora({ subsets: ["latin"], variable: "--font-display", display: 
 const themeScript = `(function(){try{var q=matchMedia("(prefers-color-scheme: dark)");function apply(){var p=localStorage.getItem("emuly-theme");document.documentElement.dataset.theme=p==="light"||p==="dark"?p:q.matches?"dark":"light"}apply();q.addEventListener("change",apply);addEventListener("storage",apply)}catch(e){}})()`;
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://emuly.vercel.app"),
   title: "Emuly — a free Android emulator in the cloud",
   description:
     "Run an Android emulator in the cloud, for free. Use your included GitHub Codespaces hours with one prompt.",
