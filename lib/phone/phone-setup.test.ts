@@ -91,13 +91,17 @@ test("the quick check skips SSH only for a runner with this server's scripts", (
         return Response.json(body);
       };
       const current = { ok: true, version: 10, scripts: scriptsVersion() };
+      const late = body => { let asks = 0; return async (url, init) => ++asks < 3 ? new Response("", { status: 502 }) : reply(body)(url, init); };
       process.stdout.write(JSON.stringify([
-        await setup.quickCheck(1, "space-a", reply(current)),
-        await setup.quickCheck(1, "space-a", reply({ ...current, scripts: "0000000000000000" })),
-        await setup.quickCheck(1, "space-a", reply({ ok: true, version: 10 })),
-        await setup.quickCheck(1, "space-a", async () => { throw new Error("offline"); }),
-        await setup.quickCheck(1, "bad name/..", reply(current)),
+        await setup.quickCheck(1, "space-a", 0, reply(current)),
+        await setup.quickCheck(1, "space-a", 0, reply({ ...current, scripts: "0000000000000000" })),
+        await setup.quickCheck(1, "space-a", 0, reply({ ok: true, version: 10 })),
+        await setup.quickCheck(1, "space-a", 0, async () => { throw new Error("offline"); }),
+        await setup.quickCheck(1, "bad name/..", 0, reply(current)),
+        // A wake asks again until the autostarted runner answers; a create asks once.
+        await setup.quickCheck(1, "space-a", 20_000, late(current), async () => {}),
+        await setup.quickCheck(1, "space-a", 0, late(current), async () => {}),
       ]));
     `, pathToFileURL(resolve("lib/phone/phone-setup.ts")).href], { encoding: "utf8", timeout: 10_000 });
-  assert.deepEqual(JSON.parse(result), [true, false, false, false, false]);
+  assert.deepEqual(JSON.parse(result), [true, false, false, false, false, true, false]);
 });

@@ -26,6 +26,8 @@ export function scriptsVersion(root = join(process.cwd(), "phone")) {
   return hash.digest("hex").slice(0, 16);
 }
 
+const QUICK_CHECK_PAUSE_MS = 2_000;
+
 export class PhoneSetupError extends Error {}
 export type SetupStatus = "ready" | "working";
 export type SetupResult = { state: SetupStatus | "failed"; cursor: number; progress: Step[]; freshness: "observed" | "unavailable" };
@@ -141,8 +143,19 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
    * Asks the runner directly through GitHub's port forward, without SSH. True when a runner
    * that autostart.sh started already answers with this server's scripts.
    */
-  async function quickCheck(userId: number, codespaceName: string, fetcher: typeof fetch = fetch) {
+  async function quickCheck(userId: number, codespaceName: string, waitMs = 0, fetcher: typeof fetch = fetch,
+    pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))) {
     if (!/^[\w-]{1,100}$/.test(codespaceName)) return false;
+    // On a wake, autostart.sh starts the runner a few seconds after the codespace is Available.
+    // Ask again for waitMs before setup falls back to SSH (measured 2026-11-14: one early ask missed it).
+    const until = Date.now() + waitMs;
+    for (;;) {
+      if (await askHealth(userId, codespaceName, fetcher)) return true;
+      if (Date.now() + QUICK_CHECK_PAUSE_MS > until) return false;
+      await pause(QUICK_CHECK_PAUSE_MS);
+    }
+  }
+  async function askHealth(userId: number, codespaceName: string, fetcher: typeof fetch) {
     try {
       const secret = await token(userId);
       const response = await fetcher(`https://${codespaceName}-8790.app.github.dev/health`, { headers: { "X-Github-Token": secret },

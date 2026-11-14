@@ -35,6 +35,8 @@ export const START_WATCH_DEADLINE_MS = 15 * 60_000;
 export const USER_LOCK_WAIT_MS = 20_000;
 /** Each runner /stop call answers within 80 s, so three calls cover stop.sh's 120 s qemu wait. */
 const STOP_ATTEMPTS = 3;
+/** How long a wake asks the autostarted runner before setup falls back to SSH. */
+const WAKE_CHECK_MS = 20_000;
 
 export function createPhoneService({ database, github, encrypt, clock = Date.now, maxPhones, setup, collectProgress, runner, dispatchBoot, disconnect, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), emit = (event, queries = database) => emitEvent(event, queries) }: {
   database: Client;
@@ -42,7 +44,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
   /** Starts or checks phone setup. "working" means: ask again later. */
   setup?: ((userId: number, codespaceName: string) => Promise<"ready" | "working" | SetupResult>) & {
     /** True when the runner already answers with current scripts, so setup over SSH can be skipped. */
-    quickCheck?: (userId: number, codespaceName: string) => Promise<boolean>;
+    quickCheck?: (userId: number, codespaceName: string, waitMs?: number) => Promise<boolean>;
   };
   collectProgress?: (userId: number, codespaceName: string) => Promise<void>;
   runner?: (userId: number, id: string, path: "/boot" | "/stop" | "/health", body?: Record<string, unknown>) => Promise<Response>;
@@ -178,9 +180,12 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
     try {
       const operationId = await diagnostics.current(userId, id);
       const attemptId = newDiagnosticId();
+      // A phone that was stopped before had a finished setup, so autostart.sh starts its runner.
+      let wake = false;
       const attempt = await transaction(database, async queries => {
         const current = await phone(userId, id, queries);
         if (current.state !== "booting" || current.codespace_name !== codespaceName) return;
+        wake = current.last_stopped_at !== null;
         const saved = (await queries.execute({ sql: "SELECT attempt, retry_at, failed FROM phone_setup_attempts WHERE phone_id = ?", args: [id] })).rows[0];
         if (!chained && Math.max(Number(saved?.retry_at ?? 0), setupRetryAt.get(id) ?? 0) > clock()) return;
         const next = Number(saved?.attempt ?? 0) + 1;
@@ -199,7 +204,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
       try {
         status = await diagnostics.scope(operationId, () => measure("setup_check", async () => {
           // A runner that autostart.sh started answers without SSH; skip the SSH connect.
-          if (await setup.quickCheck?.(userId, codespaceName)) return "ready";
+          if (await setup.quickCheck?.(userId, codespaceName, wake ? WAKE_CHECK_MS : 0)) return "ready";
           const result = await setup(userId, codespaceName);
           const state = typeof result === "string" ? result : result.state;
           if (state === "failed") throw new Error("Phone setup failed.");
