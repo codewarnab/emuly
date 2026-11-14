@@ -21,6 +21,13 @@ const controlIcons = {
   screenshot: <><path d="m8 5 1-2h6l1 2h4v15H4V5z" /><circle cx="12" cy="12" r="4" /></>,
 };
 
+type DesktopOs = "windows" | "mac" | "linux";
+const osLogos: Record<DesktopOs, { label: string; icon: React.ReactNode }> = {
+  windows: { label: "Windows", icon: <path d="M3 5.5 10.5 4.5v7H3zM11.5 4.4 21 3v8.5h-9.5zM3 12.5h7.5v7L3 18.5zM11.5 12.5H21V21l-9.5-1.4z" /> },
+  mac: { label: "macOS", icon: <><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5a4.3 4.3 0 0 0-3.4-1.8c-1.4-.1-2.8.9-3.5.9s-1.9-.8-3.1-.8A4.6 4.6 0 0 0 4.5 9.8c-1.7 2.9-.4 7.2 1.2 9.6.8 1.2 1.7 2.5 3 2.4 1.2 0 1.6-.8 3.1-.8s1.8.8 3.1.8 2.1-1.2 2.9-2.4a10 10 0 0 0 1.3-2.7 4.1 4.1 0 0 1-2.7-4.1z" /><path d="M14.1 5.6A4 4 0 0 0 15 2.7a4.1 4.1 0 0 0-2.7 1.4 3.8 3.8 0 0 0-1 2.8 3.4 3.4 0 0 0 2.8-1.3z" /></> },
+  linux: { label: "Linux", icon: <><path d="M12 2c-2.2 0-3.6 1.8-3.6 4.4 0 1.3-.3 2.2-1.2 3.4C5.8 11.6 5 13.6 5 15.6c0 .7.1 1.3.3 1.9-.8.4-1.8.9-1.8 1.7 0 1.2 2.4 1.3 3.3 2.2.7.7 1.4.8 2.2.4.6-.3 1.6-.4 3-.4s2.4.1 3 .4c.8.4 1.5.3 2.2-.4.9-.9 3.3-1 3.3-2.2 0-.8-1-1.3-1.8-1.7.2-.6.3-1.2.3-1.9 0-2-.8-4-2.2-5.8-.9-1.2-1.2-2.1-1.2-3.4C15.6 3.8 14.2 2 12 2z" /><circle cx="10.5" cy="6.5" r=".9" fill="var(--panel2)" /><circle cx="13.5" cy="6.5" r=".9" fill="var(--panel2)" /><path d="M10.8 8.3h2.4L12 9.6z" fill="#e8a33d" /></> },
+};
+
 function ControlIcon({ name }: { name: keyof typeof controlIcons }) {
   return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"
     strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{controlIcons[name]}</svg>;
@@ -38,8 +45,8 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
   const [clipboardPending, setClipboardPending] = useState(false);
   const [clipboardEmpty, setClipboardEmpty] = useState(false);
   const [desktopOpen, setDesktopOpen] = useState(false);
-  const [desktopOs, setDesktopOs] = useState<"windows" | "unix">("windows");
-  useEffect(() => { if (!/Win/i.test(navigator.userAgent)) setDesktopOs("unix"); }, []);
+  const [desktopOs, setDesktopOs] = useState<DesktopOs>("windows");
+  useEffect(() => { const agent = navigator.userAgent; setDesktopOs(/Win/i.test(agent) ? "windows" : /Mac/i.test(agent) ? "mac" : "linux"); }, []);
   const desktopCommand = desktopOs === "windows"
     ? `irm https://emuly.vercel.app/open/${id}.ps1 | iex`
     : `curl -fsSL https://emuly.vercel.app/open/${id}.sh | sh`;
@@ -323,14 +330,15 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
         </button>
         {desktopOpen && <div className={`${s.clipboardPanel} ${s.desktopPanel}`} role="dialog" aria-label="Open on your computer">
           <div className={s.clipboardHead}>
-            <span>Open in scrcpy on your computer</span>
+            <span>Open in its own window</span>
             <button type="button" className={s.clipboardClose} aria-label="Close" onClick={() => setDesktopOpen(false)}>×</button>
           </div>
+          <p className={s.clipboardHint}>Sharper video and lower delay than the browser, in a scrcpy window. Your keyboard and clipboard work as normal.</p>
           <div className={s.osTabs} role="tablist" aria-label="Your system">
-            {(["windows", "unix"] as const).map(os => <button key={os} type="button" role="tab" aria-selected={desktopOs === os}
-              className={s.osTab} onClick={() => setDesktopOs(os)}>{os === "windows" ? "Windows" : "macOS / Linux"}</button>)}
+            {(Object.keys(osLogos) as DesktopOs[]).map(os => <button key={os} type="button" role="tab" aria-selected={desktopOs === os}
+              aria-label={osLogos[os].label} title={osLogos[os].label} className={s.osTab} onClick={() => setDesktopOs(os)}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">{osLogos[os].icon}</svg></button>)}
           </div>
-          <p className={s.clipboardHint}>Paste this line in {desktopOs === "windows" ? "PowerShell" : "a terminal"}. It opens this phone in a scrcpy window.</p>
           <div className={s.command}>
             <code>{desktopCommand}</code>
             <button type="button" className={s.commandCopy} aria-label="Copy command"
