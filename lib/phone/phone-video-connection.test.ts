@@ -34,6 +34,7 @@ function browser(t: TestContext, supported = true) {
     automatic = true;
     callbacks: { output: (frame: VideoFrame) => void; error: () => void };
     constructor(callbacks: Decoder["callbacks"]) { this.callbacks = callbacks; decoders.push(this); }
+    static async isConfigSupported() { return { supported: true }; }
     configure() { this.state = "configured"; }
     decode(chunk: { timestamp: number }) { if (this.automatic) this.output(chunk.timestamp); }
     output(timestamp: number) {
@@ -261,4 +262,28 @@ test("screenshot fallback reports presence without sockets and stops after dispo
   session.reportFallback(); b.document.dispatchEvent(new Event("visibilitychange"));
   t.mock.timers.tick(15 * 60000); await setImmediate();
   assert.equal(b.requests.length, after);
+});
+
+test("two decoder failures switch to the screenshot view instead of retrying for ever", async t => {
+  const b = browser(t), session = b.start(); await setImmediate();
+  b.decoders[0].callbacks.error();
+  assert.equal(b.states.at(-1), "retrying");
+  t.mock.timers.tick(1000); await setImmediate();
+  assert.equal(b.sockets.length, 2);
+  b.decoders[1].callbacks.error();
+  assert.equal(b.states.at(-1), "fallback");
+  t.mock.timers.tick(60000); await setImmediate();
+  assert.equal(b.sockets.length, 2, "no new scrcpy stream after the fallback");
+  session.dispose();
+});
+
+for (const status of [401, 403, 404]) test(`a ${status} ticket response stops without retrying`, async t => {
+  const b = browser(t);
+  b.fail(status, { error: "denied" });
+  const session = b.start(); await setImmediate();
+  assert.equal(b.states.at(-1), "stopped");
+  t.mock.timers.tick(60000); await setImmediate();
+  assert.equal(b.sockets.length, 0);
+  assert.equal(b.requests.length, 1);
+  session.dispose();
 });

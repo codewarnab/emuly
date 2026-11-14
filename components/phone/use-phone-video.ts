@@ -19,7 +19,7 @@ export function usePhoneVideo(id: string, live: boolean, quality: string, canvas
     if (!live) { setActive(false); setStopped(false); return; }
     const session = createPhoneVideoConnection({
       id, quality: quality === "auto" && saver ? "saver" : quality,
-      onState: state => { setActive(state === "streaming"); setStopped(state === "stopped"); },
+      onState: state => { if (state === "fallback") setSupported(false); setActive(state === "streaming"); setStopped(state === "stopped"); },
       onStats: setStats,
       onCapabilities: setCapabilities,
       onClipboard: setClipboard,

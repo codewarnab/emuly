@@ -39,6 +39,10 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
   const { id, quality, onState, onFrame, onStats, onSaver, onCapabilities, onClipboard } = options;
   let state: VideoConnectionState = "suspended";
   let socket: WebSocket | null = null;
+  // The browser cannot decode this H.264 stream. Each retry starts a new scrcpy on the runner,
+  // so after DECODE_LIMIT failures use the screenshot view instead.
+  let decodeFailures = 0;
+  const DECODE_LIMIT = 2;
   let retry = 0, timer: ReturnType<typeof setTimeout> | undefined, decoder: VideoDecoder | undefined;
   const transition = (next: VideoConnectionState) => {
     if (state === "disposed" || state === next) return;
@@ -76,6 +80,10 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
     if (state === "disposed" || document.hidden) return;
     transition("retrying");
     timer = setTimeout(connect, retryDelays[Math.min(retry++, 2)]);
+  }
+  function decodeFailed() {
+    if (++decodeFailures < DECODE_LIMIT) { socket?.close(); return; }
+    stop(); transition("fallback");
   }
   function send(input: Record<string, unknown>) {
     if (state !== "streaming" || socket?.readyState !== WebSocket.OPEN) return false;
@@ -173,7 +181,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
             }
             delay = calibrated ? Math.max(0, Date.now() + offset - timing.sent) : 0;
             clearTimeout(resumeTimer);
-            transition("streaming"); retry = 0; frames++;
+            transition("streaming"); retry = 0; decodeFailures = 0; frames++;
             const now = performance.now();
             if (now - tick >= 1000) {
               onStats({ fps: Math.round(frames * 1000 / (now - tick)), delay: Math.round(delay) });
@@ -182,7 +190,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
             }
           } finally { frame.close(); }
         },
-        error() { if (!current(ws, attempt)) return; report?.("reconnect", "decoder_failed"); ws.close(); },
+        error() { if (!current(ws, attempt)) return; report?.("reconnect", "decoder_failed"); decodeFailed(); },
       });
       ws.onopen = () => {
         if (!current(ws, attempt)) return;
@@ -209,7 +217,11 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
           lastVideo = Date.now();
           if (packet.config) {
             config = new Uint8Array(packet.data);
-            decoder!.configure({ codec: avcCodec(config), optimizeForLatency: true });
+            const decoderConfig = { codec: avcCodec(config), optimizeForLatency: true };
+            void VideoDecoder.isConfigSupported(decoderConfig).then(result => {
+              if (!result.supported && current(ws, attempt)) { report?.("reconnect", "decoder_failed"); decodeFailures = DECODE_LIMIT - 1; decodeFailed(); }
+            }, () => {});
+            try { decoder!.configure(decoderConfig); } catch { decodeFailed(); return; }
             needKey = true; return;
           }
           if (decoder!.state !== "configured" || (needKey && !packet.key)) return;
