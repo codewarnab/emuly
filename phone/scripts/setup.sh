@@ -59,12 +59,22 @@ export ANDROID_HOME="$SDK_DIR"
 export PATH="$SDK_DIR/cmdline-tools/latest/bin:$SDK_DIR/platform-tools:$SDK_DIR/emulator:$PATH"
 
 # --- 4. Licenses + minimal packages for a headless emulator ---
-yes | sdkmanager --licenses >/dev/null 2>&1 || true
-# Keep dependency resolution together until isolated comparison verifies splitting is equivalent.
+# Each sdkmanager call starts a JVM (2-7 s on a wake, more while the emulator boots).
+# A stamp records the last good install; skip the calls while it still matches.
+SDK_STAMP="$SDK_DIR/.emuly-sdk-ok"
+SDK_WANT="$IMAGE|platform-tools|emulator|build-tools;36.0.0"
 ph_begin sdk_packages
-sdkmanager --install "platform-tools" "emulator" "build-tools;36.0.0" "$IMAGE" > /dev/null 2>&1 \
-  || sdkmanager "platform-tools" "emulator" "build-tools;36.0.0" "$IMAGE" > /dev/null
-ph_end
+if [ "$(cat "$SDK_STAMP" 2>/dev/null)" = "$SDK_WANT" ] && [ -x "$SDK_DIR/emulator/emulator" ] \
+  && [ -x "$SDK_DIR/platform-tools/adb" ] && [ -d "$SDK_DIR/system-images/android-36/google_apis/x86_64" ]; then
+  ph_end succeeded none already_present
+else
+  yes | sdkmanager --licenses >/dev/null 2>&1 || true
+  # Keep dependency resolution together until isolated comparison verifies splitting is equivalent.
+  sdkmanager --install "platform-tools" "emulator" "build-tools;36.0.0" "$IMAGE" > /dev/null 2>&1 \
+    || sdkmanager "platform-tools" "emulator" "build-tools;36.0.0" "$IMAGE" > /dev/null
+  printf '%s' "$SDK_WANT" > "$SDK_STAMP"
+  ph_end succeeded none installed
+fi
 echo "SDK: $IMAGE at $SDK_DIR"
 
 # --- 4b. Android CLI (installed for interactive use; boot.sh does not use it) ---
@@ -85,7 +95,8 @@ printf -- '--sdk=%s\n--no-metrics\n' "$SDK_DIR" > "$HOME/.androidrc"
 # --- 5. AVD (skip if it already exists) ---
 ph_begin avd
 disposition=already_present
-if ! avdmanager list avd 2>/dev/null | grep -q "Path:.*${AVD_NAME}.avd"; then
+# A config.ini check avoids a 2 s avdmanager JVM start on every wake.
+if [ ! -f "$HOME/.android/avd/${AVD_NAME}.avd/config.ini" ] && ! avdmanager list avd 2>/dev/null | grep -q "Path:.*${AVD_NAME}.avd"; then
   disposition=installed
   echo no | avdmanager create avd -n "$AVD_NAME" -k "$IMAGE"
   echo "AVD: created $AVD_NAME ($IMAGE)"

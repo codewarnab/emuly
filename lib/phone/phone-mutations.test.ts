@@ -753,6 +753,7 @@ test("setup boots Android once, persists failures until Retry boot, and records 
   let boots = 0;
   const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
     setup: async () => "ready", runner: async (_user, _id, path, body) => {
+      if (path === "/health") return Response.json({ booted: false });
       assert.equal(path, "/boot");
       assert.deepEqual(body, {});
       boots++;
@@ -784,6 +785,50 @@ test("setup boots Android once, persists failures until Retry boot, and records 
     assert.ok(runnerReady >= 0 && runnerReady < messages.indexOf("Android starting"));
     assert.ok(messages.some(message => /^Android ready \(took \d+ s\)$/.test(String(message))));
   } finally { boot.resolve(Response.json({ booted: false })); await flush(); await f.close(); }
+});
+
+test("a broken /boot call still records ready when /health shows Android booted", async () => {
+  const f = fixture(async () => Response.json({ codespaces: [space("generated-phone-aaaa", "Available")] }));
+  const paths: string[] = [];
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
+    setup: async () => "ready", runner: async (_user, _id, path) => {
+      paths.push(path);
+      if (path === "/boot") throw new Error("Phone connection failed (/boot). Try again.");
+      return Response.json({ booted: true });
+    } });
+  const android = () => f.database.prepare("SELECT android_state, android_error FROM phones WHERE id = 'phone-aaaa'").get()!;
+  const quiet = console.error;
+  console.error = () => {};
+  try {
+    f.add("phone-aaaa");
+    await service.sync(1);
+    for (let i = 0; i < 50 && android().android_state !== "ready"; i++) await flush();
+    assert.deepEqual(paths, ["/boot", "/health"]);
+    assert.equal(android().android_state, "ready");
+    assert.equal(android().android_error, null);
+  } finally { console.error = quiet; await f.close(); }
+});
+
+test("a broken /boot call keeps booting while the runner answers, so the next sync joins the boot", async () => {
+  const f = fixture(async () => Response.json({ codespaces: [space("generated-phone-aaaa", "Available")] }));
+  let boots = 0;
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
+    setup: async () => "ready", runner: async (_user, _id, path) => {
+      if (path === "/boot") { boots++; throw new Error("Phone connection failed (/boot). Try again."); }
+      return Response.json({ booted: false });
+    } });
+  const android = () => f.database.prepare("SELECT android_state, android_error FROM phones WHERE id = 'phone-aaaa'").get()!;
+  const quiet = [console.error, console.warn];
+  console.error = console.warn = () => {};
+  try {
+    f.add("phone-aaaa");
+    await service.sync(1);
+    for (let i = 0; i < 50 && !boots; i++) await flush();
+    for (let i = 0; i < 20; i++) await flush();
+    assert.equal(boots, 1);
+    assert.equal(android().android_state, "booting");
+    assert.equal(android().android_error, null);
+  } finally { [console.error, console.warn] = quiet; await f.close(); }
 });
 
 test("Stop waits for the runner before stopping GitHub and ignores a late boot completion", async () => {

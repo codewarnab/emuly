@@ -15,6 +15,8 @@ function nextSequence(operationId: string) {
   sequences.set(operationId, value);
   return value;
 }
+/** Vercel stops a function after 300 s; a record untouched for longer has no live writer. */
+export const ABANDONED_AFTER_MS = 6 * 60_000;
 export const diagnosticHealth = { writeFailures: 0, invalidRecords: 0, droppedRecords: 0, collectorFailures: 0 };
 const release = () => /^[a-f0-9]{7,40}$/.test(process.env.EMULY_RELEASE ?? "") ? process.env.EMULY_RELEASE! : "unknown";
 export type Diagnostics = ReturnType<typeof createDiagnostics>;
@@ -100,7 +102,13 @@ function diagnosticQueries(database: DatabaseQueries, starts: Map<string, number
   }
   async function reconcile() {
     if (!allowed()) return;
-    const abandoned = (await database.execute({ sql: "SELECT id, kind, phone_id FROM diagnostic_operations WHERE observer_id != ? AND outcome = 'running' LIMIT 100", args: [observer] })).rows;
+    // On Vercel many instances run at once, each with its own observer id. Another observer's
+    // record is abandoned only when no function could still be writing it: older than the
+    // longest function run, with no step observed since.
+    const cutoff = new Date(Date.now() - ABANDONED_AFTER_MS).toISOString();
+    const abandoned = (await database.execute({ sql: `SELECT o.id, o.kind, o.phone_id FROM diagnostic_operations o
+      WHERE o.observer_id != ? AND o.outcome = 'running' AND o.started_at < ?
+      AND NOT EXISTS (SELECT 1 FROM diagnostic_steps s WHERE s.operation_id = o.id AND s.observed_at >= ?) LIMIT 100`, args: [observer, cutoff, cutoff] })).rows;
     for (const row of abandoned) {
       if (!allowed(String(row.phone_id))) continue;
       await store.mark(String(row.id), "observer_restart", { outcome: "unknown", errorCode: "coverage_missing", quality: "missing" });
@@ -115,7 +123,7 @@ function diagnosticQueries(database: DatabaseQueries, starts: Map<string, number
       }
     }
     const rows = (await database.execute({ sql: `SELECT s.operation_id, s.record FROM diagnostic_steps s JOIN diagnostic_operations o ON o.id = s.operation_id
-      WHERE s.producer = 'server' AND s.producer_run_id != ? AND s.outcome = 'running' AND o.outcome = 'running' LIMIT 500`, args: [observer] })).rows;
+      WHERE s.producer = 'server' AND s.producer_run_id != ? AND s.outcome = 'running' AND o.outcome = 'running' AND s.observed_at < ? LIMIT 500`, args: [observer, cutoff] })).rows;
     for (const row of rows) {
       const r = validateStep(JSON.parse(String(row.record)));
       if (r) {

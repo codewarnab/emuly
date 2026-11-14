@@ -2,7 +2,7 @@ import { retentionExpiry } from "../data/retention.ts";
 
 /** Snapshot needed to reconcile provider state; contains no persistence handles. */
 type LifecyclePhone = {
-  state: string; last_started_at: string | null; last_stopped_at: string | null;
+  state: string; state_detail?: string | null; last_started_at: string | null; last_stopped_at: string | null;
   retention_at: string | null; retention_min: number;
 };
 type ProviderObservation = {
@@ -12,6 +12,10 @@ type ProviderObservation = {
 
 /** How long after a stop request GitHub may still report a starting codespace. */
 export const STOP_GRACE_MS = 180_000;
+/** How long after a start request GitHub may still report a stopped codespace. */
+export const START_GRACE_MS = 120_000;
+/** Set by an Emuly start; only such a start may keep "booting" while GitHub still says Shutdown. */
+export const START_PENDING_DETAIL = "GitHub is starting the codespace.";
 
 /** Decide persisted phone state from a provider observation at the supplied time.
  * The service retains responsibility for guards, writes, diagnostics and remote work.
@@ -26,14 +30,18 @@ export function decidePhoneTransition({ previous, codespace, androidState, setup
   // codespace means someone restarted it outside Emuly, so resume the normal setup path.
   const stillStopping = previous.state === "stopping" && (mapped === "stopping"
     || (mapped === "booting" && stopRequestedAt !== null && now - stopRequestedAt < STOP_GRACE_MS));
+  // GitHub answers a start before it leaves Shutdown. Keep showing the start until it moves.
+  const startPending = previous.state === "booting" && mapped === "stopped" && previous.state_detail === START_PENDING_DETAIL
+    && previous.last_started_at !== null
+    && now - Date.parse(previous.last_started_at) < START_GRACE_MS;
   const state = codespace.state === "Available" && previous.state === "running" && !needsSetup ? "running"
-    : stillStopping ? "stopping" : mapped;
+    : stillStopping ? "stopping" : startPending ? "booting" : mapped;
   const started = ["Available", "Starting"].includes(codespace.state);
   const lastStarted = started && ["stopped", "error"].includes(previous.state) ? new Date(now).toISOString() : previous.last_started_at;
   const lastStopped = state === "stopped" && previous.state !== "stopped" ? new Date(now).toISOString() : previous.last_stopped_at;
   const retention = state === "stopped" ? retentionExpiry({ ...previous, last_stopped_at: lastStopped,
     retention_at: codespace.retention_expires_at ?? (previous.state === "stopped" ? previous.retention_at : null) }) : null;
-  const detail = state === "running" ? null : codespace.state === "Available"
+  const detail = startPending ? START_PENDING_DETAIL : state === "running" ? null : codespace.state === "Available"
     ? (setupFailure ?? (setupAvailable ? "Installing Android and starting the runner. The first setup takes several minutes."
       : "Codespace available. Phone setup is not connected yet."))
     : codespace.state === "Unavailable" ? "GitHub reports the codespace as Unavailable. This is usually short. If it stays for 5 minutes, choose Stop, then Start."

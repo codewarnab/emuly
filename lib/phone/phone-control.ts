@@ -22,7 +22,7 @@ export function phoneControl() {
     database: asyncDb(), github: createGitHubClient({ database: asyncDb(), accessToken: getAccessToken }), encrypt: seal,
     setup: createPhoneSetup({ token: userId => getAccessToken(userId) }),
     collectProgress: createPhoneSetup({ token: userId => getAccessToken(userId) }).collect,
-    runner: runnerRequest, disconnect: closeRunner,
+    runner: runnerRequest, disconnect: closeRunner, dispatchBoot,
     maxPhones: process.env.EMULY_MAX_PHONES ? Number(process.env.EMULY_MAX_PHONES) : undefined,
   });
 }
@@ -72,4 +72,20 @@ export function templateRepository() {
     throw new PhoneInputError("EMULY_TEMPLATE_REPO needs a matching EMULY_TEMPLATE_REPOSITORY_ID. Unset both to use codewarnab/emuly.");
   }
   return { repository, repositoryId, devcontainerPath };
+}
+
+/**
+ * On Vercel, a boot started as background work shares the time limit of the request that
+ * started it. After a long setup that request can end before Android boots, and the result
+ * is lost. So the boot runs in its own request, which answers at once and boots in waitUntil.
+ */
+async function dispatchBoot(userId: number, id: string) {
+  const secret = process.env.CRON_SECRET;
+  if (!process.env.VERCEL || !secret) throw new Error("Boot dispatch needs Vercel and CRON_SECRET");
+  const base = (process.env.EMULY_BASE_URL ?? "").replace(/\/$/, "");
+  if (!/^https:\/\//.test(base)) throw new Error("Boot dispatch needs an https EMULY_BASE_URL");
+  const response = await fetch(`${base}/api/internal/boot`, { method: "POST", cache: "no-store", redirect: "manual",
+    headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+    body: JSON.stringify({ userId, id }), signal: AbortSignal.timeout(15_000) });
+  if (response.status !== 202) throw new Error(`Boot dispatch returned ${response.status}`);
 }

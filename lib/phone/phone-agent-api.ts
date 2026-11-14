@@ -1,6 +1,7 @@
 import "server-only";
 import { crossOrigin } from "../auth/origin.ts";
 import { RateLimitError } from "../data/rate-limit.ts";
+import { CoordinationBusyError } from "../data/coordination.ts";
 import { GitHubError } from "../github/github.ts";
 import {
   ADB_FILES_MAX, ADB_UPLOAD_MAX_BYTES, AdbError, adbArguments, adbResult, adbTimeout, isDownload, isScreencap,
@@ -104,6 +105,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDe
   };
   const fail = (error: unknown, fallback: string) => {
     if (error instanceof GitHubError) return json({ error: "github_refused", message: redact(error.message) }, 409);
+    if (error instanceof CoordinationBusyError) return json({ error: "busy", message: "Another request for this phone is still running. Retry in a few seconds." }, 409, { "Retry-After": "5" });
     if (error instanceof RateLimitError) return json({ error: "rate_limited", message: error.message }, 429, { "Retry-After": String(error.retryAfter) });
     if (error instanceof PhoneInputError || error instanceof AdbError) return json({ error: "invalid_input", message: error.message }, 400);
     if (error instanceof InputError) return json({ error: "invalid_input", message: error.message }, error.status);

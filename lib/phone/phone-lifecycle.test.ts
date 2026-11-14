@@ -1,6 +1,6 @@
 ﻿import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decidePhoneTransition, decideRunChanges, STOP_GRACE_MS } from "./phone-lifecycle.ts";
+import { decidePhoneTransition, decideRunChanges, STOP_GRACE_MS, START_GRACE_MS, START_PENDING_DETAIL } from "./phone-lifecycle.ts";
 
 test("reconciled idle stops cannot close usage before its start or after the observation", () => {
   const started = "2026-11-07T01:00:00.000Z";
@@ -42,4 +42,18 @@ test("GitHub's Unavailable state keeps the phone booting with a recovery hint", 
   });
   assert.equal(result.state, "booting");
   assert.match(result.detail ?? "", /Unavailable.*Stop, then Start/);
+});
+
+test("an Emuly start stays booting while GitHub still reports Shutdown, but only within the grace", () => {
+  const now = Date.parse("2026-11-14T04:49:00.000Z");
+  const stateFor = (detail: string | null, startedAgo: number) => decidePhoneTransition({
+    previous: { state: "booting", state_detail: detail, last_started_at: new Date(now - startedAgo).toISOString(),
+      last_stopped_at: null, retention_at: null, retention_min: 43200 },
+    codespace: { state: "Shutdown" }, androidState: "idle", setupAvailable: true, stopRequestedAt: null, now,
+  });
+  assert.equal(stateFor(START_PENDING_DETAIL, 10_000).state, "booting");
+  assert.equal(stateFor(START_PENDING_DETAIL, 10_000).detail, START_PENDING_DETAIL);
+  assert.equal(stateFor(START_PENDING_DETAIL, START_GRACE_MS + 1).state, "stopped");
+  // A booting phone that GitHub stopped by itself is stopped at once.
+  assert.equal(stateFor(null, 10_000).state, "stopped");
 });

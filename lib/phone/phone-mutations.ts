@@ -10,7 +10,7 @@ import { GitHubError, type Codespace, type createGitHubClient } from "../github/
 import { assertMutationRate } from "../data/rate-limit.ts";
 import { emitEvent, type EventEmitter } from "../data/events.ts";
 import type { Client } from "@libsql/client";
-import { decidePhoneTransition, decideRunChanges } from "./phone-lifecycle.ts";
+import { decidePhoneTransition, decideRunChanges, START_PENDING_DETAIL } from "./phone-lifecycle.ts";
 import { candidatePhoneName, PHONE_ID } from "../shared/phone-name.ts";
 import { createDiagnostics, measure, newDiagnosticId } from "../diagnostics/diagnostics.ts";
 
@@ -31,13 +31,18 @@ export const START_WATCH_MS = 5_000;
 /** A pending start stops watching after this long; the poller continues as before. */
 export const START_WATCH_DEADLINE_MS = 15 * 60_000;
 
-export function createPhoneService({ database, github, encrypt, clock = Date.now, maxPhones, setup, collectProgress, runner, disconnect, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), emit = (event, queries = database) => emitEvent(event, queries) }: {
+/** A user action waits this long for a sync or another action to release the phone lock. */
+export const USER_LOCK_WAIT_MS = 20_000;
+
+export function createPhoneService({ database, github, encrypt, clock = Date.now, maxPhones, setup, collectProgress, runner, dispatchBoot, disconnect, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), emit = (event, queries = database) => emitEvent(event, queries) }: {
   database: Client;
   /** Installs the emulator and runner in an Available codespace. Without it, phones stay booting. */
   /** Starts or checks phone setup. "working" means: ask again later. */
   setup?: (userId: number, codespaceName: string) => Promise<"ready" | "working" | SetupResult>;
   collectProgress?: (userId: number, codespaceName: string) => Promise<void>;
-  runner?: (userId: number, id: string, path: "/boot" | "/stop", body: Record<string, unknown>) => Promise<Response>;
+  runner?: (userId: number, id: string, path: "/boot" | "/stop" | "/health", body?: Record<string, unknown>) => Promise<Response>;
+  /** Runs `bootNow` in a separate request (on Vercel: a fresh function invocation). */
+  dispatchBoot?: (userId: number, id: string) => Promise<void>;
   disconnect?: (userId: number, id: string, codespaceName: string) => void;
   github: GitHub;
   encrypt: (value: string, context: string) => Uint8Array;
@@ -64,40 +69,83 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
   const setupStarted = new Set<string>();
   const SETUP_RETRY_MS = 10 * 60_000;
   const SETUP_CHECK_MS = 20_000;
+  const SHUTDOWN_WAIT_MS = 120_000;
+  const SHUTDOWN_POLL_MS = 3_000;
   const SETUP_FAILURE_DETAIL = "Phone setup failed. Emuly tries again in about 10 minutes.";
-  const booting = new Set<string>();
+  // In-memory guard against a second boot in this process. A function that Vercel stopped mid-boot
+  // never clears its entry, so an entry older than BOOT_STALE_MS no longer blocks a retry.
+  const booting = new Map<string, number>();
+  const BOOT_STALE_MS = 6 * 60_000;
+  /** A boot that has not finished after this long is a real failure, not a slow boot. */
+  const BOOT_GIVE_UP_MS = 15 * 60_000;
+  const bootingNow = (id: string) => clock() - (booting.get(id) ?? -Infinity) < BOOT_STALE_MS;
 
   const startBoot = (userId: number, id: string) => independentWork(() => withLease(database, `boot:${id}`, () => performBoot(userId, id)));
+  /** Start a boot in its own request when the host provides one, so it gets a full time budget. */
+  const kickBoot = (userId: number, id: string) => background(dispatchBoot
+    ? dispatchBoot(userId, id).catch(error => {
+      console.error(`[boot] ${id}: dispatch failed, booting in this request`, error instanceof Error ? error.name : "unknown");
+      return startBoot(userId, id);
+    })
+    : startBoot(userId, id));
   async function performBoot(userId: number, id: string) {
-    if (!runner || booting.has(id) || busy.has(id)) return;
-    booting.add(id);
+    if (!runner || bootingNow(id) || busy.has(id)) return;
+    booting.set(id, clock());
     const started = iso();
     let operationId: string | undefined;
     try {
       operationId = await diagnostics.current(userId, id);
+      let firstStarted = started;
       const claimed = await transaction(database, async queries => {
         if (busy.has(id)) return false;
+        const before = (await queries.execute({ sql: "SELECT android_state, android_started_at FROM phones WHERE user_id = ? AND id = ?", args: [userId, id] })).rows[0];
+        // A retry joins a boot that is still running; keep its first start time for the total.
+        const joining = before?.android_state === "booting" && typeof before.android_started_at === "string";
+        if (joining) firstStarted = String(before.android_started_at);
         const changed = await queries.execute({ sql: `UPDATE phones SET android_state = 'booting', android_started_at = ?, android_error = NULL
           WHERE user_id = ? AND id = ? AND state = 'running' AND android_state != 'stopping'`, args: [started, userId, id] });
         if (!changed.rowsAffected) return false;
-        await event(userId, id, "step", "Android starting", queries);
+        if (!joining) await event(userId, id, "step", "Android starting", queries);
         return true;
       });
       if (!claimed) return;
       let booted = false;
+      let runnerAlive = false;
+      // True when the runner answered /boot. Its answer is final; only a broken call may still be booting.
+      let answered = false;
       try {
         await diagnostics.scope(operationId, () => measure("android_boot", async () => {
           const result = await runner(userId, id, "/boot", operationId ? { diagnosticOperation: operationId } : {});
-          if ((await result.json()).booted !== true) throw new Error("Android boot was not confirmed.");
+          const reply = await result.json();
+          answered = true;
+          if (reply.booted !== true) throw new Error("Android boot was not confirmed.");
         }));
         booted = true;
-      } catch { /* Persist a fixed error message below; never expose runner output. */ }
+      } catch (error) {
+        // Never expose runner output: log only the error kind and our own fixed message.
+        console.error(`[boot] ${id}: /boot did not confirm Android`, error instanceof Error ? `${error.name}: ${error.message}` : "unknown");
+        // The /boot call can break while Android still boots (a closed tunnel, an ended function).
+        // Ask the runner directly before saving a failure.
+        try {
+          booted = (await (await runner(userId, id, "/health")).json()).booted === true;
+          runnerAlive = true;
+          if (booted) console.warn(`[boot] ${id}: /health shows Android ready after a failed /boot`);
+        } catch (healthError) {
+          console.error(`[boot] ${id}: /health check failed`, healthError instanceof Error ? healthError.name : "unknown");
+        }
+      }
+      // The runner answers but Android is not up yet: boot.sh is still running. Keep "booting" so the
+      // next sync joins this boot, instead of reporting a failure for a slow boot.
+      if (!booted && !answered && runnerAlive && clock() - Date.parse(firstStarted) < BOOT_GIVE_UP_MS) {
+        console.warn(`[boot] ${id}: Android still booting; the next sync joins this boot`);
+        return;
+      }
       const changed = await transaction(database, async queries => {
         const result = await queries.execute({ sql: `UPDATE phones SET android_state = ?, android_error = ?
           WHERE user_id = ? AND id = ? AND state = 'running' AND android_state = 'booting' AND android_started_at = ?`,
           args: [booted ? "ready" : "failed", booted ? null : "Android boot failed. Retry boot.", userId, id, started] });
         if (result.rowsAffected) await event(userId, id, booted ? "step" : "error", booted
-          ? `Android ready (took ${Math.round((clock() - Date.parse(started)) / 1000)} s)`
+          ? `Android ready (took ${Math.round((clock() - Date.parse(firstStarted)) / 1000)} s)`
           : "Android boot failed: Android boot failed. Retry boot.", queries);
         return result.rowsAffected;
       });
@@ -176,7 +224,10 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
         setupStarted.delete(id);
         setupRetryAt.delete(id);
         setupWorking.delete(id);
-        background(startBoot(userId, id));
+        // Collect setup progress now; a boot that Vercel stops would otherwise skip it.
+        if (operationId && collectProgress) background(collectProgress(userId, codespaceName));
+        // This request has already spent time on setup; the boot gets a fresh request.
+        kickBoot(userId, id);
         return false;
       }
       setupRetryAt.set(id, clock() + (status === "failed" ? SETUP_RETRY_MS : SETUP_CHECK_MS));
@@ -199,6 +250,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
   async function pollStart(userId: number, id: string) {
     const deadline = clock() + START_WATCH_DEADLINE_MS;
     let errors = 0;
+    let seen = "";
     while (clock() < deadline) {
       await sleep(START_WATCH_MS);
       if (clock() >= deadline) return;
@@ -216,10 +268,9 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
         continue;
       }
       errors = 0;
-      if (reply.state === "Available") {
-        await apply(userId, id, reply, "reconciled");
-        return;
-      }
+      if (reply.state !== seen || reply.state === "Available") await apply(userId, id, reply, "reconciled");
+      seen = reply.state;
+      if (reply.state === "Available") return;
     }
   }
 
@@ -338,7 +389,12 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
       claimed = true;
       if (operation === "stop") diagnosticOperation = await diagnostics.operation(userId, id, "stop");
       if (operation === "stop") diagnostics.mark(diagnosticOperation, "stop_intent", { initiator: automatic ? "hours_budget" : bulk ? "stop_all" : "owner" });
-      const current = await github.getCodespace(userId, id);
+      let current = await github.getCodespace(userId, id);
+      // GitHub refuses a start while the codespace is still shutting down. Wait for Shutdown first.
+      for (let waited = 0; operation === "start" && current.state === "ShuttingDown" && waited < SHUTDOWN_WAIT_MS; waited += SHUTDOWN_POLL_MS) {
+        await sleep(SHUTDOWN_POLL_MS);
+        current = await github.getCodespace(userId, id);
+      }
       let observed = current.state;
       if (operation === "start") {
         if (["Available", "Starting", "Creating", "Provisioning", "Rebuilding"].includes(current.state)) {
@@ -348,8 +404,11 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
           await outgoing(userId, id, "phone.starting", { reason: "user" });
           diagnosticOperation = await diagnostics.operation(userId, id, "resume");
           const result = await diagnostics.scope(diagnosticOperation, () => measure("github_start", () => github.startCodespace(userId, id)));
-          if (result) { observed = result.state; await apply(userId, id, result); }
+          // Show the start at once; the transition keeps "booting" while GitHub still reports Shutdown.
+          await database.execute({ sql: `UPDATE phones SET state = 'booting', state_detail = ?, last_started_at = ?
+            WHERE user_id = ? AND id = ? AND state IN ('stopped', 'error')`, args: [START_PENDING_DETAIL, iso(), userId, id] });
           await database.execute({ sql: "UPDATE phones SET last_started_at = ? WHERE user_id = ? AND id = ?", args: [iso(), userId, id] });
+          if (result) { observed = result.state; await apply(userId, id, result); }
         }
       } else if (["Shutdown", "ShuttingDown"].includes(current.state)) {
         await apply(userId, id, current);
@@ -544,12 +603,14 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
   }
 
   const service = {
+    /** Boot Android and wait for the result. The dispatched boot request calls this. */
+    bootNow: (userId: number, id: string) => startBoot(userId, id),
     async retryBoot(userId: number, id: string) {
       const stored = await phone(userId, id);
-      if (stored.state !== "running" || (await keeping(id)) || busy.has(id) || booting.has(id)) throw new PhoneInputError("Wait until the phone is running.");
+      if (stored.state !== "running" || (await keeping(id)) || busy.has(id) || bootingNow(id)) throw new PhoneInputError("Wait until the phone is running.");
       await claim(userId, id, "retry boot");
       void diagnostics.operation(userId, id, "boot_retry", true);
-      background(startBoot(userId, id));
+      kickBoot(userId, id);
       return id;
     },
     keep,
@@ -652,7 +713,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
           finally { busy.delete(row.id); }
           const android = (await database.execute({ sql: "SELECT android_state FROM phones WHERE id = ? AND state = 'running'", args: [row.id] })).rows[0];
           // Recover a boot interrupted by a server restart. /boot is idempotent on the runner.
-          if (android && ["idle", "booting"].includes(String(android.android_state))) background(startBoot(userId, row.id));
+          if (android && ["idle", "booting"].includes(String(android.android_state)) && !bootingNow(row.id)) kickBoot(userId, row.id);
         }
         else if (!space && !row.codespace_name.startsWith("pending:") && !busy.has(row.id)) {
           await apply(userId, row.id, { id: 0, name: row.codespace_name, state: "Deleted" }, "reconciled");
@@ -674,17 +735,17 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
   };
   return {
     ...service,
-    create: (...args: Parameters<typeof service.create>) => withLease(database, `phones:${args[0]}`, () => service.create(...args)),
-    start: (...args: Parameters<typeof service.start>) => withLease(database, `phones:${args[0]}`, () => service.start(...args)),
-    stop: (...args: Parameters<typeof service.stop>) => withLease(database, `phones:${args[0]}`, () => service.stop(...args)),
-    remove: (...args: Parameters<typeof service.remove>) => withLease(database, `phones:${args[0]}`, () => service.remove(...args)),
-    keep: (...args: Parameters<typeof service.keep>) => withLease(database, `phones:${args[0]}`, () => service.keep(...args)),
+    create: (...args: Parameters<typeof service.create>) => withLease(database, `phones:${args[0]}`, () => service.create(...args), USER_LOCK_WAIT_MS),
+    start: (...args: Parameters<typeof service.start>) => withLease(database, `phones:${args[0]}`, () => service.start(...args), USER_LOCK_WAIT_MS),
+    stop: (...args: Parameters<typeof service.stop>) => withLease(database, `phones:${args[0]}`, () => service.stop(...args), USER_LOCK_WAIT_MS),
+    remove: (...args: Parameters<typeof service.remove>) => withLease(database, `phones:${args[0]}`, () => service.remove(...args), USER_LOCK_WAIT_MS),
+    keep: (...args: Parameters<typeof service.keep>) => withLease(database, `phones:${args[0]}`, () => service.keep(...args), USER_LOCK_WAIT_MS),
     sync: (...args: Parameters<typeof service.sync>) => withLease(database, `phones:${args[0]}`, () => service.sync(...args)),
-    stopAll: (...args: Parameters<typeof service.stopAll>) => withLease(database, `phones:${args[0]}`, () => service.stopAll(...args)),
+    stopAll: (...args: Parameters<typeof service.stopAll>) => withLease(database, `phones:${args[0]}`, () => service.stopAll(...args), USER_LOCK_WAIT_MS),
     autoStop: (...args: Parameters<typeof service.autoStop>) => withLease(database, `phones:${args[0]}`, () => service.autoStop(...args)),
     observeCodespace: (...args: Parameters<typeof service.observeCodespace>) => withLease(database, `phones:${args[0]}`, () => service.observeCodespace(...args)),
     autoKeep: (...args: Parameters<typeof service.autoKeep>) => withLease(database, `phones:${args[0]}`, () => service.autoKeep(...args)),
-    retryBoot: (...args: Parameters<typeof service.retryBoot>) => withLease(database, `phones:${args[0]}`, () => service.retryBoot(...args)),
+    retryBoot: (...args: Parameters<typeof service.retryBoot>) => withLease(database, `phones:${args[0]}`, () => service.retryBoot(...args), USER_LOCK_WAIT_MS),
   };
 }
 

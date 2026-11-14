@@ -41,12 +41,13 @@ if pgrep -f "qemu-system-x86_6[4]" >/dev/null 2>&1; then
   joined=0
   # Check first, so an already booted phone returns at once. No ph_begin here: the
   # boot that owns qemu writes the boot progress records.
-  for i in $(seq 1 120); do
+  # Check every second: the old 5 s step added up to 5 s to every ready time.
+  for i in $(seq 1 600); do
     if [ "$(adb -s "emulator-$PORT" shell getprop sys.boot_completed 2>/dev/null | tr -d '[:space:]')" = "1" ]; then
       joined=1; break
     fi
     pgrep -f "qemu-system-x86_6[4]" >/dev/null 2>&1 || { echo "EMULATOR DIED while joining. Last log:"; tail -20 "$LOG" 2>/dev/null || true; exit 1; }
-    sleep 5
+    sleep 1
   done
   [ "$joined" = 1 ] || { echo "TIMEOUT: emulator did not finish booting."; exit 1; }
   hide_anr_dialogs
@@ -95,8 +96,8 @@ echo "emulator started pid=$EMU_PID avd=$AVD_NAME mode=cold port=$PORT"
 
 booted=0
 ph_begin boot_completed
-for i in $(seq 1 120); do
-  sleep 5
+for i in $(seq 1 600); do
+  sleep 1
   if [ "$(adb -s "emulator-$PORT" shell getprop sys.boot_completed 2>/dev/null | tr -d '[:space:]')" = "1" ]; then
     booted=1; break
   fi
