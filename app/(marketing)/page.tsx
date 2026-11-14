@@ -72,9 +72,9 @@ export default function LandingPage() {
         <div className={s.device}><HeroPhone /></div>
       </section>
       <section className={s.facts} aria-label="The essentials">
-        <p>Free on your included Codespaces hours. No card.</p>
-        <p>Stopping is safe. Only deleting the codespace erases the phone.</p>
-        <p>Watch and touch your phone in your browser.</p>
+        <div><strong>Free</strong><span>Uses your Codespaces hours. No card.</span></div>
+        <div><strong>Safe to stop</strong><span>Only deleting it erases the phone.</span></div>
+        <div><strong>Your way</strong><span>Use it in the browser, or with adb and scrcpy.</span></div>
       </section>
       <section className={s.faq} aria-label="Common questions">
         <h2>A few things to know</h2>

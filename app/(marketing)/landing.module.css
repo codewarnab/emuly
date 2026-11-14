@@ -14,7 +14,9 @@
 .device { display: grid; justify-items: center; gap: 16px; }
 .device p { font-size: 13px; color: var(--dim); margin: 0; }
 .facts { display: grid; grid-template-columns: repeat(3,1fr); gap: 48px; padding: 32px 0; border-block: 1px solid var(--line); }
-.facts p { font-size: 16px; margin: 0; max-width: 29ch; }
+.facts > div { display: flex; flex-direction: column; gap: 4px; }
+.facts strong { font: 500 22px/1.2 var(--font-display), sans-serif; letter-spacing: -.03em; }
+.facts span { font-size: 14px; color: var(--dim); }
 .faq { padding: 64px 0 72px; display: grid; grid-template-columns: 1fr 2fr; gap: 64px; }
 .faq h2 { font: 500 29px/1.3 var(--font-display), sans-serif; letter-spacing: -.04em; margin: 8px 0; }
 .faq details { border-bottom: 1px solid var(--line); padding: 18px 0; }
@@ -26,7 +28,7 @@
  .nav { padding: 16px 20px; } .nav > div { gap: 12px; } .wrap { padding: 0 20px; }
  .hero { grid-template-columns: minmax(0,1fr); padding: 24px 0 36px; gap: 32px; } .hero h1 { font-size: clamp(30px, 8.6vw, 38px); margin-bottom: 16px; } .lead { font-size: 16px; margin-bottom: 22px; } .note { margin: 14px 0; line-height: 1.6; } .marquee { margin-inline: -20px; max-width: none; }
  .cta > button, .cta > .gh { width: 100%; }
- .device { gap: 12px; } .facts { grid-template-columns: 1fr; gap: 20px; padding: 28px 0; } .facts p { max-width: none; }
+ .device { gap: 12px; } .facts { grid-template-columns: 1fr; gap: 20px; padding: 28px 0; } .facts strong { font-size: 19px; }
  .faq { grid-template-columns: 1fr; gap: 12px; padding: 36px 0 40px; } .faq h2 { font-size: 25px; } .footer { margin: 0 20px; }
 }
 
