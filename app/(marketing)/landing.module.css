@@ -6,8 +6,8 @@
 .hero { display: grid; grid-template-columns: minmax(0, 760px) 1fr; align-items: center; gap: 64px; padding: 64px 0 72px; }
 .hero h1 { font: 500 clamp(38px, 4.3vw, 62px)/1.14 var(--font-display), sans-serif; letter-spacing: -.055em; margin: 0 0 24px; max-width: 17ch; }
 .lead { font-size: 18px; line-height: 1.65; color: var(--dim); max-width: 62ch; margin: 0 0 28px; }
-.gh { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; color: var(--accent); text-decoration: none; }
-.gh:hover { text-decoration: underline; text-underline-offset: 3px; }
+.gh { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 13px 24px; font-size: 16px; font-weight: 500; color: var(--text); border: 1px solid var(--line); border-radius: 8px; text-decoration: none; }
+.gh:hover { border-color: var(--text); }
 .cta { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; }
 .cta > button { min-width: 180px; padding: 14px 28px; font-size: 16px; }
 .note { font-size: 13px; color: var(--dim); max-width: 70ch; margin: 16px 0; }
@@ -25,7 +25,7 @@
 @media(max-width: 680px) {
  .nav { padding: 20px; } .nav > div { gap: 14px; } .wrap { padding: 0 20px; }
  .hero { grid-template-columns: 1fr; padding: 36px 0 40px; gap: 40px; } .hero h1 { font-size: 38px; } .lead { font-size: 17px; }
- .cta > button { width: 100%; }
+ .cta > button, .cta > .gh { width: 100%; }
  .device { gap: 12px; } .facts { grid-template-columns: 1fr; gap: 20px; padding: 28px 0; } .facts p { max-width: none; }
  .faq { grid-template-columns: 1fr; gap: 12px; padding: 36px 0 40px; } .faq h2 { font-size: 25px; } .footer { margin: 0 20px; }
 }

@@ -103,3 +103,32 @@
   .group { gap: 4px; }
   .code { gap: 6px; }
 }
+
+/* Delete approval view. */
+.deleteView .title { font-size: 32px; margin-bottom: 8px; }
+.deleteView .sub { margin-bottom: 20px; font-size: 15px; }
+.phoneRow {
+  display: flex; align-items: center; gap: 12px; padding: 14px 16px; margin: 0 0 16px;
+  background: var(--bg); border: 1px solid var(--line2); border-radius: 12px;
+}
+.phoneIcon {
+  flex: none; width: 36px; height: 36px; display: grid; place-items: center;
+  border-radius: 10px; background: var(--accent-soft); color: var(--accent);
+}
+.phoneMeta { flex: 1; min-width: 0; }
+.phoneName { margin: 0; font: 600 15px var(--mono); color: var(--text); overflow-wrap: anywhere; }
+.phoneApps { margin: 2px 0 0; font-size: 13px; color: var(--dim); }
+.statePill {
+  flex: none; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  background: var(--panel2); color: var(--dim);
+}
+.statePill[data-state="running"] { background: var(--safe-soft); color: var(--safe); }
+.warn {
+  display: flex; gap: 10px; align-items: flex-start; margin: 0 0 24px; padding: 12px 14px;
+  background: var(--danger-soft); color: var(--danger); border-radius: 12px; font-size: 14px; line-height: 1.45;
+}
+.warn svg { flex: none; margin-top: 1px; }
+.deleteView .confirmInput { font-family: var(--mono); }
+.deleteView .deleteActions { margin-top: 10px; }
+.deleteView .dangerButton { flex: 1; }
+

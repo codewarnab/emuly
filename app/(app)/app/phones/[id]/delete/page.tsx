@@ -4,9 +4,10 @@ import { asyncDb } from "../../../../../../lib/data/async-db";
 import { getPhoneDeleteRequestByToken, type PhoneDeleteRequest } from "../../../../../../lib/data/phone-deletions";
 import { runnerApps } from "../../../../../../lib/phone/phone-runner";
 import { findPhone, type Phone } from "../../../../../../lib/phone/phones";
-import { DeletePhoneForm } from "@/components/phone/delete-phone-form";
+import { DeleteRequestView } from "@/components/phone/delete-request-view";
 import { KeyboardTools } from "@/components/shell/keyboard-tools";
 import { Topbar } from "@/components/shell/topbar";
+import { DeletePhoneArt } from "@/components/phone/delete-phone-art";
 import s from "@/components/link/link.module.css";
 
 export const metadata = { title: "Delete phone — Emuly" };
@@ -41,6 +42,7 @@ async function DeletePhoneContent({ params, searchParams }: Props) {
                 message="Agent keys cannot approve a phone deletion. Ask the user to open the link." />
             : <DeleteState request={request} token={rawToken} phone={phone} apps={apps} />}
         </section>
+        <div className={s.device}><DeletePhoneArt name={phone?.name ?? "your phone"} /></div>
       </main>
     </>
   );
@@ -92,16 +94,5 @@ function DeleteState({ request, token, phone, apps }: {
     return <State eyebrow="Deletion link" title="This link is not valid" state="expired"
       message="Ask your agent for a new deletion link." />;
   }
-  return <>
-    <p className={s.eyebrow}>Agent request</p>
-    <h1 id="delete-title" className={s.title}>Delete {phone.name}?</h1>
-    <p className={s.sub}>An agent asked to delete this phone. You decide.</p>
-    <dl className={s.details}>
-      <dt>Phone</dt><dd>{phone.name}</dd>
-      <dt>State</dt><dd>{phone.state.replaceAll("_", " ")}</dd>
-      <dt>Installed apps</dt><dd>{apps === null ? "Not available" : String(apps)}</dd>
-    </dl>
-    <p className={s.sub}>Deleting removes the codespace and its data. This cannot be undone.</p>
-    <DeletePhoneForm request={token} phoneName={phone.name} />
-  </>;
+  return <DeleteRequestView token={token} name={phone.name} state={phone.state} apps={apps} />;
 }

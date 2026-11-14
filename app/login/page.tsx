@@ -39,7 +39,7 @@ async function LoginContent({ searchParams }: Props) {
         </p>}
         <p className={s.loginFoot}>
           Codespaces access only. No repo access.{" "}
-          <a href="https://github.com/settings/applications" className={s.link}>Revoke</a>
+          <a href="https://github.com/settings/applications" className={s.link} target="_blank" rel="noopener noreferrer">Revoke</a>
         </p>
       </section>
       <div className={s.loginDevice}><HeroPhone /></div>
