@@ -34,7 +34,7 @@
 .clipboardClose:hover { color: var(--text); }
 .clipboardPanel textarea { box-sizing: border-box; width: 100%; min-height: 60px; max-height: 160px; resize: vertical; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); font: 12px/1.5 var(--mono); }
 .desktopPanel { width: min(320px, calc(100vw - 32px)); grid-template-columns: minmax(0, 1fr); gap: 10px; text-align: left; }
-.desktopPanel .clipboardHint { text-align: left; }
+.desktopPanel .clipboardHint { text-align: left; font-size: 12px; }
 .osTabs { display: flex; gap: 4px; }
 .osTab { display: grid; place-items: center; width: 34px; height: 30px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--dim); font-size: 12px; font-weight: 600; cursor: pointer; }
 .osTab:hover { color: var(--text); }

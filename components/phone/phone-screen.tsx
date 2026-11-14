@@ -46,7 +46,11 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
   const [clipboardEmpty, setClipboardEmpty] = useState(false);
   const [desktopOpen, setDesktopOpen] = useState(false);
   const [desktopOs, setDesktopOs] = useState<DesktopOs>("windows");
-  useEffect(() => { const agent = navigator.userAgent; setDesktopOs(/Win/i.test(agent) ? "windows" : /Mac/i.test(agent) ? "mac" : "linux"); }, []);
+  useEffect(() => {
+    // userAgentData is newer and exact (Chromium); the user agent string covers Safari and Firefox.
+    const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform || navigator.userAgent;
+    setDesktopOs(/win/i.test(platform) ? "windows" : /mac|iphone|ipad/i.test(platform) ? "mac" : "linux");
+  }, []);
   const desktopCommand = desktopOs === "windows"
     ? `irm https://emuly.vercel.app/open/${id}.ps1 | iex`
     : `curl -fsSL https://emuly.vercel.app/open/${id}.sh | sh`;
@@ -333,7 +337,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
             <span>Open in its own window</span>
             <button type="button" className={s.clipboardClose} aria-label="Close" onClick={() => setDesktopOpen(false)}>×</button>
           </div>
-          <p className={s.clipboardHint}>Sharper video and lower delay than the browser, in a scrcpy window. Your keyboard and clipboard work as normal.</p>
+          <p className={s.clipboardHint}>Smoother video in a native scrcpy window.</p>
           <div className={s.osTabs} role="tablist" aria-label="Your system">
             {(Object.keys(osLogos) as DesktopOs[]).map(os => <button key={os} type="button" role="tab" aria-selected={desktopOs === os}
               aria-label={osLogos[os].label} title={osLogos[os].label} className={s.osTab} onClick={() => setDesktopOs(os)}>
