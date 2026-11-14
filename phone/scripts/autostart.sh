@@ -11,6 +11,7 @@ builtin cd "$EMULY" || exit 0
 # Another start (the server's SSH setup) may already run.
 if [ -f .pid ] && kill -0 "$(cat .pid)" 2>/dev/null; then exit 0; fi
 export PATH="/usr/local/share/nvm/current/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+source scripts/node-path.sh
 rm -f .failed
 [ ! -f setup.log ] || mv -f setup.log setup.log.previous
 # run.sh keeps the diagnostic operation of the setup that wrote it; the server ignores

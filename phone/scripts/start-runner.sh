@@ -3,6 +3,7 @@
 set -euo pipefail
 PH_PRODUCER=runner
 source "$(dirname "$0")/progress.sh"
+source "$(dirname "$0")/node-path.sh"
 ph_begin runner_launch
 builtin cd "$(dirname "$0")/.."
 # KVM access resets on every codespace start.

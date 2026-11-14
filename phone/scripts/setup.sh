@@ -8,6 +8,7 @@ set -euo pipefail
 exec 8>/tmp/emuly-setup.lock
 flock -w 900 8 || { echo "FATAL: another setup still runs after 900 s"; exit 1; }
 source "$(dirname "$0")/progress.sh"
+source "$(dirname "$0")/node-path.sh"
 ph_begin kvm
 
 SDK_DIR="${SDK_DIR:-/opt/android-sdk}"
