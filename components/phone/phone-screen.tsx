@@ -287,11 +287,27 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
     <div className={s.tools} role="group" aria-label="Device tools">
       {control("volumeUp", "Volume up")}{control("volumeDown", "Volume down")}
       <span className={s.divider} />
-      <button type="button" className={s.control} aria-label="Copy from phone"
-        title={clipboardCapable ? "Copy from phone" : "Update the phone runner to copy from the phone"}
-        disabled={!fresh || !clipboardCapable} onClick={() => readClipboard(0)}>
-        <ControlIcon name="clipboard" /><span className={s.tooltip}>Copy from phone</span>
-      </button>
+      <div className={s.clipboardAnchor}>
+        <button type="button" className={s.control} aria-label="Copy from phone"
+          title={clipboardCapable ? "Copy from phone" : "Update the phone runner to copy from the phone"}
+          disabled={!fresh || !clipboardCapable} onClick={() => readClipboard(0)}>
+          <ControlIcon name="clipboard" /><span className={s.tooltip}>Copy from phone</span>
+        </button>
+        {(phoneClipboard || clipboardPending || clipboardEmpty) && <div className={s.clipboardPanel} role="status">
+          <div className={s.clipboardHead}>
+            <span>Phone clipboard</span>
+            <button type="button" className={s.clipboardClose} aria-label="Close clipboard" onClick={closeClipboard}>×</button>
+          </div>
+          {phoneClipboard
+            ? <textarea readOnly value={phoneClipboard.text} aria-label="Text copied from the phone" onFocus={event => event.currentTarget.select()} />
+            : <p className={s.clipboardHint}>{clipboardPending ? "Reading the phone clipboard…" : "Nothing on the phone clipboard. Select text in an app, press Copy, then try again."}</p>}
+          <div className={s.clipboardActions}>
+            {phoneClipboard && <Button type="button" tiny variant="ghost"
+              onClick={() => { if (phoneClipboard) void copyText(phoneClipboard.text, notify, "Copied from the phone"); }}>Copy to computer</Button>}
+            <Button type="button" tiny variant="ghost" disabled={!video.active} onClick={() => readClipboard(1)}>Copy selected text</Button>
+          </div>
+        </div>}
+      </div>
       <button type="button" className={s.control} aria-label="Screenshot" title="Screenshot" disabled={!frame && !video.painted} onClick={async () => {
         const blob = video.painted && showCanvas ? await new Promise<Blob | null>(resolve => canvas.current!.toBlob(resolve, "image/png")) : null;
         const url = blob ? URL.createObjectURL(blob) : frame;
@@ -305,20 +321,6 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
       {agentWorking && <span className={s.agentStatus}>Agent is working · last action {agentAgo}s ago</span>}
       <span role="status">{video.active ? `${video.stats.fps} fps · ${video.stats.delay} ms` : video.stopped ? "Phone stopped" : live && video.supported ? "Reconnecting…" : ""}</span>
     </footer>
-    {(phoneClipboard || clipboardPending || clipboardEmpty) && <div className={s.clipboardPanel} role="status">
-      <div className={s.clipboardHead}>
-        <span>Phone clipboard</span>
-        <button type="button" className={s.clipboardClose} aria-label="Close clipboard" onClick={closeClipboard}>×</button>
-      </div>
-      {phoneClipboard
-        ? <textarea readOnly value={phoneClipboard.text} aria-label="Text copied from the phone" onFocus={event => event.currentTarget.select()} />
-        : <p className={s.clipboardHint}>{clipboardPending ? "Reading the phone clipboard…" : "Nothing on the phone clipboard. Select text in an app, press Copy, then try again."}</p>}
-      <div className={s.clipboardActions}>
-        {phoneClipboard && <Button type="button" tiny variant="ghost"
-          onClick={() => { if (phoneClipboard) void copyText(phoneClipboard.text, notify, "Copied from the phone"); }}>Copy to computer</Button>}
-        <Button type="button" tiny variant="ghost" disabled={!video.active} onClick={() => readClipboard(1)}>Copy selected text</Button>
-      </div>
-    </div>}
     {error && live && !video.stopped && !video.active && <p className={s.error} role="status">{error}</p>}
   </div>;
 

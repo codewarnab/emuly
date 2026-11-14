@@ -26,7 +26,9 @@
 .divider { width: 18px; height: 1px; margin: 5px 0; background: var(--line); }
 .footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; padding: 8px 0 12px; color: var(--dim); font-size: 10px; }
 .footer > :last-child { font-family: var(--mono); }
-.clipboardPanel { display: grid; gap: 8px; margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); }
+.clipboardAnchor { position: relative; }
+/* A popover beside the copy button, over the phone, so it shows where the user clicked. */
+.clipboardPanel { position: absolute; z-index: 20; top: 50%; right: calc(100% + 10px); transform: translateY(-50%); box-sizing: border-box; width: min(280px, calc(100vw - 32px)); display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); box-shadow: 0 8px 24px rgba(0,0,0,.18); }
 .clipboardHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--dim); font-size: 11px; font-weight: 600; }
 .clipboardClose { padding: 0 4px; border: 0; background: transparent; color: var(--dim); font-size: 16px; line-height: 1; cursor: pointer; }
 .clipboardClose:hover { color: var(--text); }
