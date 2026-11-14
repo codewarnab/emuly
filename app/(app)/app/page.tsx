@@ -19,6 +19,9 @@ import { KeyboardTools } from "@/components/shell/keyboard-tools";
 import { hoursWarning } from "../../../lib/shared/hours";
 import { retentionStatus } from "../../../lib/data/retention";
 
+// A Stop server action may call the runner three times, up to 80 s each.
+export const maxDuration = 300;
+
 /** Dashboard: each phone is a codespace in the signed-in user's account. */
 export default function DashboardPage() {
   return <Suspense fallback={<Loading />}><Dashboard /></Suspense>;

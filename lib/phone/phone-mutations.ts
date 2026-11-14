@@ -33,6 +33,8 @@ export const START_WATCH_DEADLINE_MS = 15 * 60_000;
 
 /** A user action waits this long for a sync or another action to release the phone lock. */
 export const USER_LOCK_WAIT_MS = 20_000;
+/** Each runner /stop call answers within 80 s, so three calls cover stop.sh's 120 s qemu wait. */
+const STOP_ATTEMPTS = 3;
 
 export function createPhoneService({ database, github, encrypt, clock = Date.now, maxPhones, setup, collectProgress, runner, dispatchBoot, disconnect, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), emit = (event, queries = database) => emitEvent(event, queries) }: {
   database: Client;
@@ -422,8 +424,13 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
         if (runner) {
           await database.execute({ sql: "UPDATE phones SET android_state = 'stopping' WHERE id = ?", args: [id] });
           try {
-            const result = await runner(userId, id, "/stop", {});
-            if ((await result.json()).stopped !== true) throw new PhoneInputError("Android stop was not confirmed. Try Stop again.");
+            // The runner answers within 80 s; while the emulator still shuts down it says pending.
+            let answer: { stopped?: unknown; pending?: unknown } = {};
+            for (let attempt = 0; attempt < STOP_ATTEMPTS; attempt++) {
+              answer = await (await runner(userId, id, "/stop", {})).json();
+              if (answer.pending !== true) break;
+            }
+            if (answer.stopped !== true) throw new PhoneInputError("Android stop was not confirmed. Try Stop again.");
             await event(userId, id, "step", "Android graceful stop completed");
           } catch {
             if (stored.state === "running") {

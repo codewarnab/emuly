@@ -24,6 +24,8 @@ const SECRET = process.env.PHONE_SECRET ?? "";
 const PORT = Number(process.env.RUNNER_PORT ?? 8790);
 let lifecycle = Promise.resolve();
 let boot;
+let stopping;
+const STOP_ANSWER_MS = 80_000;
 function exclusive(work) {
   const result = lifecycle.then(work);
   lifecycle = result.catch(() => {});
@@ -237,12 +239,19 @@ const routes = {
     }).finally(() => { boot = undefined; });
   },
 
-  "POST /stop": async () => { await apps.stop(); return exclusive(async () => {
-    const start = Date.now();
-    for (const client of streams.clients) client.close();
-    await script("stop.sh");
-    return { stopped: true, seconds: Math.round((Date.now() - start) / 1000) };
-  }); },
+  // GitHub's port forward ends a request after about 100 s, but stop.sh may wait 120 s for qemu.
+  // So answer within 80 s. A later POST /stop joins the same stop and reports its result.
+  "POST /stop": async () => {
+    stopping ??= (async () => { await apps.stop(); return exclusive(async () => {
+      const start = Date.now();
+      for (const client of streams.clients) client.close();
+      await script("stop.sh");
+      return { stopped: true, seconds: Math.round((Date.now() - start) / 1000) };
+    }); })().finally(() => { setTimeout(() => { stopping = undefined; }, 60_000); });
+    let timer;
+    const pending = new Promise(resolve => { timer = setTimeout(() => resolve({ stopped: false, pending: true }), STOP_ANSWER_MS); });
+    try { return await Promise.race([stopping, pending]); } finally { clearTimeout(timer); }
+  },
 
   "POST /key": async ({ key }) => {
     const keys = { home: "3", back: "4" };

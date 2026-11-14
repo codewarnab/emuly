@@ -5,6 +5,8 @@ import { phoneTiming } from "./phone-timing.ts";
 const HIDDEN_DISCONNECT_MS = 60_000;
 const RESUME_FRAME_WAIT_MS = 5_000;
 const FIRST_FRAME_WAIT_MS = 6_000;
+// Browser -> Vercel -> GitHub port forward -> runner can take several seconds to open.
+const CONNECT_WAIT_MS = 20_000;
 
 export type VideoConnectionState = "connecting" | "streaming" | "retrying" | "suspended" | "fallback" | "stopped" | "disposed";
 type VideoConnectionOptions = {
@@ -133,17 +135,19 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
       url.searchParams.set("quality", quality);
       const ws = new WebSocket(url); socket = ws; ws.binaryType = "arraybuffer";
       let config = new Uint8Array(), needKey = true, lastMessage = Date.now(), lastVideo = lastMessage;
-      let decoded = false, painted = false;
+      let decoded = false, painted = false, opened = false;
       // Do not remove or merge this check into the pong-based watchdog "for efficiency".
       // Pongs prove only that the socket is open, not that video works. When pongs counted as
       // liveness, a socket with no video stayed open for minutes. The page showed an old image
       // ("Reconnecting · showing last image") until the user pressed a key or reloaded.
-      // Rule: no painted frame within FIRST_FRAME_WAIT_MS after connect -> close and retry.
+      // Rule: no painted frame within FIRST_FRAME_WAIT_MS after the socket opens -> close and retry.
+      // The socket itself gets CONNECT_WAIT_MS to open. Do not start the frame wait before open:
+      // a slow open then always failed, and the page showed "Reconnecting" again and again.
       // After the first paint, a static screen may send no frames. That is normal, so do not close then.
       const stale = () => { report?.("reconnect", "stale"); ws.close(); };
-      firstFrame = setTimeout(() => { if (current(ws, attempt) && !painted) stale(); }, FIRST_FRAME_WAIT_MS);
+      firstFrame = setTimeout(() => { if (current(ws, attempt) && !opened) stale(); }, CONNECT_WAIT_MS);
       watchdog = setInterval(() => {
-        if (!current(ws, attempt)) return;
+        if (!current(ws, attempt) || !opened) return;
         if (!painted && Date.now() - lastVideo >= FIRST_FRAME_WAIT_MS) { stale(); return; }
         if (Date.now() - lastMessage > 15_000) { ws.close(); return; }
         // Heartbeats must continue even when Android's screen is static.
@@ -178,7 +182,13 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
         },
         error() { if (!current(ws, attempt)) return; report?.("reconnect", "decoder_failed"); ws.close(); },
       });
-      ws.onopen = () => { if (current(ws, attempt)) ws.send(JSON.stringify({ type: "ping", time: Date.now() })); };
+      ws.onopen = () => {
+        if (!current(ws, attempt)) return;
+        opened = true; lastMessage = lastVideo = Date.now();
+        clearTimeout(firstFrame);
+        firstFrame = setTimeout(() => { if (current(ws, attempt) && !painted) stale(); }, FIRST_FRAME_WAIT_MS);
+        ws.send(JSON.stringify({ type: "ping", time: Date.now() }));
+      };
       ws.onmessage = event => {
         if (!current(ws, attempt)) return;
         lastMessage = Date.now();

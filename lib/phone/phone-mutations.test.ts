@@ -884,6 +884,27 @@ test("Stop waits for the runner before stopping GitHub and ignores a late boot c
   } finally { boot.resolve(Response.json({ booted: false })); stop.resolve(Response.json({ stopped: true })); await flush(); await f.close(); }
 });
 
+test("Stop asks the runner again while its answer is pending, then stops GitHub", async () => {
+  let githubStops = 0;
+  const f = fixture(async (url, init) => {
+    if (init?.method === "POST" && String(url).endsWith("/stop")) { githubStops++; return new Response(null, { status: 202 }); }
+    if (String(url).includes("?")) return Response.json({ codespaces: [space("generated-phone-aaaa", "Available")] });
+    return Response.json(space("generated-phone-aaaa", "Available"));
+  });
+  const answers = [{ stopped: false, pending: true }, { stopped: true }];
+  let calls = 0;
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
+    runner: async () => Response.json(answers[calls++]) });
+  try {
+    f.add("phone-aaaa");
+    f.database.exec("UPDATE phones SET state = 'running'");
+    await service.stop(1, "phone-aaaa");
+    assert.equal(calls, 2);
+    assert.equal(githubStops, 1);
+    assert.equal(f.database.prepare("SELECT state FROM phones").get()?.state, "stopping");
+  } finally { await f.close(); }
+});
+
 test("runner and GitHub stop failures preserve the running codespace and leave a recoverable status", async () => {
   let githubStops = 0, runnerFails = true;
   const f = fixture(async (_url, init) => {

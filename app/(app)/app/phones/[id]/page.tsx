@@ -30,6 +30,9 @@ import { mockLog, mockDetail, mockPhones } from "@/lib/shared/fixtures";
 import { streamQuality } from "../../../../../lib/shared/display-settings";
 import { PhoneApps } from "@/components/phone/phone-apps";
 
+// A Stop server action may call the runner three times, up to 80 s each.
+export const maxDuration = 300;
+
 /** Board block 03 — the live screen. Stage left, log right, tabs on top.
     Also board 04: the Danger tab holds the one destructive action. */
 
