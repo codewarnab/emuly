@@ -100,7 +100,9 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
       if (!response.ok) {
         // GitHub answers 401 on the forwarded port while a codespace shuts down. Retrying or switching
         // to the tunnel cannot work then, so we tell the page the phone stopped. Do not remove this check.
-        if (await phoneStopped(response)) {
+        // 401 (logged out), 403 (no access) and 404 (deleted) do not heal by retry. Stop, and let the
+        // page refresh show the login, the error or "Phone stopped".
+        if ([401, 403, 404].includes(response.status) || await phoneStopped(response)) {
           if (attempt === request && !attempt.signal.aborted) {
             report?.("reconnect", "phone_stopped");
             stop(); transition("stopped");

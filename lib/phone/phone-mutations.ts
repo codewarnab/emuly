@@ -438,11 +438,9 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
             if (answer.stopped !== true) throw new PhoneInputError("Android stop was not confirmed. Try Stop again.");
             await event(userId, id, "step", "Android graceful stop completed");
           } catch {
-            if (stored.state === "running") {
-              await database.execute({ sql: "UPDATE phones SET android_state = 'failed', android_error = ? WHERE id = ?", args: ["Android stop failed. Try Stop again.", id] });
-              throw new PhoneInputError("Android stop failed. The codespace is still running. Try Stop again.");
-            }
-            await event(userId, id, "error", "Runner unavailable during setup; stopping without a snapshot.");
+            // A dead runner must not keep the codespace (and the user's hours) running.
+            // Stop the codespace anyway. Android loses only the unsaved snapshot.
+            await event(userId, id, "error", "Android did not confirm a graceful stop; stopping the codespace without a snapshot.");
           }
         }
         await diagnostics.scope(diagnosticOperation, () => measure("github_stop", () => github.stopCodespace(userId, id)));

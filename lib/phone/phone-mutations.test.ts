@@ -905,7 +905,7 @@ test("Stop asks the runner again while its answer is pending, then stops GitHub"
   } finally { await f.close(); }
 });
 
-test("runner and GitHub stop failures preserve the running codespace and leave a recoverable status", async () => {
+test("a dead runner still stops the codespace, and a GitHub stop failure leaves a recoverable status", async () => {
   let githubStops = 0, runnerFails = true;
   const f = fixture(async (_url, init) => {
     if (init?.method === "POST") { githubStops++; throw new GitHubError("synthetic GitHub stop refusal", 503); }
@@ -919,12 +919,12 @@ test("runner and GitHub stop failures preserve the running codespace and leave a
   try {
     f.add("phone-aaaa");
     f.database.exec("UPDATE phones SET state = 'running', android_state = 'ready'");
-    await assert.rejects(service.stop(1, "phone-aaaa"), /codespace is still running/);
-    assert.equal(githubStops, 0);
-    assert.equal(f.database.prepare("SELECT state FROM phones").get()?.state, "running");
-    runnerFails = false;
+    // The runner is down: Emuly must still ask GitHub to stop, so the hours stop.
     await assert.rejects(service.stop(1, "phone-aaaa"), /synthetic GitHub stop refusal/);
     assert.equal(githubStops, 1);
+    runnerFails = false;
+    await assert.rejects(service.stop(1, "phone-aaaa"), /synthetic GitHub stop refusal/);
+    assert.equal(githubStops, 2);
     assert.equal(f.database.prepare("SELECT android_state FROM phones").get()?.android_state, "failed");
   } finally { await f.close(); }
 });
