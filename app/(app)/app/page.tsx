@@ -48,7 +48,7 @@ async function Dashboard({ clock = Date.now }: { clock?: () => number }) {
           { label: "Settings" },
         ]}
       >
-        <Avatar initials={user.initials} login={user.login} />
+        <Avatar initials={user.initials} login={user.login} avatarUrl={user.avatarUrl} />
       </Topbar>
       <main className={`${s.pagewrap} ${s.dashWrap}`} id="main-content" tabIndex={-1}>
       <div className={s.pagehead}>

@@ -13,8 +13,8 @@ export function Brand() {
   );
 }
 
-export function Avatar({ initials, login }: { initials: string; login: string }) {
-  return <UserMenu initials={initials} login={login} />;
+export function Avatar({ initials, login, avatarUrl }: { initials: string; login: string; avatarUrl?: string | null }) {
+  return <UserMenu initials={initials} login={login} avatarUrl={avatarUrl} />;
 }
 
 export function Topbar({

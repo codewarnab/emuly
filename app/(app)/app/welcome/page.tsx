@@ -27,7 +27,7 @@ async function Welcome({ searchParams }: Props) {
   const current = await chosenPlan(asyncDb(), user.id);
   return <>
     <Topbar nav={[{ label: "Phones" }, { label: "Settings" }]}>
-      <Avatar initials={user.initials} login={user.login} />
+      <Avatar initials={user.initials} login={user.login} avatarUrl={user.avatarUrl} />
     </Topbar>
     <main className={`${s.pagewrap} ${s.welcome}`} id="main-content" tabIndex={-1}>
       <h1>Which GitHub plan do you have?</h1>

@@ -19,6 +19,7 @@
 .quota { font-size: 13px; color: var(--dim); display: flex; gap: 6px; }
 .quotaBar, .quotaTxt { display: none; }
 .avatar { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; color: var(--accent); background: var(--accent-soft); font-size: 13px; font-weight: 700; }
+.avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
 .userMenu { position: relative; flex: none; }
 .usageMeta { margin: 4px 0 0; color: var(--dim); font-size: 13px; }
 .usageMeta a { color: var(--dim); text-decoration: underline; text-underline-offset: 3px; }

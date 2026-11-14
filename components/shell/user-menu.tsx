@@ -18,7 +18,19 @@ function Icon({ name }: { name: keyof typeof icons }) {
     strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{icons[name]}</svg>;
 }
 
-export function UserMenu({ initials, login }: { initials: string; login: string }) {
+/** Only GitHub's avatar host. Other URLs show the initials. */
+function githubAvatar(url: string | null | undefined) {
+  try { return url && new URL(url).hostname === "avatars.githubusercontent.com" && url.startsWith("https://") ? url : null; }
+  catch { return null; }
+}
+
+export function UserMenu({ initials, login, avatarUrl }: { initials: string; login: string; avatarUrl?: string | null }) {
+  const [broken, setBroken] = useState(false);
+  const photo = broken ? null : githubAvatar(avatarUrl);
+  const face = (size: number) => photo
+    ? <img src={`${photo}${photo.includes("?") ? "&" : "?"}s=${size * 2}`} alt="" width={size} height={size}
+      referrerPolicy="no-referrer" onError={() => setBroken(true)} />
+    : initials;
   const [phase, setPhase] = useState<Phase>("closed");
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -55,13 +67,13 @@ export function UserMenu({ initials, login }: { initials: string; login: string 
     <button ref={trigger} type="button" className={s.avatarButton} aria-label={`Account: ${login}`}
       aria-haspopup="menu" aria-expanded={open} aria-controls={id}
       onClick={() => setPhase(p => (p === "open" ? "closing" : "open"))}>
-      <span className={s.avatar}>{initials}</span>
+      <span className={s.avatar}>{face(34)}</span>
     </button>
     {phase !== "closed" && <div ref={panel} id={id} role="menu" aria-label="Account" data-state={phase}
       className={s.menuContent} onKeyDown={onMenuKey}
       onAnimationEnd={() => setPhase(p => (p === "closing" ? "closed" : p))}>
       <div className={s.menuHeader}>
-        <span className={`${s.avatar} ${s.avatarLarge}`} aria-hidden="true">{initials}</span>
+        <span className={`${s.avatar} ${s.avatarLarge}`} aria-hidden="true">{face(40)}</span>
         <span className={s.menuWho}><small>Signed in as</small><b>{login}</b></span>
       </div>
       <div className={s.menuGroup}>

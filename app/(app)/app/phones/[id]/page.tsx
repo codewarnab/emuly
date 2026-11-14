@@ -100,7 +100,7 @@ async function PhoneContent({
           Stop
         </Button>
         <span id="phone-control-note" className={s.srOnly}>Phone controls are not connected yet.</span>
-        <Avatar initials={user.initials} login={user.login} />
+        <Avatar initials={user.initials} login={user.login} avatarUrl={user.avatarUrl} />
       </Topbar>
 
       <main className={s.detail} id="main-content" tabIndex={-1}>
@@ -128,7 +128,7 @@ export default function PhonePage(props: Props) {
 
 async function StoredPhone({ phone, user, search, syncError }: {
   phone: Phone;
-  user: { id: number; login: string; initials: string };
+  user: { id: number; login: string; initials: string; avatarUrl: string | null };
   search: Promise<{ tab?: string }>;
   syncError: SyncError | null;
 }) {
@@ -144,7 +144,7 @@ async function StoredPhone({ phone, user, search, syncError }: {
   return <>
     <KeyboardTools phones={(await listPhones(user.id)).map(item => ({ id: item.id, name: item.name }))} />
     <Topbar breadcrumb={["Phones", phone.name]}>
-      <Avatar initials={user.initials} login={user.login} />
+      <Avatar initials={user.initials} login={user.login} avatarUrl={user.avatarUrl} />
     </Topbar>
     <main className={`${s.detail} ${screenReady ? s.detailLive : ""}`} id="main-content" tabIndex={-1}>
       {(!syncError || syncError.kind === "other") && <PhoneRefresh />}

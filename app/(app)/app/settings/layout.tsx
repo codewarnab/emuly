@@ -20,7 +20,7 @@ async function SettingsShell({ children }: { children: React.ReactNode }) {
   const plan = override?.allowance_override != null ? "custom" : (await chosenPlan(asyncDb(), user.id)) ?? "free";
   return <>
     <Topbar nav={[{ label: "Phones" }, { label: "Settings", on: true }]}>
-      <Avatar initials={user.initials} login={user.login} />
+      <Avatar initials={user.initials} login={user.login} avatarUrl={user.avatarUrl} />
     </Topbar>
     <main className={s.pagewrap} id="main-content" tabIndex={-1}>
       <div className={s.pagehead}><h1>Settings</h1></div>
