@@ -30,9 +30,18 @@
  .faq { grid-template-columns: 1fr; gap: 12px; padding: 36px 0 40px; } .faq h2 { font-size: 25px; } .footer { margin: 0 20px; }
 }
 
-.agents { list-style: none; display: flex; flex-wrap: wrap; gap: 10px 22px; padding: 0; margin: 4px 0 20px; }
-.agents li { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; color: var(--text); }
-.agents img { width: 20px; height: 20px; object-fit: contain; }
+.marquee { position: relative; overflow: hidden; margin: 0 0 20px; max-width: 620px;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); }
+.track { list-style: none; display: flex; width: max-content; gap: 30px; padding: 6px 0; margin: 0;
+  animation: marquee 80s linear infinite; will-change: transform; }
+.marquee:hover .track { animation-play-state: paused; }
+.track li { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; color: var(--text); white-space: nowrap; }
+.track img { width: 20px; height: 20px; object-fit: contain; }
+/* Two copies of the list; the gap is part of each copy, so -50% lands on a seamless loop. */
+.track li:last-child { margin-right: 30px; }
+@keyframes marquee { from { transform: translate3d(0,0,0); } to { transform: translate3d(-50%,0,0); } }
+@media (prefers-reduced-motion: reduce) { .track { animation: none; flex-wrap: wrap; width: auto; } .track li[aria-hidden] { display: none; } }
 .onDark { display: none; }
 [data-theme="dark"] .onLight { display: none; }
 [data-theme="dark"] .onDark { display: inline; }

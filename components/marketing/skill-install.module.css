@@ -1,0 +1,20 @@
+.link { background: none; border: 0; padding: 0; margin: 0 0 0 6px; font: inherit; color: var(--dim); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; cursor: pointer; }
+.link:hover { color: var(--text); text-decoration-color: currentColor; }
+.sub { margin: 0 0 18px; font-size: 14px; line-height: 1.55; color: var(--dim); }
+.copy { margin-bottom: 24px; }
+.label { margin: 0 0 10px; font-size: 12px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); }
+.marquee { overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); }
+.track { list-style: none; display: flex; width: max-content; gap: 28px; padding: 6px 0; margin: 0; animation: skillMarquee 70s linear infinite; }
+.marquee:hover .track { animation-play-state: paused; }
+.track li { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; white-space: nowrap; }
+.track li:last-child { margin-right: 28px; }
+.track img { width: 18px; height: 18px; object-fit: contain; }
+@keyframes skillMarquee { to { transform: translate3d(-50%,0,0); } }
+@media (prefers-reduced-motion: reduce) { .track { animation: none; flex-wrap: wrap; width: auto; } .track li[aria-hidden] { display: none; } }
+.onDark { display: none; }
+[data-theme="dark"] .onLight { display: none; }
+[data-theme="dark"] .onDark { display: inline; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .onLight { display: none; }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .onDark { display: inline; }
+}
