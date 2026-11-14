@@ -13,5 +13,8 @@
   "image": "mcr.microsoft.com/devcontainers/universal:2",
   // The emulator needs the 4-core machine (PHONE_MACHINE in lib/github.ts).
   "hostRequirements": { "cpus": 4, "memory": "16gb", "storage": "32gb" },
+  // A prebuild saves the result of onCreateCommand: the Android SDK, the system image and the AVD.
+  // Without a prebuild it runs at create time, and setup.sh's lock keeps the server's setup waiting.
+  "onCreateCommand": "bash phone/scripts/prebuild.sh",
   "postStartCommand": "bash -c 'f=\"$HOME/emuly/scripts/autostart.sh\"; [ -f \"$f\" ] && bash \"$f\"; exit 0'"
 }

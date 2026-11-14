@@ -3,6 +3,10 @@
 # Pipe-run from OCI: gh codespace ssh -c <NAME> -- bash -s < oci-vm/android/emu-codespace/setup.sh
 # Assumes Ubuntu 24.04 blank-template codespace (user "codespace" with passwordless sudo).
 set -euo pipefail
+# onCreateCommand (prebuild.sh) and the server's setup can start at the same time on a new
+# codespace. Two sdkmanager runs in one SDK folder break it, so one setup waits for the other.
+exec 8>/tmp/emuly-setup.lock
+flock -w 900 8 || { echo "FATAL: another setup still runs after 900 s"; exit 1; }
 source "$(dirname "$0")/progress.sh"
 ph_begin kvm
 
@@ -12,8 +16,14 @@ IMAGE="${IMAGE:-system-images;android-36;google_apis;x86_64}"  # Android 16, def
 CMD_TOOLS_ZIP="commandlinetools-linux-11076708_latest.zip"
 CMD_TOOLS_URL="https://dl.google.com/android/repository/${CMD_TOOLS_ZIP}"
 
+# EMULY_PREBUILD=1 (phone/scripts/prebuild.sh): install the SDK, the image and the AVD only.
+# The prebuild machine may have no KVM, and the runner files arrive later from the server.
+PREBUILD="${EMULY_PREBUILD:-0}"
+
 # --- 1. KVM access (resets on every stop/start; re-applied here) ---
-if [ -e /dev/kvm ]; then
+if [ "$PREBUILD" = 1 ]; then
+  echo "KVM: skipped (prebuild)"
+elif [ -e /dev/kvm ]; then
   sudo chgrp "$(id -gn)" /dev/kvm 2>/dev/null || sudo chmod 660 /dev/kvm
   sudo chmod 660 /dev/kvm
   test -r /dev/kvm && test -w /dev/kvm || { echo "FATAL: /dev/kvm not accessible even after fix"; exit 1; }
@@ -104,6 +114,10 @@ else
   echo "AVD: $AVD_NAME exists, left untouched (state preserved)"
 fi
 ph_end succeeded none "$disposition"
+
+if [ "$PREBUILD" = 1 ]; then echo "PREBUILD OK: SDK, image and AVD are ready."; exit 0; fi
+# Release the lock before later steps: a daemon they start would inherit fd 8 and hold it.
+exec 8>&-
 
 echo
 echo "SETUP OK. Serial hint: emulator-5554 (boot.sh uses -port 5554)."
