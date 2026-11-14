@@ -831,6 +831,25 @@ test("a broken /boot call keeps booting while the runner answers, so the next sy
   } finally { [console.error, console.warn] = quiet; await f.close(); }
 });
 
+test("a runner that autostart.sh started skips setup over SSH and goes straight to boot", async () => {
+  const f = fixture(async () => Response.json({ codespaces: [space("generated-phone-aaaa", "Available")] }));
+  let sshSetups = 0;
+  const paths: string[] = [];
+  const setup = Object.assign(async () => { sshSetups++; return "ready" as const; }, { quickCheck: async () => true });
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
+    setup, runner: async (_user, _id, path) => { paths.push(path); return Response.json({ booted: true }); } });
+  const phone = () => f.database.prepare("SELECT state, android_state FROM phones WHERE id = 'phone-aaaa'").get()!;
+  try {
+    f.add("phone-aaaa");
+    await service.sync(1);
+    for (let i = 0; i < 50 && phone().android_state !== "ready"; i++) await flush();
+    assert.equal(sshSetups, 0);
+    assert.deepEqual(paths, ["/boot"]);
+    assert.equal(phone().state, "running");
+    assert.equal(phone().android_state, "ready");
+  } finally { await f.close(); }
+});
+
 test("Stop waits for the runner before stopping GitHub and ignores a late boot completion", async () => {
   let githubStops = 0;
   const f = fixture(async (url, init) => {

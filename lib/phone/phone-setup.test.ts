@@ -72,3 +72,32 @@ test("setup packages an Apps runner that loads with plain Node outside the repos
     assert.deepEqual(JSON.parse(output), { createApps: "function", MAX_APK: 250 * 1024 * 1024, CHUNK_SIZE: 4 * 1024 * 1024 });
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("setup uploads autostart.sh and a scripts version, and run.sh marks a finished setup", () => {
+  const script = generatedScript();
+  assert.match(script, /base64 -d > "scripts\/autostart\.sh"/);
+  assert.match(script, /echo '[a-f0-9]{16}' > \.scripts-version/);
+  const encoded = script.match(/echo '([A-Za-z0-9+/=]+)' \| base64 -d > "run\.sh"/)?.[1];
+  assert.match(Buffer.from(encoded!, "base64").toString("utf8"), /touch \.setup-done/);
+});
+
+test("the quick check skips SSH only for a runner with this server's scripts", () => {
+  const result = execFileSync(process.execPath, ["--conditions=react-server", ...transform,
+    "--input-type=module", "--eval", `
+      const { createPhoneSetup, scriptsVersion } = await import(process.argv[1]);
+      const setup = createPhoneSetup({ token: async () => "token" });
+      const reply = body => async (url, init) => {
+        if (url !== "https://space-a-8790.app.github.dev/health" || init.headers["X-Github-Token"] !== "token") throw new Error("bad request");
+        return Response.json(body);
+      };
+      const current = { ok: true, version: 10, scripts: scriptsVersion() };
+      process.stdout.write(JSON.stringify([
+        await setup.quickCheck(1, "space-a", reply(current)),
+        await setup.quickCheck(1, "space-a", reply({ ...current, scripts: "0000000000000000" })),
+        await setup.quickCheck(1, "space-a", reply({ ok: true, version: 10 })),
+        await setup.quickCheck(1, "space-a", async () => { throw new Error("offline"); }),
+        await setup.quickCheck(1, "bad name/..", reply(current)),
+      ]));
+    `, pathToFileURL(resolve("lib/phone/phone-setup.ts")).href], { encoding: "utf8", timeout: 10_000 });
+  assert.deepEqual(JSON.parse(result), [true, false, false, false, false]);
+});

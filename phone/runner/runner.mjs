@@ -15,6 +15,8 @@ import { basename, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+// Written by the server's setup. The server compares it to skip SSH on a wake.
+const SCRIPTS_VERSION = await readFile(join(ROOT, ".scripts-version"), "utf8").then(text => text.trim(), () => "unknown");
 const SDK = process.env.SDK_DIR ?? "/opt/android-sdk";
 const ADB = join(SDK, "platform-tools", "adb");
 const SERIAL = "emulator-5554";
@@ -222,7 +224,7 @@ const apps = await createApps({ root: join(ROOT, "data", "app-installs"), sdk: S
 const agentDevice = startAgentDeviceProxy({ sdk: SDK });
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 10, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles"], avd: "t", api_level: 36, booted: await booted() }),
+  "GET /health": async () => ({ ok: true, version: 10, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles"], avd: "t", api_level: 36, booted: await booted() }),
 
   "POST /boot": ({ diagnosticOperation }) => {
     return boot ??= exclusive(async () => {

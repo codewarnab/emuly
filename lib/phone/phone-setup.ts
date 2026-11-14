@@ -1,5 +1,6 @@
 import "server-only";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { codespaceExec } from "../github/codespace-tunnel.ts";
 import { AGENT_DEVICE_VERSION } from "../agent-device-version.ts";
@@ -7,12 +8,22 @@ import { collectProgress, measure, progressCursor, diagnosticHealth, diagnosticO
 import { validateStep, type Step } from "../diagnostics/diagnostic-contract.ts";
 
 /** Files copied into each codespace, relative to `phone/` in this repository. */
-const FILES = ["scripts/progress.sh", "scripts/read-progress.py", "scripts/bounded-log.py", "scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "runner/runner.mjs", "runner/agent-device-proxy.mjs", "runner/apps.mjs", "runner/apps-protocol.mjs", "runner/adb-protocol.mjs", "runner/apk-download.mjs", "runner/scrcpy.mjs", "runner/scrcpy-protocol.mjs"];
+const FILES = ["scripts/progress.sh", "scripts/read-progress.py", "scripts/bounded-log.py", "scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "scripts/autostart.sh", "runner/runner.mjs", "runner/agent-device-proxy.mjs", "runner/apps.mjs", "runner/apps-protocol.mjs", "runner/adb-protocol.mjs", "runner/apk-download.mjs", "runner/scrcpy.mjs", "runner/scrcpy-protocol.mjs"];
 
 /** The pinned version reaches shell scripts, so refuse anything that is not a plain release version. */
 function agentDeviceExport() {
   if (!/^\d+\.\d+\.\d+$/.test(AGENT_DEVICE_VERSION)) throw new Error("Invalid AGENT_DEVICE_VERSION");
   return `export AGENT_DEVICE_VERSION=${AGENT_DEVICE_VERSION}`;
+}
+
+/**
+ * A short hash of every uploaded file. The runner reports it in /health, so the server can
+ * tell that a runner started by autostart.sh runs the scripts of this server version.
+ */
+export function scriptsVersion(root = join(process.cwd(), "phone")) {
+  const hash = createHash("sha256");
+  for (const file of FILES) hash.update(file).update("\0").update(readFileSync(join(root, file), "utf8").replace(/\r\n/g, "\n"));
+  return hash.digest("hex").slice(0, 16);
 }
 
 export class PhoneSetupError extends Error {}
@@ -29,7 +40,7 @@ if [ -d "$HOME/.android/avd/t.avd" ] && [ -x /opt/android-sdk/emulator/emulator 
 fi
 if bash scripts/setup.sh && bash scripts/start-runner.sh; then
   ph_begin runner_health
-  for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8790/health >/dev/null 2>&1 && { ph_end; exit 0; }; sleep 1; done
+  for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8790/health >/dev/null 2>&1 && { ph_end; touch .setup-done; exit 0; }; sleep 1; done
   ph_end failed timeout
 fi
 touch .failed
@@ -47,6 +58,7 @@ export function setupScript(root = join(process.cwd(), "phone"), cursor = 0) {
     ["runner/ws.LICENSE", readFileSync(join(process.cwd(), "node_modules/next/dist/compiled/ws/LICENSE")).toString("base64")],
     ["run.sh", Buffer.from(RUN.replace('builtin cd', `export EMULY_DIAGNOSTICS=${diagnosticOperation() ? "1" : "0"}\nexport PH_OPERATION_ID=${diagnosticOperation() ?? "disabled"}\n${agentDeviceExport()}\nbuiltin cd`)).toString("base64")]];
   const writes = files.map(([file, body]) => `mkdir -p "$(dirname "${file}")"\necho '${body}' | base64 -d > "${file}"`);
+  writes.push(`echo '${scriptsVersion(root)}' > .scripts-version`);
   // A plain shell, not a login shell: the image's rvm profile fails under bash and kills the run.
   // Node comes from the image's nvm, which the profile would add to PATH.
   return `export PATH="/usr/local/share/nvm/current/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
@@ -125,6 +137,21 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
       await ingest(result.output);
     } catch { diagnosticHealth.collectorFailures++; }
   }
+  /**
+   * Asks the runner directly through GitHub's port forward, without SSH. True when a runner
+   * that autostart.sh started already answers with this server's scripts.
+   */
+  async function quickCheck(userId: number, codespaceName: string, fetcher: typeof fetch = fetch) {
+    if (!/^[\w-]{1,100}$/.test(codespaceName)) return false;
+    try {
+      const secret = await token(userId);
+      const response = await fetcher(`https://${codespaceName}-8790.app.github.dev/health`, { headers: { "X-Github-Token": secret },
+        redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(5000) });
+      if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) { await response.body?.cancel(); return false; }
+      const health = await response.json();
+      return health?.ok === true && health.version === 10 && health.scripts === scriptsVersion();
+    } catch { return false; }
+  }
   return Object.assign(async function setupPhone(userId: number, codespaceName: string): Promise<SetupResult> {
     const secret = await measure("credential_lookup", () => token(userId));
     let result;
@@ -138,5 +165,5 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
     if (result.code === 0 && output.includes("EMULY_READY")) return { state: "ready", ...progress };
     if (result.code === 0 && output.includes("EMULY_WORKING")) return { state: "working", ...progress };
     return { state: "failed", ...progress };
-  }, { collect });
+  }, { collect, quickCheck });
 }

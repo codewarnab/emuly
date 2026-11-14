@@ -38,7 +38,10 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
   database: Client;
   /** Installs the emulator and runner in an Available codespace. Without it, phones stay booting. */
   /** Starts or checks phone setup. "working" means: ask again later. */
-  setup?: (userId: number, codespaceName: string) => Promise<"ready" | "working" | SetupResult>;
+  setup?: ((userId: number, codespaceName: string) => Promise<"ready" | "working" | SetupResult>) & {
+    /** True when the runner already answers with current scripts, so setup over SSH can be skipped. */
+    quickCheck?: (userId: number, codespaceName: string) => Promise<boolean>;
+  };
   collectProgress?: (userId: number, codespaceName: string) => Promise<void>;
   runner?: (userId: number, id: string, path: "/boot" | "/stop" | "/health", body?: Record<string, unknown>) => Promise<Response>;
   /** Runs `bootNow` in a separate request (on Vercel: a fresh function invocation). */
@@ -193,6 +196,8 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
       let status: "ready" | "working" | "failed";
       try {
         status = await diagnostics.scope(operationId, () => measure("setup_check", async () => {
+          // A runner that autostart.sh started answers without SSH; skip the SSH connect.
+          if (await setup.quickCheck?.(userId, codespaceName)) return "ready";
           const result = await setup(userId, codespaceName);
           const state = typeof result === "string" ? result : result.state;
           if (state === "failed") throw new Error("Phone setup failed.");

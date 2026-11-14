@@ -1,13 +1,17 @@
 // The codespace that each emuly phone runs in.
 // emuly creates it with devcontainer_path=.devcontainer/phone/devcontainer.json, then
 // installs Android and starts the runner over the codespace tunnel (lib/phone-setup.ts,
-// files from phone/). So this file has no lifecycle commands: the server is the one place
-// that runs setup, and it always sends the scripts that match its own version.
+// files from phone/). The server is the one place that installs or updates files, and it
+// always sends the scripts that match its own version.
+// postStartCommand only restarts what an earlier setup installed (phone/scripts/autostart.sh),
+// so a wake does not wait for the server's poll and SSH connect. Before the first setup the
+// file does not exist and the command does nothing.
 {
   "name": "Emuly phone",
   // GitHub's default codespace image. Hosts keep it cached, so the codespace starts fast,
   // and it already has Node for the runner.
   "image": "mcr.microsoft.com/devcontainers/universal:2",
   // The emulator needs the 4-core machine (PHONE_MACHINE in lib/github.ts).
-  "hostRequirements": { "cpus": 4, "memory": "16gb", "storage": "32gb" }
+  "hostRequirements": { "cpus": 4, "memory": "16gb", "storage": "32gb" },
+  "postStartCommand": "bash -c 'f=\"$HOME/emuly/scripts/autostart.sh\"; [ -f \"$f\" ] && bash \"$f\"; exit 0'"
 }
