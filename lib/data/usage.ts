@@ -48,7 +48,7 @@ export async function saveAllowance(database: Client, userId: number, allowance:
   await updateSettings(database, userId, { allowance_core_hours: allowance });
 }
 
-function monthStart(now: number) {
+export function monthStart(now: number) {
   const date = new Date(now);
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)).toISOString();
 }

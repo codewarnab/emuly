@@ -298,4 +298,8 @@ export const MIGRATIONS = [
   CREATE INDEX IF NOT EXISTS rate_limit_hits_bucket_key_ts ON rate_limit_hits(bucket, key, ts);
   CREATE INDEX IF NOT EXISTS rate_limit_hits_ts ON rate_limit_hits(ts);
   `,
+  // Usage snapshots were never written or read. Hours come from the runs table and GitHub billing.
+  `DROP TABLE IF EXISTS usage_snapshots;`,
+  // The runner secret was for a codespace runner that was never built. Nothing read it.
+  `ALTER TABLE phones DROP COLUMN runner_secret;`,
 ];

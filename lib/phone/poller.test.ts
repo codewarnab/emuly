@@ -57,9 +57,9 @@ function fixture() {
     add(id = "phone-aaaa", userId = 1) {
       const name = `generated-${id}`;
       database.prepare(`INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, cores,
-        state, created_at, last_started_at, idle_timeout_min, runner_secret)
-        VALUES (?, ?, ?, 'fixture/template', 'fixture', 2, 'running', ?, ?, 30, ?)`)
-        .run(id, userId, name, new Date(time).toISOString(), new Date(time).toISOString(), Buffer.from("secret-fixture"));
+        state, created_at, last_started_at, idle_timeout_min)
+        VALUES (?, ?, ?, 'fixture/template', 'fixture', 2, 'running', ?, ?, 30)`)
+        .run(id, userId, name, new Date(time).toISOString(), new Date(time).toISOString());
       spaces.set(name, { id: spaces.size + 1, name, state: "Available", machine: { name: "fixture", cpus: 2 } });
     },
     async close() {
@@ -111,7 +111,7 @@ test("enabling auto-stop below the boundary stops only owned phones once, preser
     await tick(); // Already 30 minutes remaining, but not opted in.
     assert.equal(f.calls.length, 0);
     await updateSettings(f.asyncDatabase, 1, { auto_stop_before_empty: true });
-    const before = f.database.prepare("SELECT codespace_name, runner_secret FROM phones WHERE id = 'phone-aaaa'").get();
+    const before = f.database.prepare("SELECT codespace_name FROM phones WHERE id = 'phone-aaaa'").get();
     await tick();
     await f.makeTick()(); // Available can remain stale after stop returns 202.
     assert.deepEqual(f.calls, ["/user/codespaces/generated-phone-aaaa/stop"]);
@@ -133,7 +133,7 @@ test("enabling auto-stop below the boundary stops only owned phones once, preser
     await f.service.start(1, "phone-aaaa");
     await tick();
     assert.equal((await readUsage(f.asyncDatabase, 1, f.clock)).running.length, 1);
-    assert.deepEqual(f.database.prepare("SELECT codespace_name, runner_secret FROM phones WHERE id = 'phone-aaaa'").get(), before);
+    assert.deepEqual(f.database.prepare("SELECT codespace_name FROM phones WHERE id = 'phone-aaaa'").get(), before);
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM runs WHERE phone_id = 'phone-aaaa'").get()?.n, 2);
   } finally { await f.close(); }
 });

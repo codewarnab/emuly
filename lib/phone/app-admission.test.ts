@@ -17,7 +17,7 @@ test("Install admission reclaims a phone's own claim and ignores phones that can
     await database.execute("PRAGMA foreign_keys = ON");
     await database.execute({ sql: "INSERT INTO users (id, github_id, login, token_cipher, token_scopes, created_at, last_seen_at) VALUES (1, 1, 'owner', x'00', '', '2026-01-01', '2026-01-01')", args: [] });
     for (const [id, state] of [["one", "running"], ["two", "running"], ["three", "running"], ["gone", "stopped"]])
-      await database.execute({ sql: "INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state, created_at, runner_secret) VALUES (?, 1, ?, 'owner/repo', 'd4', ?, '2026-01-01', x'00')",
+      await database.execute({ sql: "INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state, created_at) VALUES (?, 1, ?, 'owner/repo', 'd4', ?, '2026-01-01')",
         args: [id, `phone-${id}`, state] });
     // A claim left behind by a stopped phone must not consume an account slot.
     await database.execute({ sql: "INSERT INTO app_admissions (phone_id, user_id, operation_key, expires_at) VALUES ('gone', 1, 'stale', unixepoch() + 1800)", args: [] });

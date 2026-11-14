@@ -4,7 +4,6 @@ import { withLease, independentWork } from "../data/coordination.ts";
 import type { SetupResult } from "./phone-setup.ts";
 import { validIdle } from "../shared/idle.ts";
 import { randomBytes } from "node:crypto";
-import { contexts } from "../auth/crypto-core.ts";
 import { transaction, type DatabaseQueries } from "../data/async-database.ts";
 import { GitHubError, type Codespace, type createGitHubClient } from "../github/github.ts";
 import { assertMutationRate } from "../data/rate-limit.ts";
@@ -38,7 +37,7 @@ const STOP_ATTEMPTS = 3;
 /** How long a wake asks the autostarted runner before setup falls back to SSH. */
 const WAKE_CHECK_MS = 20_000;
 
-export function createPhoneService({ database, github, encrypt, clock = Date.now, maxPhones, setup, collectProgress, runner, dispatchBoot, disconnect, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), emit = (event, queries = database) => emitEvent(event, queries) }: {
+export function createPhoneService({ database, github, clock = Date.now, maxPhones, setup, collectProgress, runner, dispatchBoot, disconnect, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), emit = (event, queries = database) => emitEvent(event, queries) }: {
   database: Client;
   /** Installs the emulator and runner in an Available codespace. Without it, phones stay booting. */
   /** Starts or checks phone setup. "working" means: ask again later. */
@@ -52,7 +51,8 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
   dispatchBoot?: (userId: number, id: string) => Promise<void>;
   disconnect?: (userId: number, id: string, codespaceName: string) => void;
   github: GitHub;
-  encrypt: (value: string, context: string) => Uint8Array;
+  /** Not used since phones stopped storing a runner secret. Callers may still pass it. */
+  encrypt?: (value: string, context: string) => Uint8Array;
   clock?: () => number;
   maxPhones?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -658,7 +658,7 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
           if (count >= maxPhones) throw new PhoneInputError("You reached the local operator's phone safety cap (EMULY_MAX_PHONES).");
         }
         await queries.execute({ sql: `INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state,
-          created_at, runner_secret, idle_timeout_min, retention_min) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, 43200)`, args: [id, userId, `pending:${id}`, input.repository, input.machine ?? "Choosing machine", iso(), encrypt(randomBytes(32).toString("base64url"), contexts.runnerSecret(id)), input.idleTimeoutMin] });
+          created_at, idle_timeout_min, retention_min) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, 43200)`, args: [id, userId, `pending:${id}`, input.repository, input.machine ?? "Choosing machine", iso(), input.idleTimeoutMin] });
         await queries.execute({ sql: `INSERT INTO phone_creations (phone_id, display_name, outcome, requested_at)
           VALUES (?, ?, 'unconfirmed', ?)`, args: [id, id, iso()] });
       });
@@ -766,5 +766,5 @@ export function createPhoneService({ database, github, encrypt, clock = Date.now
 
 export function redact(message: string) {
   return message.replace(/gh[opsu]_[A-Za-z0-9_]{20,}/g, "[redacted]")
-    .replace(/(authorization\s*[:=]\s*|cookie\s*[:=]\s*|runner_secret\s*[:=]\s*)[^\r\n]+/gi, "$1[redacted]");
+    .replace(/(authorization\s*[:=]\s*|cookie\s*[:=]\s*)[^\r\n]+/gi, "$1[redacted]");
 }

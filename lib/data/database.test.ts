@@ -30,6 +30,7 @@ test("migrate applies a migration added after the connection was opened", () => 
     database.exec(`DROP TABLE IF EXISTS agent_keys; DROP TABLE IF EXISTS agent_setup_codes;
       DROP TABLE IF EXISTS agent_device_codes; ALTER TABLE user_settings DROP COLUMN agent_delete_phones;
       ALTER TABLE phones DROP COLUMN agent_device_token_hash;
+      ALTER TABLE phones ADD COLUMN runner_secret BLOB;
       PRAGMA user_version = 11`);
     migrate(database);
     assert.equal((database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, latest);
@@ -48,7 +49,7 @@ test("migration 5 preserves saved allowances from v4 as explicit overrides", () 
   try {
     database.exec(`CREATE TABLE users (id INTEGER PRIMARY KEY);
       CREATE TABLE user_settings (user_id INTEGER PRIMARY KEY REFERENCES users(id), allowance_core_hours REAL NOT NULL DEFAULT 120);
-      CREATE TABLE phones (id TEXT PRIMARY KEY, codespace_name TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE TABLE phones (id TEXT PRIMARY KEY, codespace_name TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL, runner_secret BLOB);
       INSERT INTO users VALUES (1), (2);
       INSERT INTO user_settings VALUES (1, 120), (2, 200);
       PRAGMA user_version = 4;`);
@@ -118,6 +119,7 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
     database.close();
     database = openDatabase(filename);
     assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, MIGRATIONS.length);
+    assert.equal(database.prepare("SELECT name FROM sqlite_master WHERE name IN ('usage_snapshots', 'backups')").get(), undefined);
     assert.deepEqual({ ...database.prepare("SELECT * FROM phone_creations").get() }, {
       phone_id: "phone-bbbb", display_name: "phone-bbbb", outcome: "unconfirmed", requested_at: "2026-11-02",
     });
@@ -125,7 +127,9 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
     const { idle_timeout_min, cores, retention_min, stop_reason, android_state, android_started_at, android_error, agent_device_token_hash, ...preserved } = database.prepare("SELECT * FROM phones WHERE id = 'phone-aaaa'").get()!;
     assert.deepEqual([android_state, android_started_at, android_error, agent_device_token_hash], ["idle", null, null, null]);
     assert.equal(stop_reason, null);
-    assert.deepEqual(preserved, { ...phone });
+    const { runner_secret: dropped, ...kept } = { ...phone };
+    assert.ok(dropped);
+    assert.deepEqual(preserved, kept);
     assert.deepEqual([idle_timeout_min, cores, retention_min], [240, null, 43200]);
     assert.equal(database.prepare("SELECT id FROM sessions").get()?.id, "hashed-session");
     assert.equal(database.prepare("SELECT message FROM events").get()?.message, "old history");

@@ -17,8 +17,8 @@ async function fixture() {
   await migrateHosted(database);
   await database.executeMultiple(`INSERT INTO users (id, github_id, login, token_cipher, token_scopes, created_at, last_seen_at)
     VALUES (1, 1, 'synthetic-private-login', X'00', '', '${ts}', '${ts}'), (2, 2, 'other', X'00', '', '${ts}', '${ts}');
-    INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state, created_at, runner_secret)
-    VALUES ('phone-aaaa', 1, 'synthetic-private-codespace', 'private/repo', 'machine', 'running', '${ts}', X'00');`);
+    INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state, created_at)
+    VALUES ('phone-aaaa', 1, 'synthetic-private-codespace', 'private/repo', 'machine', 'running', '${ts}');`);
   const previous = process.env.EMULY_DIAGNOSTICS, target = process.env.EMULY_DIAGNOSTICS_PHONE;
   process.env.EMULY_DIAGNOSTICS = "1"; delete process.env.EMULY_DIAGNOSTICS_PHONE;
   return { database, store: createDiagnostics(database), close() {

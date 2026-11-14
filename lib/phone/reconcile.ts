@@ -4,6 +4,7 @@ import { latestPhoneControl } from "./phone-control.ts";
 import { createStatePoller } from "./poller.ts";
 import { webhookOutbox } from "../webhooks/webhook-control.ts";
 import { createDiagnostics } from "../diagnostics/diagnostics.ts";
+import { purgeDeletedPhones } from "../data/purge-deleted-phones.ts";
 
 export async function reconcile() {
   const database = asyncDb();
@@ -11,6 +12,7 @@ export async function reconcile() {
     const diagnostics = createDiagnostics(database);
     await diagnostics.reconcile();
     await diagnostics.prune();
+    await purgeDeletedPhones(database);
     const control = latestPhoneControl();
     await createStatePoller({ database, sync: id => control.sync(id),
       autoStop: (userId, id) => control.autoStop(userId, id),

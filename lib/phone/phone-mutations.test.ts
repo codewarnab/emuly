@@ -38,8 +38,8 @@ function fixture(fetcher: typeof fetch) {
     asyncDatabase, database, github, service, advance: (ms: number) => { time += ms; },
     add(id: string, user = 1, name = `generated-${id}`) {
       database.prepare(`INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state,
-        created_at, runner_secret) VALUES (?, ?, ?, 'fixture/template', 'fixture-machine', 'stopped', '2026-11-01', ?)`)
-        .run(id, user, name, seal("synthetic-runner-secret", key, contexts.runnerSecret(id)));
+        created_at) VALUES (?, ?, ?, 'fixture/template', 'fixture-machine', 'stopped', '2026-11-01')`)
+        .run(id, user, name);
     },
     async close() {
       asyncDatabase.close();
@@ -103,9 +103,7 @@ test("create records intent before HTTP, chooses an available machine, sends tim
       assert.equal(row.cores, 2);
       assert.equal(row.idle_timeout_min, n === 1 ? 240 : 30);
       assert.equal(row.retention_min, 43200);
-      const secret = open(row.runner_secret as Uint8Array, key, contexts.runnerSecret(id));
-      assert.equal(secret.length, 43);
-      assert.ok(!JSON.stringify(f.database.prepare("SELECT message FROM events").all()).includes(secret));
+      assert.equal("runner_secret" in row, false);
       f.advance(60_000);
     }
     assert.equal(creates, 3);
@@ -196,7 +194,7 @@ test("interrupted creation survives a restart, blocks replacement, and recovers 
   });
   try {
     await assert.rejects(f.service.create(1, input), /Response timed out/);
-    const before = f.database.prepare("SELECT id, runner_secret FROM phones").get()!;
+    const before = f.database.prepare("SELECT id FROM phones").get()!;
     assert.equal(f.database.prepare("SELECT outcome FROM phone_creations").get()?.outcome, "unconfirmed");
     f.add("phone-bbbb", 2, "pending:phone-bbbb");
     f.database.prepare(`INSERT INTO phone_creations VALUES ('phone-bbbb', 'phone-bbbb', 'unconfirmed', '2026-11-07')`).run();
@@ -216,7 +214,6 @@ test("interrupted creation survives a restart, blocks replacement, and recovers 
     assert.equal(row.codespace_name, "github-recovered");
     assert.equal(row.codespace_id, "41");
     assert.equal(row.state, "booting");
-    assert.deepEqual(row.runner_secret, before.runner_secret);
     assert.equal(f.database.prepare("SELECT outcome FROM phone_creations WHERE phone_id = ?").get(before.id)?.outcome, "confirmed");
     assert.equal(f.database.prepare("SELECT outcome FROM phone_creations WHERE phone_id = 'phone-bbbb'").get()?.outcome, "unconfirmed");
     await restarted.stop(1, String(before.id));
@@ -307,7 +304,7 @@ test("start and stop are idempotent, reconcile asynchronous state, and preserve 
   });
   try {
     f.add("phone-aaaa", 1, current.name);
-    const before = f.database.prepare("SELECT codespace_name, runner_secret FROM phones").get();
+    const before = f.database.prepare("SELECT codespace_name FROM phones").get();
     await f.service.start(1, "phone-aaaa");
     await f.service.start(1, "phone-aaaa");
     assert.deepEqual(writes, ["start"]);
@@ -332,7 +329,7 @@ test("start and stop are idempotent, reconcile asynchronous state, and preserve 
     assert.equal(usage.used_core_hours, 2 * 15 / 3600);
     assert.deepEqual(usage.running, []);
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM runs").get()?.n, 1);
-    assert.deepEqual(f.database.prepare("SELECT codespace_name, runner_secret FROM phones").get(), before);
+    assert.deepEqual(f.database.prepare("SELECT codespace_name FROM phones").get(), before);
   } finally { await f.close(); }
 });
 

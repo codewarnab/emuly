@@ -8,7 +8,6 @@ const columns: Column[] = [
   { table: "users", column: "token_cipher", select: "id, github_id", context: row => contexts.githubAccess(Number(row.github_id)) },
   { table: "users", column: "refresh_cipher", select: "id, github_id", context: row => contexts.githubRefresh(Number(row.github_id)) },
   { table: "webhooks", column: "secret_cipher", select: "id", context: row => contexts.webhookSecret(String(row.id)) },
-  { table: "phones", column: "runner_secret", select: "id", context: row => contexts.runnerSecret(String(row.id)) },
 ];
 
 export type ReencryptResult = { checked: number; updated: number; failed: string[] };

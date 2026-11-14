@@ -59,7 +59,6 @@ export const contexts = {
   githubAccess: (githubId: number | bigint) => `users:gh:${githubId}:access`,
   githubRefresh: (githubId: number | bigint) => `users:gh:${githubId}:refresh`,
   webhookSecret: (webhookId: string) => `webhooks:${webhookId}:secret`,
-  runnerSecret: (phoneId: string) => `phones:${phoneId}:runner`,
 };
 
 export function randomId(bytes = 32): string {

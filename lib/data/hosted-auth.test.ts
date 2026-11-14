@@ -72,8 +72,8 @@ for (const hosted of [false, true]) {
       await updateSettings(client, 1, { allowance_core_hours: 50, auto_keep: true });
       assert.equal((await userSettings(client, 1)).default_idle_min, 45);
       assert.deepEqual(await userSettings(client, 2), otherSettings);
-      await client.execute(`INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state, created_at, runner_secret)
-        VALUES ('synthetic-phone', 1, 'synthetic-space', 'fixture/template', 'fixture', 'running', '2026-11-01', X'00')`);
+      await client.execute(`INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state, created_at)
+        VALUES ('synthetic-phone', 1, 'synthetic-space', 'fixture/template', 'fixture', 'running', '2026-11-01')`);
       const streamTicket = await issueSharedStreamTicket(client, { userId: 1, phoneId: "synthetic-phone", sessionId: "synthetic-session", origin: "https://fixture.example", cookie: "fixture-cookie" });
       assert.equal(await takeSharedStreamTicket(client, streamTicket, "synthetic-phone", "https://fixture.example", "wrong-cookie"), undefined);
       const redeemed = await Promise.all([0, 1].map(() => takeSharedStreamTicket(client, streamTicket, "synthetic-phone", "https://fixture.example", "fixture-cookie")));

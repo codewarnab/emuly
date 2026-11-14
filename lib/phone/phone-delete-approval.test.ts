@@ -15,8 +15,8 @@ async function fixture() {
   await migrateHosted(client);
   await client.execute(`INSERT INTO users (id, github_id, login, token_cipher, token_scopes, created_at, last_seen_at)
     VALUES (1, 123, 'test-user', X'00', 'codespace', '2026-01-01', '2026-01-01')`);
-  await client.execute(`INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state, created_at, runner_secret)
-    VALUES ('phone-quiet-falcon', 1, 'codespace-quiet', 'fixture/template', 'fixture-machine', 'running', '2026-01-01', X'00')`);
+  await client.execute(`INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state, created_at)
+    VALUES ('phone-quiet-falcon', 1, 'codespace-quiet', 'fixture/template', 'fixture-machine', 'running', '2026-01-01')`);
   await client.execute(`INSERT INTO agent_keys (id, user_id, name, key_hash, created_at, expires_at)
     VALUES (42, 1, 'Claude Code', 'hash-42', '2026-01-01', '2027-01-01')`);
   const created = await createPhoneDeleteRequest(client, { userId: 1, phoneId: phone.id, agentKeyId: 42 }, NOW);

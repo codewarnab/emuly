@@ -19,8 +19,8 @@ test("phone lists, cards, and detail share persisted setup failure and handle re
   try {
     database.exec(`INSERT INTO users (id, github_id, login, token_cipher, token_scopes, created_at, last_seen_at)
       VALUES (1, 1, 'fixture', X'00', 'codespace', '2026-11-08', '2026-11-08');
-      INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state, state_detail, created_at, runner_secret)
-      VALUES ('phone-aaaa', 1, 'fixture-space', 'fixture/template', 'fixture-machine', 'booting', 'New wording.', '2026-11-08', X'00');
+      INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state, state_detail, created_at)
+      VALUES ('phone-aaaa', 1, 'fixture-space', 'fixture/template', 'fixture-machine', 'booting', 'New wording.', '2026-11-08');
       INSERT INTO phone_setup_attempts (phone_id, failed, attempt_id) VALUES ('phone-aaaa', 1, 'fixture-attempt');`);
     const detail = (await findPhone(1, "phone-aaaa"))!;
     const listed = (await listPhones(1))[0];

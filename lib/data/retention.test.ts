@@ -69,9 +69,9 @@ function fixture() {
       const expiry = new Date(time + days * DAY).toISOString();
       const stopped = new Date(time + (days - 30) * DAY).toISOString();
       database.prepare(`INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, cores, state,
-        created_at, last_stopped_at, retention_at, retention_min, runner_secret)
-        VALUES (?, ?, ?, 'fixture/template', 'fixture', 2, 'stopped', ?, ?, ?, 43200, ?)`)
-        .run(id, userId, name, stopped, stopped, expiry, Buffer.from("sealed-runner"));
+        created_at, last_stopped_at, retention_at, retention_min)
+        VALUES (?, ?, ?, 'fixture/template', 'fixture', 2, 'stopped', ?, ?, ?, 43200)`)
+        .run(id, userId, name, stopped, stopped, expiry);
       spaces.set(name, { id: spaces.size + 1, name, state: "Shutdown", retention_expires_at: expiry,
         machine: { name: "fixture", cpus: 2 } });
     },
@@ -135,7 +135,7 @@ test("Keep it waits for Available, resumes after restart, confirms shutdown, res
   const f = fixture();
   try {
     f.add(); f.add("phone-bbbb", 2);
-    const before = f.database.prepare("SELECT codespace_name, runner_secret FROM phones WHERE id = 'phone-aaaa'").get();
+    const before = f.database.prepare("SELECT codespace_name FROM phones WHERE id = 'phone-aaaa'").get();
     await f.service.keep(1, "phone-aaaa");
     await f.service.keep(1, "phone-aaaa");
     await assert.rejects(f.service.start(1, "phone-aaaa"), /in progress/);
@@ -164,7 +164,7 @@ test("Keep it waits for Available, resumes after restart, confirms shutdown, res
     assert.equal(f.database.prepare("SELECT state FROM phones WHERE id = 'phone-aaaa'").get()?.state, "stopped");
     assert.equal((await readUsage(f.asyncDatabase, 1, f.clock)).used_core_hours, 0.1);
     assert.equal((await readUsage(f.asyncDatabase, 1, f.clock)).running.length, 0);
-    assert.deepEqual(f.database.prepare("SELECT codespace_name, runner_secret FROM phones WHERE id = 'phone-aaaa'").get(), before);
+    assert.deepEqual(f.database.prepare("SELECT codespace_name FROM phones WHERE id = 'phone-aaaa'").get(), before);
     assert.ok(!JSON.stringify(f.outgoing).includes("sealed-runner"));
   } finally { await f.close(); }
 });
