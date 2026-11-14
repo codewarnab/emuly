@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Public_Sans, Sora } from "next/font/google";
 import "./globals.css";
+import { Analytics } from "@vercel/analytics/next";
 import { UIProvider } from "@/components/ui/ui-provider";
 
 const body = Public_Sans({ subsets: ["latin"], variable: "--font-body", display: "swap" });
@@ -23,7 +24,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" suppressHydrationWarning className={`${body.variable} ${display.variable}`}>
       <head><script dangerouslySetInnerHTML={{ __html: themeScript }} /></head>
-      <body><a className="skip-link" href="#main-content">Skip to content</a><UIProvider>{children}</UIProvider></body>
+      <body><a className="skip-link" href="#main-content">Skip to content</a><UIProvider>{children}</UIProvider><Analytics /></body>
     </html>
   );
 }
