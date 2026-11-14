@@ -1,22 +1,14 @@
-﻿import { spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { connect } from "node:net";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { controlMessage, DeviceMessages, qualities, ScrcpyPackets } from "./scrcpy-protocol.mjs";
 
-// The boot id of the Android boot that already has the jar. A new boot (or a wiped emulator) has a new
-// id, so the jar is copied again. Do not drop the boot id check "to simplify": /data/local/tmp can be
-// empty after a wipe, and scrcpy then fails to start with no clear error.
-let pushedBoot;
-
-// Copying the jar on every connection made each new viewer wait for adb push. Copy it one time per boot.
+// Copy the jar on every connection. Do not cache it per boot "to save time": the scrcpy server
+// deletes its own jar when it starts (cleanup=true). A per-boot cache made every viewer after the
+// first get no video, with no log line. The push takes about 30 ms on the codespace.
 async function pushJar(adb, ROOT) {
-  const boot = (await adb(["shell", "cat", "/proc/sys/kernel/random/boot_id"])).trim();
-  if (boot && boot === pushedBoot) return false;
-  pushedBoot = undefined;
   await adb(["push", join(ROOT, "runner/scrcpy-server.jar"), "/data/local/tmp/emuly-scrcpy.jar"]);
-  pushedBoot = boot || undefined;
-  return true;
 }
 
 export async function startScrcpy(ws, { adb, ADB, SERIAL, ROOT, quality }) {
@@ -45,7 +37,7 @@ export async function startScrcpy(ws, { adb, ADB, SERIAL, ROOT, quality }) {
   const mark = name => { steps[name] = Date.now() - started; };
   let firstFrame = true;
   try {
-    steps.pushed = await pushJar(adb, ROOT); mark("jar");
+    await pushJar(adb, ROOT); mark("jar");
     if (closed) return;
     port = Number((await adb(["forward", "tcp:0", `localabstract:${name}`])).trim());
     if (closed) { void adb(["forward", "--remove", `tcp:${port}`]).catch(() => {}); return; }
@@ -140,8 +132,6 @@ export async function startScrcpy(ws, { adb, ADB, SERIAL, ROOT, quality }) {
     }, 300);
     wake.unref();
   } catch (error) {
-    // A failed start can mean the jar is missing or broken, so copy it again next time.
-    pushedBoot = undefined;
     console.log(`[scrcpy] start_failed error=${String(error?.message ?? error).slice(0, 120).replace(/\s+/g, "_")} ${Object.entries(steps).map(([key, value]) => `${key}=${value}`).join(" ")}`);
     close();
   }
