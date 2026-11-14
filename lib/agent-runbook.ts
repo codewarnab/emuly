@@ -8,7 +8,7 @@ import { AGENT_DEVICE_VERSION } from "./agent-device-version.ts";
  * - skills/emuly-playbook/: the skill that operates phones. Agents install it or fetch it.
  * To add Linux or a new agent, add one Markdown file. No code change is needed.
  */
-export const AGENT_RUNBOOK_VERSION = "2026-11-13.1";
+export const AGENT_RUNBOOK_VERSION = "2026-11-14.1";
 export const SKILL_NAME = "emuly-playbook";
 
 const SETUP = path.join(process.cwd(), "content", "agent", "setup");

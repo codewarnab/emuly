@@ -32,20 +32,21 @@ When Android is ready, put the link in the chat as a clickable link, with this l
 Give the link again when you report that the task is done. If the user is signed out, the
 link opens sign-in first and then returns to the phone page.
 
-Always offer scrcpy as a second way to see the phone, after the link. The browser link
-always comes first. Offer scrcpy even when gh, adb or scrcpy is not installed: do not check
-for the tools before the offer. Give both ways with this text:
+Always offer both ways to see the phone. scrcpy comes first, marked "recommended": its video
+goes straight from the codespace to the user's computer over gh's SSH tunnel, and skips the
+Emuly server. Offer scrcpy even when gh, adb or scrcpy is not installed: do not check for
+the tools before the offer. Give both ways with this text:
 
 ```text
 Two ways to see the phone:
 
-1. Browser link (ready now): <browser_url>
-   + Nothing to install. Works on any computer.
-   - A little slower than a native window.
-
-2. scrcpy window on your computer
-   + Smoother, with less delay. Drag files in, copy and paste.
+1. scrcpy window on your computer (recommended)
+   + Faster: the video skips the Emuly server. Smoother, with less delay.
+   + Your keyboard, copy and paste, and file drag-and-drop work.
    - Needs gh, adb and scrcpy. I will ask before I install anything.
+
+2. Browser link (ready now): <browser_url>
+   + Nothing to install. Works on any computer.
 
 Do you want me to open the scrcpy window?
 ```

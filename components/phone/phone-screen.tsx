@@ -46,14 +46,16 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
   const [clipboardEmpty, setClipboardEmpty] = useState(false);
   const [desktopOpen, setDesktopOpen] = useState(false);
   const [desktopOs, setDesktopOs] = useState<DesktopOs>("windows");
+  const [origin, setOrigin] = useState("https://emuly.vercel.app");
   useEffect(() => {
     // userAgentData is newer and exact (Chromium); the user agent string covers Safari and Firefox.
     const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform || navigator.userAgent;
+    setOrigin(window.location.origin);
     setDesktopOs(/win/i.test(platform) ? "windows" : /mac|iphone|ipad/i.test(platform) ? "mac" : "linux");
   }, []);
   const desktopCommand = desktopOs === "windows"
-    ? `irm https://emuly.vercel.app/open/${id}.ps1 | iex`
-    : `curl -fsSL https://emuly.vercel.app/open/${id}.sh | sh`;
+    ? `powershell -ExecutionPolicy Bypass -c "irm ${origin}/open/${id}.ps1 | iex"`
+    : `curl -fsSL ${origin}/open/${id}.sh | sh`;
   const canvas = useRef<HTMLCanvasElement>(null);
   const video = usePhoneVideo(id, live, quality, canvas);
   const router = useRouter();
@@ -235,6 +237,41 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
   }
   const clipboardCapable = video.active && video.capabilities.includes("clipboard");
   const phoneClipboard = video.clipboard;
+  const clipboardOpen = Boolean(phoneClipboard || clipboardPending || clipboardEmpty);
+
+  // One-time hint: after 45 s of live video in a visible tab, point at "Open on your computer".
+  // Desktop only, since phones cannot run scrcpy. Closing it (or opening the popover) hides it for good in this browser.
+  const [hint, setHint] = useState<"waiting" | "shown" | "done">("waiting");
+  const hintRef = useRef<HTMLDivElement>(null);
+  const watching = video.active && video.painted && !desktopOpen && !clipboardOpen;
+  useEffect(() => {
+    if (hint !== "waiting") return;
+    try { if (localStorage.getItem("emuly.hint.scrcpy")) { setHint("done"); return; } } catch {}
+    if (/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || !matchMedia("(pointer: fine)").matches) { setHint("done"); return; }
+    if (!watching) return;
+    let seen = 0;
+    const timer = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      seen += 1;
+      if (seen >= 45) { clearInterval(timer); setHint("shown"); }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [hint, watching]);
+  function endHint(forever: boolean) {
+    setHint("done");
+    if (!forever) return;
+    // This browser only: a hint is not worth a database row.
+    try { localStorage.setItem("emuly.hint.scrcpy", "1"); } catch {}
+  }
+  useEffect(() => {
+    if (hint !== "shown") return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") endHint(true); };
+    // A click elsewhere hides it on this page only; it may come back on a later visit.
+    const onDown = (event: PointerEvent) => { if (!hintRef.current?.contains(event.target as Node)) endHint(false); };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onDown);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("pointerdown", onDown); };
+  }, [hint]);
   return <div className={s.screenPanel}>
     <header className={s.header}>
       <h2>Live screen</h2>
@@ -328,16 +365,26 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
       </div>
       {/* Placeholder: the scripts behind these commands are not built yet. */}
       <div className={s.clipboardAnchor}>
-        <button type="button" className={s.control} aria-label="Open on your computer" aria-expanded={desktopOpen}
-          onClick={() => setDesktopOpen(open => !open)}>
+        <button type="button" className={`${s.control} ${hint === "shown" ? s.pulse : ""}`} aria-label="Open on your computer" aria-expanded={desktopOpen}
+          onClick={() => { if (hint !== "done") endHint(true); setDesktopOpen(open => !open); }}>
           <ControlIcon name="desktop" /><span className={s.tooltip}>Open on your computer</span>
         </button>
+        {hint === "shown" && !desktopOpen && <div ref={hintRef} className={`${s.clipboardPanel} ${s.hintPanel}`} role="status" aria-live="polite">
+          <div className={s.clipboardHead}>
+            <span>Try it in its own window</span>
+            <button type="button" className={s.clipboardClose} aria-label="Close and do not show again" onClick={() => endHint(true)}>×</button>
+          </div>
+          <p className={s.clipboardHint}>Faster video, straight from your codespace.</p>
+          <div className={s.hintActions}>
+            <Button type="button" tiny onClick={() => { endHint(true); setDesktopOpen(true); }}>Show me</Button>
+          </div>
+        </div>}
         {desktopOpen && <div className={`${s.clipboardPanel} ${s.desktopPanel}`} role="dialog" aria-label="Open on your computer">
           <div className={s.clipboardHead}>
             <span>Open in its own window</span>
             <button type="button" className={s.clipboardClose} aria-label="Close" onClick={() => setDesktopOpen(false)}>×</button>
           </div>
-          <p className={s.clipboardHint}>Smoother video in a native scrcpy window.</p>
+          <p className={s.clipboardHint}>Recommended: faster video, straight from your codespace.</p>
           <div className={s.osTabs} role="tablist" aria-label="Your system">
             {(Object.keys(osLogos) as DesktopOs[]).map(os => <button key={os} type="button" role="tab" aria-selected={desktopOs === os}
               aria-label={osLogos[os].label} title={osLogos[os].label} className={s.osTab} onClick={() => setDesktopOs(os)}>

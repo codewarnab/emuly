@@ -44,8 +44,9 @@ user asks you to.
   a new **Copy prompt**.
 - Reuse a running or stopped phone. Create one only when none exists or the user asks.
 - Drive the phone with the HTTP adb route. Use native adb only when the user asks for it.
-- When Android is ready, always offer both ways to see the phone: the browser link first,
-  then scrcpy (see `references/phones.md`). Offer scrcpy even when it is not installed.
+- When Android is ready, always offer both ways to see the phone: scrcpy first, marked
+  "recommended", then the browser link (see `references/phones.md`). Offer scrcpy even when
+  it is not installed.
 - Install nothing for Emuly except what the OS file names.
 - Give a short progress line at each stage, and every 30-60 seconds during a boot.
 - At the end, ask whether to stop the phone. Stopping keeps the phone and its apps.
