@@ -17,6 +17,7 @@ const controlIcons = {
   clipboard: <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></>,
   volumeUp: <><path d="M11 5 6 9H3v6h3l5 4zM15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14" /></>,
   volumeDown: <><path d="M11 5 6 9H3v6h3l5 4zM16 12h5" /></>,
+  desktop: <><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></>,
   screenshot: <><path d="m8 5 1-2h6l1 2h4v15H4V5z" /><circle cx="12" cy="12" r="4" /></>,
 };
 
@@ -36,6 +37,12 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
   const notify = useToast();
   const [clipboardPending, setClipboardPending] = useState(false);
   const [clipboardEmpty, setClipboardEmpty] = useState(false);
+  const [desktopOpen, setDesktopOpen] = useState(false);
+  const [desktopOs, setDesktopOs] = useState<"windows" | "unix">("windows");
+  useEffect(() => { if (!/Win/i.test(navigator.userAgent)) setDesktopOs("unix"); }, []);
+  const desktopCommand = desktopOs === "windows"
+    ? `irm https://emuly.vercel.app/open/${id}.ps1 | iex`
+    : `curl -fsSL https://emuly.vercel.app/open/${id}.sh | sh`;
   const canvas = useRef<HTMLCanvasElement>(null);
   const video = usePhoneVideo(id, live, quality, canvas);
   const router = useRouter();
@@ -305,6 +312,29 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
             {phoneClipboard && <Button type="button" tiny variant="ghost"
               onClick={() => { if (phoneClipboard) void copyText(phoneClipboard.text, notify, "Copied from the phone"); }}>Copy to computer</Button>}
             <Button type="button" tiny variant="ghost" disabled={!video.active} onClick={() => readClipboard(1)}>Copy selected text</Button>
+          </div>
+        </div>}
+      </div>
+      {/* Placeholder: the scripts behind these commands are not built yet. */}
+      <div className={s.clipboardAnchor}>
+        <button type="button" className={s.control} aria-label="Open on your computer" aria-expanded={desktopOpen}
+          onClick={() => setDesktopOpen(open => !open)}>
+          <ControlIcon name="desktop" /><span className={s.tooltip}>Open on your computer</span>
+        </button>
+        {desktopOpen && <div className={`${s.clipboardPanel} ${s.desktopPanel}`} role="dialog" aria-label="Open on your computer">
+          <div className={s.clipboardHead}>
+            <span>Open in scrcpy on your computer</span>
+            <button type="button" className={s.clipboardClose} aria-label="Close" onClick={() => setDesktopOpen(false)}>×</button>
+          </div>
+          <div className={s.osTabs} role="tablist" aria-label="Your system">
+            {(["windows", "unix"] as const).map(os => <button key={os} type="button" role="tab" aria-selected={desktopOs === os}
+              className={s.osTab} onClick={() => setDesktopOs(os)}>{os === "windows" ? "Windows" : "macOS / Linux"}</button>)}
+          </div>
+          <p className={s.clipboardHint}>Paste this line in {desktopOs === "windows" ? "PowerShell" : "a terminal"}. It opens this phone in a scrcpy window.</p>
+          <div className={s.command}>
+            <code>{desktopCommand}</code>
+            <button type="button" className={s.commandCopy} aria-label="Copy command"
+              onClick={() => void copyText(desktopCommand, notify, "Command copied")}><ControlIcon name="clipboard" /></button>
           </div>
         </div>}
       </div>
