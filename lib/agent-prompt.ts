@@ -22,8 +22,16 @@ uname -s; echo "ssh=\${SSH_CONNECTION:-none} display=\${DISPLAY:-}\${WAYLAND_DIS
 command -v tailscale >/dev/null && tailscale status --self --peers=false
 \`\`\`
 
+On Windows, run this in PowerShell:
+
+\`\`\`powershell
+"ssh=$(if ($env:SSH_CONNECTION) { $env:SSH_CONNECTION } else { 'none' }) session=$env:SESSIONNAME"
+if (Get-Command tailscale -ErrorAction SilentlyContinue) { tailscale status --self --peers=false }
+\`\`\`
+
 - **Local:** no SSH connection. Links open on this computer.
-- **Remote:** \`SSH_CONNECTION\` is set, or there is no display. I sit at another computer, so
+- **Remote:** \`SSH_CONNECTION\` is set, or there is no display. On Windows, no display
+  means \`SESSIONNAME\` is empty or \`Services\`; \`Console\` and \`RDP-Tcp#N\` have one. I sit at another computer, so
   every link is for me to open there, and nothing here can open a window for me.
 - **Over Tailscale:** remote, and the first address in \`SSH_CONNECTION\` is a Tailscale
   address (100.64.0.0/10). \`tailscale whois <that address>\` names my computer.
