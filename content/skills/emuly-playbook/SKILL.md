@@ -25,6 +25,16 @@ user asks you to.
 4. If you run over SSH or Tailscale, or with no display, also read `references/remote.md`.
    It changes how you give links, scrcpy and screenshots.
 
+## How to talk to the user
+
+- Keep every message short and easy to read. Never be verbose.
+- One idea in each sentence, and 20 words or fewer in each sentence.
+- Use plain words. Do not use jargon that the user did not use first.
+- Ask only for what you cannot find out yourself, such as a decision or an approval.
+- Ask one question at a time. Put the question last, on its own line.
+- When you offer options, number them and name your pick first.
+- Put the next action at the top. Put details after it, or leave them out.
+
 ## Rules
 
 - Send the key only in an `Authorization: Bearer` header to the Emuly base URL. Never print
