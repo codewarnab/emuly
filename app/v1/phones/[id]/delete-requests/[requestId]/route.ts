@@ -4,6 +4,8 @@ import { env } from "../../../../../../lib/env";
 import { createPhoneDeleteRequestsApi } from "../../../../../../lib/phone/phone-delete-api";
 import { findPhone } from "../../../../../../lib/phone/phones";
 
+export const maxDuration = 60;
+
 type Context = { params: Promise<{ id: string; requestId: string }> };
 
 export async function GET(request: Request, context: Context) {

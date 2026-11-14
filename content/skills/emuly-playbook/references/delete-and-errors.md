@@ -8,11 +8,13 @@ exactly:
 
 If it returns **403**, do not retry the DELETE. Create an approval request with
 `POST /v1/phones/<id>/delete-requests`, show `approve_url` on one line, then poll
-`GET /v1/phones/<id>/delete-requests/<request_id>` every `interval` seconds. The approval
+`GET /v1/phones/<id>/delete-requests/<request_id>?wait=25` again and again, with no sleep.
+Each call returns as soon as the user clicks **Delete phone** or **Keep it**, or after 25 s.
+Run the loop in the foreground, and tell the user the result at once. The approval
 page is session-only; the agent can poll but never approve. When the switch is off,
 mention once that it exists at **Settings › Agents**.
 
-The request and its link last 10 minutes. `pending` means keep polling, `approved` means
+The request and its link last 10 minutes. `pending` means poll again, `approved` means
 the browser is deleting, `done` means the phone and its codespace are gone, `denied` means
 the user kept it, and `expired` means ask again.
 

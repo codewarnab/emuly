@@ -237,8 +237,7 @@ try {
   Write-Output "Approve this deletion: $($request.approve_url)"
   $deadline = (Get-Date).AddSeconds($request.expires_in)
   while ((Get-Date) -lt $deadline) {
-    Start-Sleep -Seconds $request.interval
-    $result = Invoke-RestMethod -Uri "$base/v1/phones/$id/delete-requests/$($request.request_id)" -Headers $headers
+    $result = Invoke-RestMethod -TimeoutSec 40 -Uri "$base/v1/phones/$id/delete-requests/$($request.request_id)?wait=25" -Headers $headers
     if ($result.status -eq "done") { Write-Output "I deleted $($phone.name)."; break }
     if ($result.status -eq "denied") { Write-Output "The user kept $($phone.name)."; break }
     if ($result.status -eq "expired") { Write-Output "The request expired. Ask again if needed."; break }
@@ -257,12 +256,11 @@ else
   status=$(curl.exe -sS -X POST "$base/v1/phones/$id/delete-requests" -H "$auth")
   request_id=$(printf '%s' "$status" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
   approve=$(printf '%s' "$status" | sed -n 's/.*"approve_url":"\([^"]*\)".*/\1/p')
-  interval=$(printf '%s' "$status" | sed -n 's/.*"interval":\([0-9]*\).*/\1/p')
   printf 'Approve this deletion: %s\n' "$approve"
   waited=0
   while [ "$waited" -lt 600 ]; do
-    sleep "$interval"; waited=$((waited + interval))
-    result=$(curl.exe -sS -H "$auth" "$base/v1/phones/$id/delete-requests/$request_id")
+    waited=$((waited + 25))
+    result=$(curl.exe -sS -m 40 -H "$auth" "$base/v1/phones/$id/delete-requests/$request_id?wait=25")
     state=$(printf '%s' "$result" | sed -n 's/.*"status":"\([^"]*\)".*/\1/p')
     if [ "$state" = "done" ]; then printf 'I deleted %s.\n' "$name"; break; fi
     if [ "$state" = "denied" ]; then printf 'The user kept %s.\n' "$name"; break; fi

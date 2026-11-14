@@ -13,6 +13,9 @@ const json = (body: unknown, status = 200, headers?: Record<string, string>) =>
   Response.json(body, { status, headers: { ...noStore, ...headers } });
 
 /** DELETE /v1/phones/<id>. A session always deletes; an agent key needs the user's switch. */
+const MAX_WAIT_S = 25;
+const WAIT_STEP_MS = 1000;
+
 export function createPhoneDeleteApi({ user, phone, agentCanDelete, remove, record, baseUrl }: {
   user: () => Promise<Identity | null>;
   phone: (userId: number, id: string) => Promise<PhoneView | undefined>;
@@ -69,11 +72,18 @@ export function createPhoneDeleteRequestsApi({ user, phone, database, baseUrl }:
         return json({ error: "request_failed", message: "The deletion request could not be created. Try again." }, 502);
       }
     },
-    async read(_request: Request, id: string, requestId: string) {
+    async read(request_: Request, id: string, requestId: string) {
       const identity = await user();
       if (!identity) return json({ error: "unauthorized" }, 401);
       try {
-        const request = await getPhoneDeleteRequest(database, identity.id, id, requestId);
+        // ?wait=<s> holds the reply while the request is pending, so the agent hears a decision at once.
+        const wait = Math.min(Math.max(Number(new URL(request_.url).searchParams.get("wait")) || 0, 0), MAX_WAIT_S);
+        const until = Date.now() + wait * 1000;
+        let request = await getPhoneDeleteRequest(database, identity.id, id, requestId);
+        while (request && (request.status === "pending" || request.status === "approved") && Date.now() < until) {
+          await new Promise(resolve => setTimeout(resolve, WAIT_STEP_MS));
+          request = await getPhoneDeleteRequest(database, identity.id, id, requestId);
+        }
         if (!request) return json({ error: "not_found", message: "Deletion request not found." }, 404);
         return json({ request_id: request.id, status: request.status });
       } catch {

@@ -162,12 +162,11 @@ else
   status=$(curl -sS -X POST "$base/v1/phones/$id/delete-requests" -H "$auth")
   request_id=$(printf '%s' "$status" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
   approve=$(printf '%s' "$status" | sed -n 's/.*"approve_url":"\([^"]*\)".*/\1/p')
-  interval=$(printf '%s' "$status" | sed -n 's/.*"interval":\([0-9]*\).*/\1/p')
   printf 'Approve this deletion: %s\n' "$approve"
   waited=0
   while [ "$waited" -lt 600 ]; do
-    sleep "$interval"; waited=$((waited + interval))
-    result=$(curl -sS -H "$auth" "$base/v1/phones/$id/delete-requests/$request_id")
+    result=$(curl -sS -m 40 -H "$auth" "$base/v1/phones/$id/delete-requests/$request_id?wait=25")
+    waited=$((waited + 25))
     state=$(printf '%s' "$result" | sed -n 's/.*"status":"\([^"]*\)".*/\1/p')
     if [ "$state" = "done" ]; then printf 'I deleted %s.\n' "$name"; break; fi
     if [ "$state" = "denied" ]; then printf 'The user kept %s.\n' "$name"; break; fi
