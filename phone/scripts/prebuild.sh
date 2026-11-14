@@ -14,6 +14,9 @@ note() { echo "prebuild: $*"; echo "$(date -u +%FT%TZ) $*" >> "$report"; }
 if EMULY_PREBUILD=1 bash "$dir/setup.sh"; then note "install ok"; else note "install failed"; exit 0; fi
 
 if [ ! -e /dev/kvm ]; then note "kvm missing; first boot skipped"; exit 0; fi
+# GitHub sets no documented prebuild signal. ~/emuly exists once the Emuly server has
+# connected, which never happens in a prebuild. Then a phone is in use: do not boot or stop it.
+if [ -d "$HOME/emuly" ]; then note "server already connected; first boot skipped"; exit 0; fi
 note "kvm present"
 start=$(date +%s)
 if bash "$dir/boot.sh" cold; then
@@ -23,6 +26,7 @@ if bash "$dir/boot.sh" cold; then
 else
   note "first boot failed"
 fi
+if [ -d "$HOME/emuly" ]; then note "server connected during the boot; Android left running"; exit 0; fi
 if bash "$dir/stop.sh"; then note "stop ok"; else note "stop failed"; fi
 # Leave no daemon running in the saved copy.
 /opt/android-sdk/platform-tools/adb kill-server >/dev/null 2>&1 || true
