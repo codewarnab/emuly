@@ -20,6 +20,9 @@ user asks you to.
    `~/.config/emuly/key` on Linux and macOS. If it is empty, stop and ask the user to click
    **Copy prompt** in the Emuly console. Key setup is not part of this skill.
 2. The Emuly base URL is `{{EMULY_BASE_URL}}`.
+2a. If you run on macOS (`uname -s` prints `Darwin`), stop. Say that Emuly does not support
+   macOS yet, print https://github.com/codewarnab/emuly/issues/27 on its own line, and ask
+   whether the user wants to contribute macOS support there.
 3. Read the OS file and the agent file that match you (see References). Read the topic
    files only when the task needs them.
 4. If you run over SSH or Tailscale, or with no display, also read `references/remote.md`.

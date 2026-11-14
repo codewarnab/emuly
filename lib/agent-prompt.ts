@@ -46,6 +46,12 @@ Tailscale from <computer>, so I will give you links to open there." The skill us
 
 Fetch the setup commands for the OS you run on. If none matches, adapt the closest one.
 
+**macOS is not supported yet.** If \`uname -s\` prints \`Darwin\`, stop here and install nothing.
+Tell me: "Emuly does not support macOS yet. The work is tracked here:" and print
+https://github.com/codewarnab/emuly/issues/27 on its own line. Then ask me if I want to
+contribute macOS support there. This applies only when you run on macOS. A Linux machine
+that I reach over SSH from a Mac is fine.
+
 ${osLinks}
 
 Then follow the key steps at the end of this prompt.
