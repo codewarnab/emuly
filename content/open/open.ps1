@@ -339,8 +339,15 @@ try {
   Ok "The phone is open in the '$title' window"
   Line
   Done 'Close the window or press Ctrl+C here to end. Keyboard and clipboard work in the window.'
+  # A tunnel alone may not count as use for GitHub. Run a short command each minute while the window is open.
+  # Emuly still stops the phone when Android sees no touch or key for its idle time.
+  $nextPing = (Get-Date).AddSeconds(60)
   while (-not $window.HasExited) {
     if ($tunnel.HasExited) { Fail 'The tunnel closed. The phone may have gone to sleep.'; break }
+    if ((Get-Date) -ge $nextPing) {
+      $nextPing = (Get-Date).AddSeconds(60)
+      try { Start-Process $gh -WindowStyle Hidden -ArgumentList @('codespace', 'ssh', '-c', $space, '--', 'echo', 'emuly-awake') | Out-Null } catch {}
+    }
     Start-Sleep -Milliseconds 500
   }
   if (-not $window.HasExited) { Stop-Tree $window }

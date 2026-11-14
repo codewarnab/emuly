@@ -5,12 +5,14 @@ import { codespaceExec, openCodespacePort } from "../github/codespace-tunnel.ts"
 import { createEmulyLinks, type RunnerPath, type AppsPath, type AppsRequest, type AdbRequest, type ProxyRequest } from "./phone-link.ts";
 import { agentDeviceInfo, agentDeviceTokenHash, agentDeviceTokenMatches } from "./agent-device.ts";
 import { phoneObservations } from "./phone-observation.ts";
+import { createActivity, androidIdleMs, ANDROID_IDLE_COMMAND } from "./last-activity.ts";
 
-const global = globalThis as unknown as { __emulyLinks?: ReturnType<typeof createEmulyLinks>; __emulyLinksVersion?: number };
+const global = globalThis as unknown as { __emulyLinks?: ReturnType<typeof createEmulyLinks>; __emulyLinksVersion?: number; __emulyActivity?: ReturnType<typeof createActivity> };
+const activity = () => global.__emulyActivity ??= createActivity(asyncDb());
 const links = () => {
-  if (global.__emulyLinksVersion !== 7) { global.__emulyLinks = undefined; global.__emulyLinksVersion = 7; }
+  if (global.__emulyLinksVersion !== 8) { global.__emulyLinks = undefined; global.__emulyLinksVersion = 8; }
   return global.__emulyLinks ??= createEmulyLinks({ token: getAccessToken, tunnel: openCodespacePort,
-  observations: phoneObservations(asyncDb()),
+  observations: phoneObservations(asyncDb()), activity: activity(),
   // Command completion is measured; provider idle-timer reset remains unverified.
   keepAwake: (token, codespaceName) => codespaceExec({ token, codespaceName, command: "echo emuly-awake", pty: true, timeoutMs: 90_000 }) });
 };
@@ -36,7 +38,16 @@ export async function runnerAdb(userId: number, id: string, input: AdbRequest) {
   const row = (await asyncDb().execute({ sql: `SELECT codespace_name FROM phones WHERE user_id = ? AND id = ? AND state = 'running' AND android_state = 'ready'
     AND EXISTS(SELECT 1 FROM users WHERE id = ? AND blocked = 0)`, args: [userId, id, userId] })).rows[0] as unknown as { codespace_name: string } | undefined;
   if (!row) throw new Error("Phone is not available");
+  activity().mark({ userId, id });
   return links().adb({ userId, id, codespaceName: row.codespace_name }, input);
+}
+
+/** Ms since the last touch or key in Android. It is not an action, so it does not mark activity. Null when unknown. */
+export async function runnerAndroidIdleMs(userId: number, id: string, codespaceName: string) {
+  const response = await links().adb({ userId, id, codespaceName }, { args: ANDROID_IDLE_COMMAND, timeout_s: 15 });
+  if (!response.ok) return null;
+  const result = await response.json() as { exit_code?: number; stdout?: string };
+  return result.exit_code === 0 && typeof result.stdout === "string" ? androidIdleMs(result.stdout) : null;
 }
 
 /** The runner's agent-device proxy state. Any failure is shaped as unavailable by the caller. */

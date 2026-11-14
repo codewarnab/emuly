@@ -369,8 +369,13 @@ kill -0 $WINDOW_PID 2>/dev/null || halt "scrcpy closed at once. $(grep ERROR "$S
 ok "The phone is open in the 'Emuly - $PHONE' window"
 line
 done_ 'Close the window or press Ctrl+C here to end. Keyboard and clipboard work in the window.'
+# A tunnel alone may not count as use for GitHub. Run a short command each minute while the window is open.
+# Emuly still stops the phone when Android sees no touch or key for its idle time.
+ticks=0
 while kill -0 $WINDOW_PID 2>/dev/null; do
   kill -0 "$TUNNEL_PID" 2>/dev/null || { fail 'The tunnel closed. The phone may have gone to sleep.'; kill $WINDOW_PID 2>/dev/null; break; }
+  ticks=$((ticks + 1))
+  if [ $ticks -ge 60 ]; then ticks=0; "$GH" codespace ssh -c "$SPACE" -- echo emuly-awake </dev/null >/dev/null 2>&1 & fi
   sleep 1
 done
 rm -f "$SCLOG"

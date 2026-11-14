@@ -302,4 +302,6 @@ export const MIGRATIONS = [
   `DROP TABLE IF EXISTS usage_snapshots;`,
   // The runner secret was for a codespace runner that was never built. Nothing read it.
   `ALTER TABLE phones DROP COLUMN runner_secret;`,
+  // The last human or agent action. Emuly stops a phone that has had none for its idle time.
+  `ALTER TABLE phones ADD COLUMN last_activity_at TEXT;`,
 ];

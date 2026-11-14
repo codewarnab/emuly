@@ -39,10 +39,12 @@ export type AdbRequest = { args: string[]; timeout_s: number; binary?: boolean; 
 export type ProxyRequest = { method: string; headers: Headers; body?: ReadableStream<Uint8Array> | null; signal?: AbortSignal };
 
 /** One connection per owned phone. Only a read-only probe may fall back; never replay a mutation. */
-export function createEmulyLinks({ token, tunnel, keepAwake, observations, fetch: request = fetch, idleMs = 120_000 }: {
+export function createEmulyLinks({ token, tunnel, keepAwake, activity, observations, fetch: request = fetch, idleMs = 120_000 }: {
   token: (userId: number) => Promise<string>;
   tunnel: (token: string, name: string, signal: AbortSignal) => Promise<Bridge>;
   keepAwake?: (token: string, name: string) => Promise<unknown>;
+  /** Records human and agent actions, and says whether the phone had one within its idle time. */
+  activity?: { mark(phone: Owner): void; recent(phone: Owner): Promise<boolean> };
   fetch?: typeof fetch;
   idleMs?: number;
   observations?: ReturnType<typeof phoneObservations>;
@@ -113,6 +115,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, observations, fetch
     close,
     async apps(phone: Owner, path: AppsPath, options: AppsRequest): Promise<Response> {
       if (!/^\/(?:apps(?:\/open)?|app-installs(?:\/[0-9a-f-]{36}(?:\/(?:content|complete|cancel))?)?)$/.test(path)) throw new Error("Invalid Apps route");
+      activity?.mark(phone);
       const { entry, release } = acquire(phone);
       try {
         const connection = await entry.connection;
@@ -180,6 +183,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, observations, fetch
     /** Raw relay for the agent-device proxy: both bodies stream, so nothing is buffered or parsed. */
     async proxy(phone: Owner, path: string, init: ProxyRequest): Promise<Response> {
       if (!path.startsWith("/agent-device/") || /[\u0000-\u001f\u007f]/.test(path)) throw new Error("Invalid proxy route");
+      activity?.mark(phone);
       const { entry, release } = acquire(phone);
       try {
         const connection = await entry.connection;
@@ -223,6 +227,8 @@ export function createEmulyLinks({ token, tunnel, keepAwake, observations, fetch
         if (connection.forwarded) headers["X-Github-Token"] = await token(phone.userId);
         entry.abort.signal.throwIfAborted();
         entry.viewers++;
+        // Opening the phone page is an action. Watching it with no input after that is not.
+        activity?.mark(phone);
         observations?.mark(phone, "stream_attach", { count: entry.viewers });
         if (keepAwake && !entry.awake) {
           let pending = false;
@@ -242,6 +248,12 @@ export function createEmulyLinks({ token, tunnel, keepAwake, observations, fetch
             }
             pending = true;
             let secret = "";
+            // An open tab with no input must not keep the phone awake past its idle time.
+            if (activity && !(await activity.recent(phone).catch(() => true))) {
+              observations?.mark(phone, "keep_awake", { outcome: "skipped", scheduledAt, count: entry.viewers, errorCode: "no_activity" });
+              pending = false;
+              return;
+            }
             try {
               const work = () => measure("keep_awake", async () => {
                 secret = await measure("credential_lookup", () => token(phone.userId));
@@ -287,7 +299,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, observations, fetch
           get viewers() { return entry.viewers; },
           get lastAwakeSuccess() { return entry.lastAwakeSuccess; },
           drop() { if (entries.get(key(phone)) === entry) close(phone); },
-          acceptedInput() { observations?.input(phone); },
+          acceptedInput() { observations?.input(phone); activity?.mark(phone); },
           failed() { if (connection.forwarded && entries.get(key(phone)) === entry) { close(phone); streamFallback.add(key(phone)); } } };
       } catch { release(); if (entries.get(key(phone)) === entry) close(phone); throw new Error("Stream unavailable"); }
     },
@@ -305,7 +317,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, observations, fetch
         // Consume before releasing the lease: a slow image must not lose its bridge to the idle timer.
         const bytes = await response.arrayBuffer();
         if (!response.ok) throw new RunnerResponseError(`Runner ${path} returned ${response.status}.`);
-        if (path === "/tap" || path === "/key") observations?.input(phone);
+        if (path === "/tap" || path === "/key") { observations?.input(phone); activity?.mark(phone); }
         return new Response(bytes, { headers: { "content-type": response.headers.get("content-type") ?? "application/json" } });
       } catch (error) {
         // Log the kind of failure (timeout, abort, network code, HTTP status) without any runner output.

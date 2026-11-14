@@ -12,7 +12,7 @@ export type StepCode = typeof stepCodes[number];
 export const outcomes = ["running", "succeeded", "failed", "cancelled", "interrupted", "skipped", "unknown"] as const;
 export type Outcome = typeof outcomes[number];
 export const errorCodes = ["none", "unknown_failure", "timeout", "cancelled", "credential_unavailable", "connection_failed", "command_failed",
-  "no_viewers", "already_pending", "connection_aborted", "observer_shutdown", "invalid_progress", "progress_unavailable", "coverage_missing",
+  "no_viewers", "no_activity", "already_pending", "connection_aborted", "observer_shutdown", "invalid_progress", "progress_unavailable", "coverage_missing",
   "socket_closed", "decoder_failed", "queue_full", "hidden", "stale", "phone_stopped", "rate_limited", "provider_unavailable"] as const;
 export type ErrorCode = typeof errorCodes[number];
 export const operationKinds = ["create", "resume", "boot_retry", "stop", "delete", "keep", "viewing_session"] as const;

@@ -148,9 +148,12 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         return;
       }
       const changed = await transaction(database, async queries => {
-        const result = await queries.execute({ sql: `UPDATE phones SET android_state = ?, android_error = ?
+        // Android ready starts the idle clock, so a new phone does not count as idle at once.
+        const result = await queries.execute({ sql: `UPDATE phones SET android_state = ?, android_error = ?,
+          last_activity_at = CASE WHEN ? THEN ? ELSE last_activity_at END
           WHERE user_id = ? AND id = ? AND state = 'running' AND android_state = 'booting' AND android_started_at = ?`,
-          args: [booted ? "ready" : "failed", booted ? null : "Android boot failed. Retry boot.", userId, id, started] });
+          args: [booted ? "ready" : "failed", booted ? null : "Android boot failed. Retry boot.", booted ? 1 : 0,
+            new Date(clock()).toISOString(), userId, id, started] });
         if (result.rowsAffected) await event(userId, id, booted ? "step" : "error", booted
           ? `Android ready (took ${Math.round((clock() - Date.parse(firstStarted)) / 1000)} s)`
           : "Android boot failed: Android boot failed. Retry boot.", queries);
@@ -387,7 +390,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     afterCommit();
   }
 
-  async function change(userId: number, id: string, operation: "start" | "stop", bulk = false, automatic = false) {
+  async function change(userId: number, id: string, operation: "start" | "stop", bulk = false, automatic: false | "auto-stop" | "idle stop" = false) {
     const stored = await phone(userId, id);
     if ((await keeping(id))) throw new PhoneInputError("Keep it is in progress. Wait until the phone stops again.");
     if (operation === "stop" && stored.state === "stopping") return id;
@@ -397,7 +400,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     let claimed = false;
     let diagnosticOperation: string | undefined;
     try {
-      await claim(userId, id, automatic ? "auto-stop" : operation, undefined, bulk);
+      await claim(userId, id, automatic || operation, undefined, bulk);
       claimed = true;
       if (operation === "stop") diagnosticOperation = await diagnostics.operation(userId, id, "stop");
       if (operation === "stop") diagnostics.mark(diagnosticOperation, "stop_intent", { initiator: automatic ? "hours_budget" : bulk ? "stop_all" : "owner" });
@@ -701,7 +704,9 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     },
     start: (userId: number, id: string) => change(userId, id, "start"),
     stop: (userId: number, id: string) => change(userId, id, "stop"),
-    autoStop: (userId: number, id: string) => change(userId, id, "stop", true, true),
+    autoStop: (userId: number, id: string) => change(userId, id, "stop", true, "auto-stop"),
+    /** Emuly's own idle rule: no human or agent action for the phone's idle time. */
+    idleStop: (userId: number, id: string) => change(userId, id, "stop", true, "idle stop"),
     /** Record a codespace state observed outside the poller through the same transition code, without new SQL. */
     async observeCodespace(userId: number, id: string, codespace: Codespace) {
       if (busy.has(id)) return;
@@ -758,6 +763,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     sync: (...args: Parameters<typeof service.sync>) => withLease(database, `phones:${args[0]}`, () => service.sync(...args)),
     stopAll: (...args: Parameters<typeof service.stopAll>) => withLease(database, `phones:${args[0]}`, () => service.stopAll(...args), USER_LOCK_WAIT_MS),
     autoStop: (...args: Parameters<typeof service.autoStop>) => withLease(database, `phones:${args[0]}`, () => service.autoStop(...args)),
+    idleStop: (...args: Parameters<typeof service.idleStop>) => withLease(database, `phones:${args[0]}`, () => service.idleStop(...args)),
     observeCodespace: (...args: Parameters<typeof service.observeCodespace>) => withLease(database, `phones:${args[0]}`, () => service.observeCodespace(...args)),
     autoKeep: (...args: Parameters<typeof service.autoKeep>) => withLease(database, `phones:${args[0]}`, () => service.autoKeep(...args)),
     retryBoot: (...args: Parameters<typeof service.retryBoot>) => withLease(database, `phones:${args[0]}`, () => service.retryBoot(...args), USER_LOCK_WAIT_MS),
