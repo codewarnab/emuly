@@ -179,3 +179,11 @@ test("adb response parsing rejects malformed runner payloads", () => {
   for (const value of [null, {}, { exit_code: "0", stdout: "", stderr: "" }, { exit_code: 0, stdout: 1, stderr: "" }])
     assert.throws(() => adbResult(value));
 });
+
+test("a line break in any adb argument cannot add an emulator console command", () => {
+  for (const args of [["emu", "sms", "send", "5551234", "hi\nkill"], ["emu", "sms", "send", "5551234", "hi\rkill"],
+    ["shell", "echo", "a\nb"], ["emu", "sms", "send", "5551234", "a\0b"]]) {
+    assert.throws(() => adbArguments(args), /line break/);
+  }
+  assert.deepEqual(adbArguments(["emu", "sms", "send", "5551234", "hello", "there"]), ["emu", "sms", "send", "5551234", "hello", "there"]);
+});

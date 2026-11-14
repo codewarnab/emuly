@@ -171,6 +171,9 @@ export function adbArguments(value, fileCount = 0) {
     if (typeof item !== "string" || !item || item.length > ADB_ARG_MAX_CHARS) {
       fail(`Each adb argument must be a non-empty string up to ${ADB_ARG_MAX_CHARS} characters.`);
     }
+    // The emulator console reads one command per line. A CR or LF (for example in "emu sms send"
+    // text) would run a second console command, such as "kill". Reject them in every argument.
+    if (/[\0\r\n]/.test(item)) fail("An adb argument cannot contain a line break or a NUL character.");
     args.push(item);
   }
   const command = args[0];

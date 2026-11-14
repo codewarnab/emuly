@@ -255,6 +255,13 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
     if (performance.now() - lastResume < 250) return;
     lastResume = performance.now();
     acceptFramesAfter = lastResume;
+    const open = socket;
+    // The socket painted frames before the tab switch and is still open. It is live, so input works
+    // at once. A static screen sends no frames; the 15 s message watchdog catches a dead socket.
+    if (open && open.readyState === WebSocket.OPEN && frames > 0) {
+      open.send(JSON.stringify({ type: "ping", time: Date.now() }));
+      report?.("presence"); transition("streaming"); return;
+    }
     transition("connecting");
     report?.("presence");
     retry = 0;

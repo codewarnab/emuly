@@ -287,3 +287,20 @@ for (const status of [401, 403, 404]) test(`a ${status} ticket response stops wi
   assert.equal(b.requests.length, 1);
   session.dispose();
 });
+
+test("a tab switch keeps a live socket streaming, so input works at once", async t => {
+  const b = browser(t), session = b.start(); await setImmediate();
+  const ws = b.sockets[0];
+  b.packet(ws, 2); b.packet(ws, 1);
+  assert.equal(b.states.at(-1), "streaming");
+  Object.defineProperty(b.document, "hidden", { configurable: true, value: true });
+  b.document.dispatchEvent(new Event("visibilitychange"));
+  assert.equal(b.states.at(-1), "suspended");
+  Object.defineProperty(b.document, "hidden", { configurable: true, value: false });
+  b.document.dispatchEvent(new Event("visibilitychange"));
+  assert.equal(b.states.at(-1), "streaming");
+  assert.equal(session.send({ type: "key", key: "home" }), true);
+  t.mock.timers.tick(10000); await setImmediate();
+  assert.equal(b.sockets.length, 1, "no reconnect for a static screen");
+  session.dispose();
+});
