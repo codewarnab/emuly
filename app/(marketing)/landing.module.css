@@ -23,8 +23,8 @@
 .footer { max-width: 1200px; margin: auto; padding: 24px 0 32px; border-top: 1px solid var(--line); font-size: 13px; color: var(--dim); }
 @media(max-width: 1000px) { .hero { gap: 32px; grid-template-columns: minmax(0,1fr) 252px; } .hero h1 { font-size: 43px; } }
 @media(max-width: 680px) {
- .nav { padding: 20px; } .nav > div { gap: 14px; } .wrap { padding: 0 20px; }
- .hero { grid-template-columns: 1fr; padding: 36px 0 40px; gap: 40px; } .hero h1 { font-size: 38px; } .lead { font-size: 17px; }
+ .nav { padding: 16px 20px; } .nav > div { gap: 12px; } .wrap { padding: 0 20px; }
+ .hero { grid-template-columns: minmax(0,1fr); padding: 24px 0 36px; gap: 32px; } .hero h1 { font-size: clamp(30px, 8.6vw, 38px); margin-bottom: 16px; } .lead { font-size: 16px; margin-bottom: 22px; } .note { margin: 14px 0; line-height: 1.6; } .marquee { margin-inline: -20px; max-width: none; }
  .cta > button, .cta > .gh { width: 100%; }
  .device { gap: 12px; } .facts { grid-template-columns: 1fr; gap: 20px; padding: 28px 0; } .facts p { max-width: none; }
  .faq { grid-template-columns: 1fr; gap: 12px; padding: 36px 0 40px; } .faq h2 { font-size: 25px; } .footer { margin: 0 20px; }
