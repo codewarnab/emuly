@@ -15,7 +15,30 @@ Do not report security problems in a public issue. Open a private
 
 ## Set up the project
 
-Follow [Run it locally](README.md#run-it-locally). You need Node 26, pnpm and your own GitHub OAuth App.
+You need Node 26, pnpm and your own GitHub OAuth App.
+
+```sh
+pnpm install
+cp .env.example .env.local   # set the OAuth client and EMULY_TOKEN_KEY
+pnpm db:migrate
+pnpm dev                     # http://localhost:4321
+```
+
+OAuth App: callback `http://localhost:4321/auth/callback`, expiring user tokens on, device flow off.
+
+Checks: `pnpm lint`, `pnpm test`, `pnpm build`.
+
+### API
+
+- `GET /v1/usage`: remaining phone hours and storage.
+- `POST /v1/phones`: create a phone. Optional body `{ "machine": "<name>", "idle_timeout_min": 30 }`.
+- `POST /v1/webhooks`: register a webhook. See [docs/WEBHOOKS.md](docs/WEBHOOKS.md).
+
+### Key rotation
+
+1. Set `EMULY_TOKEN_KEY` to a new key and `EMULY_TOKEN_KEY_OLD` to the old key. Deploy.
+2. Run `pnpm db:rotate-key`.
+3. At 0 failures, remove `EMULY_TOKEN_KEY_OLD` and deploy again.
 
 ## Make a change
 
