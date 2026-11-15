@@ -32,6 +32,7 @@ import { PhoneApps } from "@/components/phone/phone-apps";
 import { HostSpecs } from "@/components/phone/host-specs";
 import { AgentTasks } from "@/components/phone/agent-tasks";
 import { env } from "../../../../../lib/env";
+import { devicePreset } from "../../../../../lib/shared/device-presets";
 
 // A Stop server action may call the runner three times, up to 80 s each.
 export const maxDuration = 300;
@@ -181,7 +182,7 @@ async function StoredPhone({ phone, user, search, syncError }: {
           <LogFeed rows={tab === "log" ? events : []} live={false}
             running={tab === "log" ? `Current status: ${status.title}` : undefined} emptyMessage="No activity yet." />}
         </section>
-        <HostSpecs rows={[...machineRows(phone.machine, phone.cores), ["Idle stop", idleLabel(phone.idle_timeout_min)]]} />
+        <HostSpecs rows={[["Screen", devicePreset(phone.device_preset)?.short ?? "Generic"], ...machineRows(phone.machine, phone.cores), ["Idle stop", idleLabel(phone.idle_timeout_min)]]} />
         <p className={s.fineprint}><a href="https://docs.github.com/en/codespaces/setting-your-user-preferences/setting-your-timeout-period-for-github-codespaces" target="_blank" rel="noreferrer">GitHub timeout settings</a></p>
       </div>
     </main>

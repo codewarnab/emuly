@@ -232,7 +232,7 @@
 .field { width: 100%; padding: 12px; border: 1px solid var(--control-line); background: var(--panel); color: var(--text); border-radius: 8px; }
 .acts { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
 .tabbar { display: none; }
-@media (max-width: 1050px) { .topbar { padding-inline: 32px; gap: 24px; } .quota { display: none; } .detail { grid-template-columns: 340px minmax(0,1fr); gap: 32px; } .detail.detailLive { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; } .stage { padding: 24px; } .pcard { padding: 24px; gap: 16px; } .tabs { gap: 20px; } .subgrid { grid-template-columns: 1fr; gap: 0; } }
+@media (max-width: 1050px) { .topbar { padding-inline: 32px; gap: 24px; } .quota { display: none; } .detail { grid-template-columns: 340px minmax(0,1fr); gap: 32px; } .detail.detailLive { grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 28px; } .stage { padding: 24px; } .pcard { padding: 24px; gap: 16px; } .tabs { gap: 20px; } .subgrid { grid-template-columns: 1fr; gap: 0; } }
 @media (max-width: 680px) {
  .detail.detailLive { grid-template-columns: minmax(0, 1fr); gap: 24px; }
  .topbar { padding: 16px 20px; gap: 16px; min-height: 76px; flex-wrap: wrap; } .brand { font-size: 17px; } .topnav { display: none; } .crumb { display: flex; order: 10; width: 100%; font-size: 12px; gap: 12px; } .upTxt { display: none; }
@@ -314,7 +314,7 @@
 .idleCustom input { width: 96px; font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--control-line); border-radius: 8px; padding: 8px; }
 .idleCustom span { color: var(--dim); }
 .createHint { color: var(--dim); margin: 0; font-size: 14px; }
-.createError { margin: 0; padding: 12px 16px; border-left: 3px solid var(--amber); background: var(--panel); }
+.createError { margin: 0; padding: 10px 14px; font-size: 14px; line-height: 1.5; border-radius: 0 8px 8px 0; border-left: 3px solid var(--amber); background: var(--panel2, var(--panel)); }
 .createForm label { display: grid; gap: 8px; min-width: 0; }
 .createForm select { font: inherit; color: var(--text); background: var(--panel); padding: 8px; border: 1px solid var(--control-line); border-radius: 8px; width: 100%; min-width: 0; }
 .hoursForm { max-width: 600px; padding-bottom: 32px; }
