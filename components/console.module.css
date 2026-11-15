@@ -541,7 +541,10 @@
 .createFoot { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 16px; border-top: 1px solid var(--line2); }
 .createFoot .createHint { margin: 0; text-align: left; }
 @media (max-width: 480px) { .dialog .idleChoices { grid-template-columns: repeat(3, 1fr); } }
-.presetHint { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.idleField legend.presetLegend { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; width: 100%; }
+.presetHint { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; animation: presetIn 180ms ease-out; color: var(--dim); font-variant-numeric: tabular-nums; }
+@keyframes presetIn { from { opacity: 0; transform: translateY(2px); } }
+@media (prefers-reduced-motion: reduce) { .presetHint { animation: none; } }
 .presetHint i { flex: none; display: block; border: 1.5px solid currentColor; border-radius: 2px; opacity: .8; }
 .emptyActions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; }
 .emptyOr { color: var(--dim); font-size: 13px; }
