@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { InfoTip } from "@/components/ui/info-tip";
 import { IdleTimeoutField } from "@/components/settings/idle-timeout-field";
+import { HostSpecs } from "@/components/phone/host-specs";
 import { usePhoneAction } from "@/components/phone/use-phone-action";
 import { DEFAULT_DEVICE_PRESET, DEVICE_PRESETS, devicePreset } from "@/lib/shared/device-presets";
 import type { Usage } from "@/lib/data/usage";
@@ -69,9 +70,8 @@ export function NewPhone({ usage, stopped = 0 }: { usage: Usage; stopped?: numbe
       </div>
       : <form action={action} className={s.createForm}>
         <input type="hidden" name="operation" value="create" />
-        <div className={s.specRow} aria-label="Machine">
-          <span><b>4</b> cores</span><span><b>16</b> GB RAM</span><span><b>32</b> GB storage</span>
-        </div>
+        {/* Every phone uses the 4-core machine (PHONE_MACHINE in lib/github/github.ts). */}
+        <HostSpecs bare label="Machine" rows={[["CPU", "4 cores"], ["RAM", "16 GB"], ["Disk", "32 GB"]]} />
         {running && <p className={s.createHint}>Running phones share your hours, so each extra phone uses them faster.</p>}
         {stopped > 0 && <p className={s.createHint}>
           {stopped === 1 ? "Your stopped phone still uses" : `Your ${stopped} stopped phones still use`} GitHub storage. Delete the phones you do not need.
@@ -119,11 +119,7 @@ function PresetHint({ id }: { id: string }) {
 
 function NewPhoneSkeleton() {
   return <div className={s.createForm} role="status" aria-label="Loading phone options" aria-busy="true">
-    <div className={s.specRow} aria-hidden="true">
-      <div className={s.newPhoneSkeletonSpec} />
-      <div className={s.newPhoneSkeletonSpec} />
-      <div className={s.newPhoneSkeletonSpec} />
-    </div>
+    <div className={s.newPhoneSkeletonLabel} aria-hidden="true" />
     <div aria-hidden="true">
       <div className={s.newPhoneSkeletonLabel} />
       <div className={s.idleChoices}>

@@ -11,9 +11,10 @@ const ICONS: Record<string, ReactNode> = {
   "Idle stop": icon(<><circle cx="12" cy="13" r="8" /><path d="M12 9v4l2.5 2M9.5 2.5h5" /></>),
 };
 
-export function HostSpecs({ rows }: { rows: Array<[string, string]> }) {
-  return <section className={s.specs} aria-label="Host codespace">
-    <h5>Host</h5>
+/** `bare` drops the top rule and margin, for use inside a dialog. */
+export function HostSpecs({ rows, label = "Host", bare = false }: { rows: Array<[string, string]>; label?: string; bare?: boolean }) {
+  return <section className={bare ? `${s.specs} ${s.bare}` : s.specs} aria-label="Host codespace">
+    <h5>{label}</h5>
     <dl>
       {rows.map(([k, v]) => <div key={k} className={s.tile}>
         <span className={s.icon}>{ICONS[k]}</span>
