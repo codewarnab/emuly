@@ -43,7 +43,7 @@
   <tr>
     <td width="33%" valign="top">
       <strong>Free</strong><br />
-      <sub>Uses your Codespaces hours. About 30 h a month on GitHub Free. No card.</sub>
+      <sub>Uses your Codespaces hours. About 30 h a month on GitHub Free, 45 h on Pro. No card.</sub>
     </td>
     <td width="33%" valign="top">
       <strong>Built for agents</strong><br />
