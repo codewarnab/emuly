@@ -71,10 +71,11 @@ export function NewPhone({ usage, stopped = 0 }: { usage: Usage; stopped?: numbe
       : <form action={action} className={s.createForm}>
         <input type="hidden" name="operation" value="create" />
         {/* Every phone uses the 4-core machine (PHONE_MACHINE in lib/github/github.ts). */}
-        <HostSpecs bare label="Machine" rows={[["CPU", "4 cores"], ["RAM", "16 GB"], ["Disk", "32 GB"]]} />
+        <HostSpecs bare label="" rows={[["CPU", "4 cores"], ["RAM", "16 GB"], ["Disk", "32 GB"]]} />
         {running && <p className={s.createHint}>Running phones share your hours, so each extra phone uses them faster.</p>}
         {stopped > 0 && <p className={s.createHint}>
-          {stopped === 1 ? "Your stopped phone still uses" : `Your ${stopped} stopped phones still use`} GitHub storage. Delete the phones you do not need.
+          {stopped === 1 ? "1 stopped phone uses" : `${stopped} stopped phones use`} storage.{" "}
+          <InfoTip label="About storage">GitHub bills storage for stopped codespaces. Delete the phones you do not need.</InfoTip>
         </p>}
         <fieldset className={s.idleField}>
           <legend>Phone type</legend>
