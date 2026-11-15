@@ -77,11 +77,22 @@ export function NewPhone({ usage, stopped = 0 }: { usage: Usage; stopped?: numbe
         </p>}
         <fieldset className={s.idleField}>
           <legend>Phone type</legend>
-          <div className={`${s.idleChoices} ${s.presetChoices}`} role="radiogroup">
-            {DEVICE_PRESETS.map(preset => <label key={preset.id} className={s.idleChip}>
-              <input type="radio" name="devicePreset" value={preset.id} defaultChecked={preset.id === DEFAULT_DEVICE_PRESET} />
-              <span>{preset.label}</span>
-            </label>)}
+          <div className={s.presetGrid} role="radiogroup">
+            {DEVICE_PRESETS.map(preset => {
+              // Draw the screen shape to scale: tall for phones, wide for the tablet.
+              const w = preset.width ?? 1080, h = preset.height ?? 2400;
+              const scale = 30 / Math.max(w, h);
+              return <label key={preset.id} className={s.presetCard}>
+                <input type="radio" name="devicePreset" value={preset.id} defaultChecked={preset.id === DEFAULT_DEVICE_PRESET} />
+                <span className={s.presetBody}>
+                  <span className={s.presetShape} aria-hidden="true"><i style={{ width: Math.round(w * scale), height: Math.round(h * scale) }} /></span>
+                  <span className={s.presetText}>
+                    <b>{preset.label}</b>
+                    <small>{preset.width ? `${preset.width}×${preset.height}` : "Default size"}</small>
+                  </span>
+                </span>
+              </label>;
+            })}
           </div>
         </fieldset>
         <IdleTimeoutField name="idleTimeoutMin" defaultValue={options.settings.default_idle_min ?? 30} />
