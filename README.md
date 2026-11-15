@@ -16,12 +16,7 @@
   <a href="CONTRIBUTING.md">Contribute</a>
 </p>
 
-<br />
-
-<sub>WORKS WITH ANY CODING AGENT</sub>
-
-<br /><br />
-
+<p><sub>WORKS WITH ANY CODING AGENT</sub><br />
 <picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/claude-ai-icon.svg"><img src="public/agents/claude-ai-icon.svg" height="24" alt="Claude Code" title="Claude Code"></picture>&nbsp;&nbsp;&nbsp;
 <picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/openai_dark.svg"><img src="public/agents/openai.svg" height="24" alt="Codex" title="Codex"></picture>&nbsp;&nbsp;&nbsp;
 <picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/cursor_dark.svg"><img src="public/agents/cursor_light.svg" height="24" alt="Cursor" title="Cursor"></picture>&nbsp;&nbsp;&nbsp;
@@ -34,10 +29,9 @@
 <img src="public/agents/amp.svg" height="24" alt="Amp" title="Amp">&nbsp;&nbsp;&nbsp;
 <img src="public/agents/devin.svg" height="24" alt="Devin" title="Devin">&nbsp;&nbsp;&nbsp;
 <picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/zed-logo_dark.svg"><img src="public/agents/zed-logo.svg" height="24" alt="Zed" title="Zed"></picture>
+</p>
 
 </div>
-
-<br />
 
 <table>
   <tr>
