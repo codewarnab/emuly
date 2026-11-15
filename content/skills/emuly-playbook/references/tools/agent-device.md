@@ -7,7 +7,7 @@ Emuly calls still need the `EMULY_KEY` header. The proxy token is a different se
 
    ```sh
    curl -sS -H "Authorization: Bearer $EMULY_KEY" \
-     "{{EMULY_BASE_URL}}/v1/phones/<id>/agent-device"
+     "$base/v1/phones/<id>/agent-device"
    ```
 
    The reply is `{ base_url, token, version, session }`. A **404** means this phone has no

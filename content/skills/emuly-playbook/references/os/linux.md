@@ -4,7 +4,7 @@ Commands for each playbook topic, for `bash` and `curl`. They work the same on a
 on a remote machine reached over SSH or Tailscale. Each new shell must read the key first:
 
 ~~~bash
-base="{{EMULY_BASE_URL}}"
+base="${EMULY_BASE_URL:-$(cat ~/.config/emuly/base-url 2>/dev/null)}"; base="${base:-{{EMULY_BASE_URL}}}"
 key="${EMULY_KEY:-$(cat ~/.config/emuly/key 2>/dev/null)}"
 auth="Authorization: Bearer $key"
 ~~~

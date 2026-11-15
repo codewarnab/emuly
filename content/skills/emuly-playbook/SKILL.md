@@ -19,7 +19,13 @@ user asks you to.
 1. Read the key: the `EMULY_KEY` user variable on Windows; `EMULY_KEY`, then
    `~/.config/emuly/key` on Linux and macOS. If it is empty, stop and ask the user to click
    **Copy prompt** in the Emuly console. Key setup is not part of this skill.
-2. The Emuly base URL is `{{EMULY_BASE_URL}}`.
+2. Find the Emuly base URL. The first match wins:
+   - the `EMULY_BASE_URL` variable (on Windows, the user variable);
+   - the one-line file `~/.config/emuly/base-url` (on Windows, `%USERPROFILE%\.config\emuly\base-url`);
+   - else `{{EMULY_BASE_URL}}`.
+   A self-hosted Emuly writes that file, for example `http://localhost:4321`. Use this base
+   for every call in this skill and its references. If a localhost base does not answer,
+   ask the user to start Emuly (`pnpm emuly up`, or `docker compose up -d` in `deploy/selfhost/`).
 2a. If you run on macOS (`uname -s` prints `Darwin`), stop. Say that Emuly does not support
    macOS yet, print https://github.com/codewarnab/emuly/issues/27 on its own line, and ask
    whether the user wants to contribute macOS support there.
@@ -92,7 +98,7 @@ Try these steps in order. Ask the user only when all of them fail.
 ## Reading and tapping the screen: offer agent-device
 
 The first time a task needs to see or tap the app, call
-`GET {{EMULY_BASE_URL}}/v1/phones/<id>/agent-device` with the same header.
+`GET <base>/v1/phones/<id>/agent-device` with the same header.
 
 - **404**: never mention agent-device again. Use the uiautomator dump recipe in
   `references/adb.md`.

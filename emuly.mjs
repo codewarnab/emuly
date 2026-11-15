@@ -4,7 +4,9 @@
 // All interactive child output is inherited, so the user sees gh's device-flow code and the
 // server log. Checks run with piped output so their stderr can be shown on failure.
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 // gh's device flow needs no OAuth App: the credential store (a named volume in a container)
 // holds the token, and `gh auth token` hands it to the app at request time.
@@ -103,6 +105,16 @@ async function up(args) {
 
   const url = `http://localhost:${process.env.PORT ?? 4321}`;
   console.log(`Starting emuly on ${url}\n`);
+  // An installed emuly-playbook skill reads this file before its install-time base, so a
+  // skill first installed from the hosted site still finds this server. On the host only:
+  // inside a container the file would land in the container, not where the agent runs.
+  if (!inContainer()) {
+    try {
+      const dir = join(homedir(), ".config", "emuly");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "base-url"), `${url}\n`);
+    } catch (error) { console.warn(`Could not write ~/.config/emuly/base-url: ${error.message}`); }
+  }
   if (!inContainer() && process.stdout.isTTY && !args.includes("--no-browser")) {
     // Detached: the browser outlives a Ctrl-C of the server. Without an error listener a
     // missing xdg-open becomes an uncaught exception; the URL is printed above anyway.
