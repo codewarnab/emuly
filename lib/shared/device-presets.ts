@@ -42,3 +42,15 @@ export function deviceEnv(id: string): string {
     "",
   ].join("\n");
 }
+
+/** True when the preset screen is wider than tall (the tablet). */
+export function isWide(id: unknown): boolean {
+  const preset = devicePreset(id);
+  return !!preset?.width && !!preset.height && preset.width > preset.height;
+}
+
+/** Screen width / height for the preset; 0.5 for the generic phone. */
+export function screenAspect(id: unknown): number {
+  const preset = devicePreset(id);
+  return preset?.width && preset.height ? preset.width / preset.height : 0.5;
+}

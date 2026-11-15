@@ -8,9 +8,9 @@ import { PhoneMutation, KeepPhone } from "@/components/phone/phone-mutations";
 import type { Retention } from "@/lib/data/retention";
 import { PhonePreview } from "@/components/phone/phone-preview";
 
-export function Thumb({ dim, sbRight = "5G", id, ready }: { dim?: boolean; sbRight?: string; id?: string; ready?: boolean }) {
+export function Thumb({ dim, sbRight = "5G", id, ready, wide }: { dim?: boolean; sbRight?: string; id?: string; ready?: boolean; wide?: boolean }) {
   return (
-    <PhonePreview id={id} ready={ready}>
+    <PhonePreview id={id} ready={ready} wide={wide}>
       <div className={`${s.scr} ${dim ? s.scrDim : ""}`}>
         <div className={s.sb}>
           <span>9:41</span>
@@ -44,7 +44,7 @@ export function PhoneCard({ phone, controlState, retention, codespace = null, sh
         <PhoneCardMenu id={phone.id} codespace={codespace} />
       </div>
       <div className={s.pcardBody}>
-        <Thumb id={phone.id} ready={phone.screenReady} dim={phone.thumbDim} />
+        <Thumb id={phone.id} ready={phone.screenReady} dim={phone.thumbDim} wide={phone.wide} />
         <div className={s.meta}>
           {phone.meta.map(([k, v]) => (
             <div key={k}>

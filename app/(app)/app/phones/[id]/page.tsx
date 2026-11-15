@@ -32,7 +32,7 @@ import { PhoneApps } from "@/components/phone/phone-apps";
 import { HostSpecs } from "@/components/phone/host-specs";
 import { AgentTasks } from "@/components/phone/agent-tasks";
 import { env } from "../../../../../lib/env";
-import { devicePreset } from "../../../../../lib/shared/device-presets";
+import { devicePreset, isWide, screenAspect } from "../../../../../lib/shared/device-presets";
 
 // A Stop server action may call the runner three times, up to 80 s each.
 export const maxDuration = 300;
@@ -152,12 +152,12 @@ async function StoredPhone({ phone, user, search, syncError }: {
     <Topbar breadcrumb={["Phones", phone.name]}>
       <Avatar initials={user.initials} login={user.login} avatarUrl={user.avatarUrl} />
     </Topbar>
-    <main className={`${s.detail} ${screenReady ? s.detailLive : ""}`} id="main-content" tabIndex={-1}>
+    <main className={`${s.detail} ${screenReady ? s.detailLive : ""} ${screenReady && isWide(phone.device_preset) ? s.detailWide : ""}`} id="main-content" tabIndex={-1}>
       {(!syncError || syncError.kind === "other") && <PhoneRefresh />}
         <h1 className={s.srOnly}>Phone details</h1>
       <section className={`${s.stage} ${s.disconnected} ${screenReady ? s.liveStage : ""}`} aria-label="Phone screen">
         {screenReady &&
-          <PhoneScreen key={phone.id} id={phone.id} resting={false} live quality={await streamQuality(asyncDb(), user.id)} />}
+          <PhoneScreen key={phone.id} id={phone.id} resting={false} aspect={screenAspect(phone.device_preset)} live quality={await streamQuality(asyncDb(), user.id)} />}
         {phone.state !== "running" && phone.state !== "stopped" && <div className={s.emptyPhone} aria-hidden />}
         {!screenReady && <h2>{status.title}</h2>}
         {(androidBooting || inProgress) && <AndroidElapsed key={stepStarted ?? "none"} started={stepStarted} />}
