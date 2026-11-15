@@ -2,6 +2,7 @@ import "server-only";
 import { waitUntil } from "@vercel/functions";
 import { withLease, independentWork } from "../data/coordination.ts";
 import type { SetupResult } from "./phone-setup.ts";
+import { DEFAULT_DEVICE_PRESET, devicePreset } from "../shared/device-presets.ts";
 import { validIdle } from "../shared/idle.ts";
 import { randomBytes } from "node:crypto";
 import { transaction, type DatabaseQueries } from "../data/async-database.ts";
@@ -17,7 +18,7 @@ type GitHub = ReturnType<typeof createGitHubClient>;
 type StoredPhone = {
   id: string; codespace_name: string; state: string; state_detail: string | null;
   retention_min: number; last_started_at: string | null; last_stopped_at: string | null;
-  cores: number | null; machine: string; idle_timeout_min: number;
+  cores: number | null; machine: string; idle_timeout_min: number; device_preset?: string;
   retention_at: string | null;
   stop_reason: string | null;
 };
@@ -41,7 +42,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
   database: Client;
   /** Installs the emulator and runner in an Available codespace. Without it, phones stay booting. */
   /** Starts or checks phone setup. "working" means: ask again later. */
-  setup?: ((userId: number, codespaceName: string) => Promise<"ready" | "working" | SetupResult>) & {
+  setup?: ((userId: number, codespaceName: string, preset?: string) => Promise<"ready" | "working" | SetupResult>) & {
     /** True when the runner already answers with current scripts, so setup over SSH can be skipped. */
     quickCheck?: (userId: number, codespaceName: string, waitMs?: number) => Promise<boolean>;
   };
@@ -185,10 +186,12 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       const attemptId = newDiagnosticId();
       // A phone that was stopped before had a finished setup, so autostart.sh starts its runner.
       let wake = false;
+      let preset = DEFAULT_DEVICE_PRESET;
       const attempt = await transaction(database, async queries => {
         const current = await phone(userId, id, queries);
         if (current.state !== "booting" || current.codespace_name !== codespaceName) return;
         wake = current.last_stopped_at !== null;
+        preset = current.device_preset ?? DEFAULT_DEVICE_PRESET;
         const saved = (await queries.execute({ sql: "SELECT attempt, retry_at, failed FROM phone_setup_attempts WHERE phone_id = ?", args: [id] })).rows[0];
         if (!chained && Math.max(Number(saved?.retry_at ?? 0), setupRetryAt.get(id) ?? 0) > clock()) return;
         const next = Number(saved?.attempt ?? 0) + 1;
@@ -208,7 +211,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         status = await diagnostics.scope(operationId, () => measure("setup_check", async () => {
           // A runner that autostart.sh started answers without SSH; skip the SSH connect.
           if (await setup.quickCheck?.(userId, codespaceName, wake ? WAKE_CHECK_MS : 0)) return "ready";
-          const result = await setup(userId, codespaceName);
+          const result = await setup(userId, codespaceName, preset);
           const state = typeof result === "string" ? result : result.state;
           if (state === "failed") throw new Error("Phone setup failed.");
           return state;
@@ -635,7 +638,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     remove,
     autoKeep: (userId: number, id: string) => keep(userId, id, true),
     machines: (userId: number, repository: string) => github.machines(userId, repository),
-    async create(userId: number, input: { repository: string; repositoryId: number; machine?: string; idleTimeoutMin: number; devcontainerPath?: string }) {
+    async create(userId: number, input: { repository: string; repositoryId: number; machine?: string; idleTimeoutMin: number; devcontainerPath?: string; devicePreset?: string }) {
+      if (input.devicePreset !== undefined && !devicePreset(input.devicePreset)) throw new PhoneInputError("Choose a valid phone type.");
       if (!/^[\w.-]+\/[\w.-]+$/.test(input.repository) || !Number.isSafeInteger(input.repositoryId)
         || input.repositoryId <= 0 || !validIdle(input.idleTimeoutMin)
         || (input.devcontainerPath !== undefined && !/^\.?[\w./-]+\.json$/.test(input.devcontainerPath))
@@ -661,7 +665,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
           if (count >= maxPhones) throw new PhoneInputError("You reached the local operator's phone safety cap (EMULY_MAX_PHONES).");
         }
         await queries.execute({ sql: `INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state,
-          created_at, idle_timeout_min, retention_min) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, 43200)`, args: [id, userId, `pending:${id}`, input.repository, input.machine ?? "Choosing machine", iso(), input.idleTimeoutMin] });
+          created_at, idle_timeout_min, retention_min, device_preset) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, 43200, ?)`, args: [id, userId, `pending:${id}`, input.repository, input.machine ?? "Choosing machine", iso(), input.idleTimeoutMin, input.devicePreset ?? DEFAULT_DEVICE_PRESET] });
         await queries.execute({ sql: `INSERT INTO phone_creations (phone_id, display_name, outcome, requested_at)
           VALUES (?, ?, 'unconfirmed', ?)`, args: [id, id, iso()] });
       });

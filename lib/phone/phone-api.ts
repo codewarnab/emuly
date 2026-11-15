@@ -1,3 +1,4 @@
+import { DEFAULT_DEVICE_PRESET, DEVICE_PRESETS, devicePreset } from "../shared/device-presets.ts";
 import type { createPhoneService } from "./phone-mutations.ts";
 import { PhoneInputError, redact } from "./phone-mutations.ts";
 import { GitHubError, PHONE_MACHINE } from "../github/github.ts";
@@ -56,7 +57,11 @@ export function createPhoneApi({ user, service, template, usage, defaults }: {
         if (!validIdle(idle)) {
           throw new PhoneInputError(`Choose an idle timeout from ${IDLE_MIN} to ${IDLE_MAX} minutes.`);
         }
-        const id = await service.create(identity.id, { ...template(), machine, idleTimeoutMin: idle });
+        const preset = body.device_preset ?? DEFAULT_DEVICE_PRESET;
+        if (!devicePreset(preset)) {
+          throw new PhoneInputError(`Choose device_preset from: ${DEVICE_PRESETS.map(p => p.id).join(", ")}.`);
+        }
+        const id = await service.create(identity.id, { ...template(), machine, idleTimeoutMin: idle, devicePreset: preset as string });
         return json({ id }, 201);
       } catch (error) {
         if (error instanceof GitHubError) return json({ error: "github_refused", message: redact(error.message) }, 409);

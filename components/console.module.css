@@ -541,6 +541,8 @@
 .createFoot { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 16px; border-top: 1px solid var(--line2); }
 .createFoot .createHint { margin: 0; text-align: left; }
 @media (max-width: 480px) { .dialog .idleChoices { grid-template-columns: repeat(3, 1fr); } }
+.dialog .presetChoices { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 480px) { .dialog .presetChoices { grid-template-columns: repeat(2, 1fr); } }
 .emptyActions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; }
 .emptyOr { color: var(--dim); font-size: 13px; }
 .emptyActions > button:last-child, .emptyActions > :last-child button { background: transparent; color: var(--text); border: 1px solid var(--line); }

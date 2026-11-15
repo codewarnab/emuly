@@ -78,6 +78,20 @@ GitHub and the user did not say no to it yet. Handle it like this:
 - Print every link as a plain URL on its own line.
 - On a **403**, give the user `manage_url` if the body has it. Do not work around it.
 
+## Phone types (screen presets)
+
+`POST /v1/phones` takes an optional `device_preset`. The values are `generic` (default),
+`pixel_9`, `pixel_9_pro`, `small_phone`, `galaxy_size` and `pixel_tablet`. All use the same
+Android 16 image. Only the screen size and density change. `GET /v1/phones` shows `device_preset`.
+
+- If the user names a phone type, send the matching value. For example "a tablet" is
+  `pixel_tablet`, and "a Samsung" or "a Galaxy" is `galaxy_size`.
+- If the user names no type, do not ask first. Make a `generic` phone. Then tell the user
+  in one short line: "I made a generic phone. I can also make a Pixel 9, a Pixel 9 Pro, a
+  small phone, a Galaxy-size screen or a tablet."
+- The type is fixed when the phone is made. A different type needs a new phone.
+- `galaxy_size` copies only the screen. Do not say that it is a real Samsung phone.
+
 ## Decide yourself, but ask before critical actions
 
 Do reversible actions that cost nothing without asking: read state, take screenshots,

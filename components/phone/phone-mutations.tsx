@@ -8,6 +8,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { InfoTip } from "@/components/ui/info-tip";
 import { IdleTimeoutField } from "@/components/settings/idle-timeout-field";
 import { usePhoneAction } from "@/components/phone/use-phone-action";
+import { DEFAULT_DEVICE_PRESET, DEVICE_PRESETS } from "@/lib/shared/device-presets";
 import type { Usage } from "@/lib/data/usage";
 import s from "@/components/console.module.css";
 
@@ -74,6 +75,15 @@ export function NewPhone({ usage, stopped = 0 }: { usage: Usage; stopped?: numbe
         {stopped > 0 && <p className={s.createHint}>
           {stopped === 1 ? "Your stopped phone still uses" : `Your ${stopped} stopped phones still use`} GitHub storage. Delete the phones you do not need.
         </p>}
+        <fieldset className={s.idleField}>
+          <legend>Phone type</legend>
+          <div className={`${s.idleChoices} ${s.presetChoices}`} role="radiogroup">
+            {DEVICE_PRESETS.map(preset => <label key={preset.id} className={s.idleChip}>
+              <input type="radio" name="devicePreset" value={preset.id} defaultChecked={preset.id === DEFAULT_DEVICE_PRESET} />
+              <span>{preset.label}</span>
+            </label>)}
+          </div>
+        </fieldset>
         <IdleTimeoutField name="idleTimeoutMin" defaultValue={options.settings.default_idle_min ?? 30} />
         <div className={s.createFoot}>
           <p className={s.createHint}>

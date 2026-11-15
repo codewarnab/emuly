@@ -1,4 +1,5 @@
 import "server-only";
+import { DEFAULT_DEVICE_PRESET, deviceEnv } from "../shared/device-presets.ts";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
@@ -53,11 +54,12 @@ touch .failed
  * EMULY_WORKING while setup runs (and starts setup when nothing runs), and
  * exits 1 with a fixed failure marker after a failed run, allowing a later retry.
  */
-export function setupScript(root = join(process.cwd(), "phone"), cursor = 0) {
+export function setupScript(root = join(process.cwd(), "phone"), cursor = 0, preset = DEFAULT_DEVICE_PRESET) {
   // Windows checkouts and editors can add CRLF; bash on the codespace rejects it.
   const files: [string, string][] = [...FILES.map(file => [file, Buffer.from(readFileSync(join(root, file), "utf8").replace(/\r\n/g, "\n")).toString("base64")] as [string, string]),
     ["runner/ws.cjs", readFileSync(join(process.cwd(), "node_modules/next/dist/compiled/ws/index.js")).toString("base64")],
     ["runner/ws.LICENSE", readFileSync(join(process.cwd(), "node_modules/next/dist/compiled/ws/LICENSE")).toString("base64")],
+    ["device.env", Buffer.from(deviceEnv(preset)).toString("base64")],
     ["run.sh", Buffer.from(RUN.replace('builtin cd', `export EMULY_DIAGNOSTICS=${diagnosticOperation() ? "1" : "0"}\nexport PH_OPERATION_ID=${diagnosticOperation() ?? "disabled"}\n${agentDeviceExport()}\nbuiltin cd`)).toString("base64")]];
   const writes = files.map(([file, body]) => `mkdir -p "$(dirname "${file}")"\necho '${body}' | base64 -d > "${file}"`);
   writes.push(`echo '${scriptsVersion(root)}' > .scripts-version`);
@@ -165,11 +167,11 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
       return health?.ok === true && health.version === 10 && health.scripts === scriptsVersion();
     } catch { return false; }
   }
-  return Object.assign(async function setupPhone(userId: number, codespaceName: string): Promise<SetupResult> {
+  return Object.assign(async function setupPhone(userId: number, codespaceName: string, preset = DEFAULT_DEVICE_PRESET): Promise<SetupResult> {
     const secret = await measure("credential_lookup", () => token(userId));
     let result;
     try {
-      result = await exec({ token: secret, codespaceName, command: "bash --noprofile --norc -s", stdin: setupScript(undefined, await progressCursor()), timeoutMs: 90_000, outputLimit: 32768 });
+      result = await exec({ token: secret, codespaceName, command: "bash --noprofile --norc -s", stdin: setupScript(undefined, await progressCursor(), preset), timeoutMs: 90_000, outputLimit: 32768 });
     } catch (error) {
       throw new PhoneSetupError("Could not reach the codespace. Emuly will retry setup.");
     }

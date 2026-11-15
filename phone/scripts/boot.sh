@@ -84,6 +84,23 @@ if [ "${#stale_locks[@]}" -gt 0 ]; then
   rm -f -- "${stale_locks[@]}"
 fi
 
+# Screen preset from the server (lib/shared/device-presets.ts), written by setup as device.env.
+# Every boot is cold, so a config.ini edit here takes effect now. "generic" changes nothing.
+DEVICE_ENV="$HOME/emuly/device.env"
+if [ -f "$DEVICE_ENV" ]; then
+  # shellcheck disable=SC1090
+  source "$DEVICE_ENV"
+  cfg="$avd_dir/config.ini"
+  set_cfg() { sed -i "/^$1[ ]*=/d" "$cfg"; echo "$1=$2" >> "$cfg"; }
+  if [ -n "${EMULY_LCD_WIDTH:-}" ] && [ -f "$cfg" ]; then
+    set_cfg hw.lcd.width "$EMULY_LCD_WIDTH"
+    set_cfg hw.lcd.height "$EMULY_LCD_HEIGHT"
+    set_cfg hw.lcd.density "$EMULY_LCD_DENSITY"
+    [ -z "${EMULY_DEVICE:-}" ] || set_cfg hw.device.name "$EMULY_DEVICE"
+    echo "preset: ${EMULY_PRESET} ${EMULY_LCD_WIDTH}x${EMULY_LCD_HEIGHT} ${EMULY_LCD_DENSITY}dpi"
+  fi
+fi
+
 ph_begin adb_init
 adb start-server >/dev/null 2>&1 || true
 ph_end

@@ -11,7 +11,7 @@ import { agentDeviceBaseUrl, agentDeviceInfo, agentDeviceSession, agentDeviceUna
 import type { Phone } from "./phones.ts";
 
 type Identity = { id: number; authKind?: "session" | "agent"; agentKeyId?: number };
-type PhoneView = Pick<Phone, "id" | "name" | "state" | "android_state" | "idle_timeout_min">;
+type PhoneView = Pick<Phone, "id" | "name" | "state" | "android_state" | "idle_timeout_min"> & { device_preset?: string };
 type AdbCall = { userId: number; phoneId: string; args: string[]; agentKeyId?: number; exitCode: number };
 
 class InputError extends Error {
@@ -99,7 +99,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDe
     Response.json(body, { status, headers: { "Cache-Control": "private, no-store", ...headers } });
   const view = (stored: PhoneView) => ({
     id: stored.id, name: stored.name, state: stored.state, android_state: stored.android_state,
-    idle_timeout_min: stored.idle_timeout_min,
+    idle_timeout_min: stored.idle_timeout_min, device_preset: stored.device_preset ?? "generic",
     browser_url: `${baseUrl().replace(/\/$/, "")}/app/phones/${encodeURIComponent(stored.id)}`,
   });
   const record = async (identity: Identity, id: string, args: string[], exitCode: number) => {

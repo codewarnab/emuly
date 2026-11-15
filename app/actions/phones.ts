@@ -7,6 +7,7 @@ import { PHONE_MACHINE } from "../../lib/github/github";
 import { IDLE_MAX, IDLE_MIN, parseIdle } from "../../lib/shared/idle";
 import { GitHubError } from "../../lib/github/github";
 import { PhoneInputError, redact } from "../../lib/phone/phone-mutations";
+import { DEFAULT_DEVICE_PRESET, devicePreset } from "../../lib/shared/device-presets";
 import { PHONE_ID } from "../../lib/shared/phone-name";
 import { RateLimitError } from "../../lib/data/rate-limit";
 import { asyncDb } from "../../lib/data/async-db";
@@ -37,6 +38,7 @@ export async function mutatePhone(_previous: MutationResult, form: FormData): Pr
       if (minutes === null) throw new PhoneInputError(`Enter an idle timeout from ${IDLE_MIN} to ${IDLE_MAX} minutes.`);
       id = await phoneControl().create(user.id, {
         ...templateRepository(), machine: PHONE_MACHINE.name, idleTimeoutMin: minutes,
+        devicePreset: devicePreset(form.get("devicePreset"))?.id ?? DEFAULT_DEVICE_PRESET,
       });
       message = "Phone created. GitHub is preparing the codespace.";
     } else if (operation === "start" || operation === "stop" || operation === "keep" || operation === "retryBoot") {
