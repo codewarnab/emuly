@@ -112,7 +112,8 @@ async function up(args) {
     try {
       const dir = join(homedir(), ".config", "emuly");
       mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, "base-url"), `${url}\n`);
+      // A tailnet or proxy address set in EMULY_BASE_URL is the one agents must call.
+      writeFileSync(join(dir, "base-url"), `${(process.env.EMULY_BASE_URL || url).replace(/\/$/, "")}\n`);
     } catch (error) { console.warn(`Could not write ~/.config/emuly/base-url: ${error.message}`); }
   }
   if (!inContainer() && process.stdout.isTTY && !args.includes("--no-browser")) {
