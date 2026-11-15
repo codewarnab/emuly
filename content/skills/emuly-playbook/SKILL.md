@@ -35,6 +35,19 @@ user asks you to.
    It changes how you give links, scrcpy and screenshots.
 5. Check for T3 Code every time, not only at setup. See "T3 Code" below.
 
+## Updates (self-hosted Emuly only)
+
+`GET /v1/phones` can include an `update` field. It appears only when a newer Emuly is on
+GitHub and the user did not say no to it yet. Handle it like this:
+
+1. Finish the user's task first. Then ask once, in one line:
+   "A newer Emuly (`<latest>`) is out. Update it now?"
+2. If the user says yes, pull the latest code from GitHub, rebuild, and restart.
+   Follow `docs/SELF-HOST.md` in the local clone. Then update this skill the same way you installed it.
+3. If the user says no, later, or does not answer, send `POST <dismiss>` with the key.
+   This stops the question in every chat until a newer version comes out.
+4. Never ask twice in one chat. Never update without a yes.
+
 ## How to talk to the user
 
 - Keep every message short and easy to read. Never be verbose.

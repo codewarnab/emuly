@@ -82,7 +82,7 @@ async function readAdbMultipart(request: Request): Promise<{ args: unknown; time
 }
 
 /** The agent-facing phone routes: list/read plus lifecycle and adb. Both auth kinds may use them. */
-export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDevice, baseUrl, log }: {
+export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDevice, baseUrl, log, update }: {
   user: () => Promise<Identity | null>;
   phones: (userId: number) => Promise<PhoneView[]>;
   phone: (userId: number, id: string) => Promise<PhoneView | undefined>;
@@ -92,6 +92,8 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDe
   agentDevice: (userId: number, id: string) => Promise<unknown>;
   baseUrl: () => string;
   log?: (call: AdbCall) => void | Promise<void>;
+  /** Self-host only: a once-per-version "newer Emuly on GitHub" hint for the agent. */
+  update?: () => Promise<unknown>;
 }) {
   const json = (body: unknown, status = 200, headers?: Record<string, string>) =>
     Response.json(body, { status, headers: { "Cache-Control": "private, no-store", ...headers } });
@@ -126,7 +128,10 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDe
     async list() {
       const identity = await user();
       if (!identity) return json({ error: "unauthorized" }, 401);
-      try { return json({ phones: (await phones(identity.id)).map(view) }); }
+      try {
+        const [list, hint] = await Promise.all([phones(identity.id), update?.().catch(() => null)]);
+        return json({ phones: list.map(view), ...(hint ? { update: hint } : {}) });
+      }
       catch { return json({ error: "request_failed", message: "The phone list could not be loaded." }, 502); }
     },
     async read(_request: Request, id: string) {

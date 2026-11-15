@@ -166,6 +166,14 @@ manage (and delete) the surviving Codespaces directly in GitHub.
   not set `GH_TOKEN`/`GITHUB_TOKEN`: it bypasses gh's store and usually lacks the
   `codespace` scope, so Emuly refuses to start with it set.
 
+## Update notice
+
+Once a day, the server reads the latest version number from the Emuly repository on GitHub.
+It sends nothing about you. If your copy is older, `GET /v1/phones` includes an `update` field.
+Your agent asks you once. If you say no, the server saves that in `update-dismissed` next to the
+database. It does not ask again until a newer version comes out. To turn the check off, set
+`EMULY_UPDATE_CHECK=0`.
+
 ## Checks and repair
 
 - `pnpm emuly doctor` (or `docker compose run --rm emuly node emuly.mjs doctor`)
