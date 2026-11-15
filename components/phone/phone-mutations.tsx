@@ -8,7 +8,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { InfoTip } from "@/components/ui/info-tip";
 import { IdleTimeoutField } from "@/components/settings/idle-timeout-field";
 import { usePhoneAction } from "@/components/phone/use-phone-action";
-import { DEFAULT_DEVICE_PRESET, DEVICE_PRESETS } from "@/lib/shared/device-presets";
+import { DEFAULT_DEVICE_PRESET, DEVICE_PRESETS, devicePreset } from "@/lib/shared/device-presets";
 import type { Usage } from "@/lib/data/usage";
 import s from "@/components/console.module.css";
 
@@ -55,6 +55,7 @@ export function NewPhone({ usage, stopped = 0 }: { usage: Usage; stopped?: numbe
     setOptions(await phoneCreationOptions());
   }
   const [open, setOpen] = useState(false);
+  const [presetId, setPresetId] = useState(DEFAULT_DEVICE_PRESET);
   // The refusal hides once the user stops phones; a new create result shows again.
   const [dismissed, setDismissed] = useState<object | null>(null);
   const [result, action, pending] = useActionState(mutatePhone, { message: "" });
@@ -77,23 +78,13 @@ export function NewPhone({ usage, stopped = 0 }: { usage: Usage; stopped?: numbe
         </p>}
         <fieldset className={s.idleField}>
           <legend>Phone type</legend>
-          <div className={s.presetGrid} role="radiogroup">
-            {DEVICE_PRESETS.map(preset => {
-              // Draw the screen shape to scale: tall for phones, wide for the tablet.
-              const w = preset.width ?? 1080, h = preset.height ?? 2400;
-              const scale = 30 / Math.max(w, h);
-              return <label key={preset.id} className={s.presetCard}>
-                <input type="radio" name="devicePreset" value={preset.id} defaultChecked={preset.id === DEFAULT_DEVICE_PRESET} />
-                <span className={s.presetBody}>
-                  <span className={s.presetShape} aria-hidden="true"><i style={{ width: Math.round(w * scale), height: Math.round(h * scale) }} /></span>
-                  <span className={s.presetText}>
-                    <b>{preset.label}</b>
-                    <small>{preset.width ? `${preset.width}×${preset.height}` : "Default size"}</small>
-                  </span>
-                </span>
-              </label>;
-            })}
+          <div className={s.idleChoices} role="radiogroup">
+            {DEVICE_PRESETS.map(preset => <label key={preset.id} className={s.idleChip}>
+              <input type="radio" name="devicePreset" value={preset.id} checked={presetId === preset.id} onChange={() => setPresetId(preset.id)} />
+              <span>{preset.short}</span>
+            </label>)}
           </div>
+          <PresetHint id={presetId} />
         </fieldset>
         <IdleTimeoutField name="idleTimeoutMin" defaultValue={options.settings.default_idle_min ?? 30} />
         <div className={s.createFoot}>
@@ -116,6 +107,17 @@ export function NewPhone({ usage, stopped = 0 }: { usage: Usage; stopped?: numbe
       </div>}
     </Dialog>}
   </>;
+}
+
+/** One quiet line about the chosen type: its screen shape to scale, name and size. */
+function PresetHint({ id }: { id: string }) {
+  const preset = devicePreset(id) ?? DEVICE_PRESETS[0]!;
+  const w = preset.width ?? 1080, h = preset.height ?? 2400;
+  const scale = 14 / Math.max(w, h);
+  return <p className={s.presetHint} aria-live="polite">
+    <i aria-hidden="true" style={{ width: Math.round(w * scale), height: Math.round(h * scale) }} />
+    {preset.label}{preset.width ? ` · ${preset.width}×${preset.height} · ${preset.density} dpi` : " · default screen size"}
+  </p>;
 }
 
 function NewPhoneSkeleton() {

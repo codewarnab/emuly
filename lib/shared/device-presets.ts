@@ -6,6 +6,8 @@
 export type DevicePreset = {
   id: string;
   label: string;
+  /** Short name for the segmented control in the New phone dialog. */
+  short: string;
   /** avdmanager device id, written as hw.device.name. */
   device: string | null;
   width: number | null;
@@ -14,12 +16,12 @@ export type DevicePreset = {
 };
 
 export const DEVICE_PRESETS: readonly DevicePreset[] = [
-  { id: "generic", label: "Generic phone", device: null, width: null, height: null, density: null },
-  { id: "pixel_9", label: "Pixel 9", device: "pixel_9", width: 1080, height: 2424, density: 420 },
-  { id: "pixel_9_pro", label: "Pixel 9 Pro", device: "pixel_9_pro", width: 1280, height: 2856, density: 495 },
-  { id: "small_phone", label: "Small phone", device: "small_phone", width: 720, height: 1280, density: 320 },
-  { id: "galaxy_size", label: "Galaxy-size screen", device: null, width: 1080, height: 2340, density: 425 },
-  { id: "pixel_tablet", label: "Tablet", device: "pixel_tablet", width: 2560, height: 1600, density: 320 },
+  { id: "generic", label: "Generic phone", short: "Generic", device: null, width: null, height: null, density: null },
+  { id: "pixel_9", label: "Pixel 9", short: "Pixel 9", device: "pixel_9", width: 1080, height: 2424, density: 420 },
+  { id: "pixel_9_pro", label: "Pixel 9 Pro", short: "Pixel 9 Pro", device: "pixel_9_pro", width: 1280, height: 2856, density: 495 },
+  { id: "small_phone", label: "Small phone", short: "Small", device: "small_phone", width: 720, height: 1280, density: 320 },
+  { id: "galaxy_size", label: "Galaxy-size screen", short: "Galaxy", device: null, width: 1080, height: 2340, density: 425 },
+  { id: "pixel_tablet", label: "Tablet", short: "Tablet", device: "pixel_tablet", width: 2560, height: 1600, density: 320 },
 ];
 
 export const DEFAULT_DEVICE_PRESET = "generic";
