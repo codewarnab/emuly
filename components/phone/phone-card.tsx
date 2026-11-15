@@ -34,7 +34,7 @@ export function Thumb({ dim, sbRight = "5G", id, ready }: { dim?: boolean; sbRig
 
 const PILL_LABEL = { running: "running", stopped: "stopped", stopping: "stopping", booting: "starting", needsyou: "failed" } as const;
 
-export function PhoneCard({ phone, controlState, retention, codespace = null }: { phone: PhoneRow; on?: boolean; controlState?: string; retention?: Retention | null; codespace?: string | null }) {
+export function PhoneCard({ phone, controlState, retention, codespace = null, showScreen = false }: { phone: PhoneRow; on?: boolean; showScreen?: boolean; controlState?: string; retention?: Retention | null; codespace?: string | null }) {
   const noCodespace = controlState === "error" && !codespace;
   return (
     <div className={s.pcard}>
@@ -49,7 +49,7 @@ export function PhoneCard({ phone, controlState, retention, codespace = null }: 
           {phone.meta.map(([k, v]) => (
             <div key={k}>
               <span className={s.k}>{k}</span>
-              <span className={s.v}>{v}</span>
+              <span className={s.v}>{showScreen && k === "Machine" && phone.screen ? `${phone.screen} · ${v}` : v}</span>
             </div>
           ))}
         </div>

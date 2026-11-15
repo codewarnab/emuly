@@ -612,3 +612,4 @@
 .skelSpec span { height: 16px; width: 70px; }
 .skelSpec span:last-child { width: 50px; }
 .skeletonStage { height: 600px; }
+.screenTag { margin-left: 8px; font-size: 12px; color: var(--dim); }

@@ -2,6 +2,7 @@ import { asyncDb } from "../data/async-db.ts";
 import "server-only";
 import { shortMessage } from "../shared/short-message.ts";
 import { phoneName } from "../shared/phone-name.ts";
+import { devicePreset } from "../shared/device-presets.ts";
 import { phoneStatus, phoneEventMessage } from "./phone-status.ts";
 
 import type { PhoneRow } from "@/lib/shared/fixtures";
@@ -58,6 +59,7 @@ export function phoneCard(phone: Phone): PhoneRow {
     statusLabel: status.label,
     thumbDim: status.kind !== "running",
     screenReady: status.kind === "running",
+    screen: devicePreset(phone.device_preset)?.short ?? "Generic",
     meta: [
       ["Status", status.title],
       ["Machine", "4-core · 16 GB"],
