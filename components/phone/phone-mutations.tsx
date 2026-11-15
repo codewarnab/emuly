@@ -108,14 +108,11 @@ export function NewPhone({ usage, stopped = 0 }: { usage: Usage; stopped?: numbe
   </>;
 }
 
-/** One quiet line about the chosen type: its screen shape to scale, name and size. */
+/** The chosen type's screen size, shown next to the "Phone type" label. */
 function PresetHint({ id }: { id: string }) {
   const preset = devicePreset(id) ?? DEVICE_PRESETS[0]!;
-  const w = preset.width ?? 1080, h = preset.height ?? 2400;
-  const scale = 14 / Math.max(w, h);
   return <span className={s.presetHint} aria-live="polite">
-    <i aria-hidden="true" style={{ width: Math.round(w * scale), height: Math.round(h * scale) }} />
-    {preset.width ? `${preset.width}×${preset.height} · ${preset.density} dpi` : "Standard screen"}
+    {preset.width ? `${preset.width} × ${preset.height}` : "Standard screen"}
   </span>;
 }
 
