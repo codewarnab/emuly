@@ -24,14 +24,14 @@ ${selfHostNote}- ${keyLine}
 Find out, without asking me, where you run and where I sit. On Linux or macOS run:
 
 \`\`\`sh
-uname -s; echo "ssh=\${SSH_CONNECTION:-none} display=\${DISPLAY:-}\${WAYLAND_DISPLAY:-} t3=\${T3CODE_THREAD_ID:+yes}"
+uname -s; echo "ssh=\${SSH_CONNECTION:-none} display=\${DISPLAY:-}\${WAYLAND_DISPLAY:-} t3=$(if [ -n \"\$T3CODE_THREAD_ID\" ]; then echo yes; elif [ -d \"\$HOME/.t3\" ]; then echo installed; fi)"
 command -v tailscale >/dev/null && tailscale status --self --peers=false
 \`\`\`
 
 On Windows, run this in PowerShell:
 
 \`\`\`powershell
-"ssh=$(if ($env:SSH_CONNECTION) { $env:SSH_CONNECTION } else { 'none' }) session=$env:SESSIONNAME t3=$(if ($env:T3CODE_THREAD_ID) { 'yes' })"
+"ssh=$(if ($env:SSH_CONNECTION) { $env:SSH_CONNECTION } else { 'none' }) session=$env:SESSIONNAME t3=$(if ($env:T3CODE_THREAD_ID) { 'yes' } elseif (Test-Path \"$HOME\\.t3\") { 'installed' })"
 if (Get-Command tailscale -ErrorAction SilentlyContinue) { tailscale status --self --peers=false }
 \`\`\`
 
@@ -46,6 +46,9 @@ If your sandbox blocks the network (Codex does by default), ask me to approve ne
 access for your first Emuly \`curl\` instead of reporting an error.
 
 - **In T3 Code:** \`T3CODE_THREAD_ID\` is set. Also set up the T3 Code Device panel (the skill says how).
+- **T3 Code installed:** \`t3=installed\`. When the phone is ready, ask me once in this session:
+  "You have T3 Code installed too. Do you want me to set it up so this phone shows in the
+  T3 Code Device panel, next to your chat? (yes / no)". On yes, set it up (the skill says how).
 
 Tell me in one line what you found, for example "You are on a remote Linux machine over
 Tailscale from <computer>, so I will give you links to open there." The skill uses this.

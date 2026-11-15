@@ -88,7 +88,9 @@ T3 Code can show an Emuly phone in its Device panel. Check where you run:
 
 - `T3CODE_THREAD_ID` is set: you run inside T3 Code. Set it up without a request.
 - `T3CODE_THREAD_ID` is not set, but `~/.t3` exists (Windows: `%USERPROFILE%\.t3`): T3 Code
-  is installed. Ask once per session: "You have T3 Code. Show the phone there too?"
+  is installed. When the phone is ready, ask once per session: "You have T3 Code installed
+  too. Do you want me to set it up so this phone shows in the T3 Code Device panel, next to
+  your chat? (yes / no)". On no, do not ask again in this session.
 - Neither: skip this section.
 
 Run the check on the machine where you run. Each T3 Code environment (for example a
