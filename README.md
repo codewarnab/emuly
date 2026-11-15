@@ -16,19 +16,21 @@
   <a href="CONTRIBUTING.md">Contribute</a>
 </p>
 
-<p><sub>WORKS WITH ANY CODING AGENT</sub><br />
-<picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/claude-ai-icon.svg"><img src="public/agents/claude-ai-icon.svg" height="24" alt="Claude Code" title="Claude Code"></picture>&nbsp;&nbsp;&nbsp;
-<picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/openai_dark.svg"><img src="public/agents/openai.svg" height="24" alt="Codex" title="Codex"></picture>&nbsp;&nbsp;&nbsp;
-<picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/cursor_dark.svg"><img src="public/agents/cursor_light.svg" height="24" alt="Cursor" title="Cursor"></picture>&nbsp;&nbsp;&nbsp;
-<picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/t3-light.svg"><img src="public/agents/t3-dark.svg" height="24" alt="T3 Code" title="T3 Code"></picture>&nbsp;&nbsp;&nbsp;
-<picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/opencode-dark.svg"><img src="public/agents/opencode.svg" height="24" alt="OpenCode" title="OpenCode"></picture>&nbsp;&nbsp;&nbsp;
-<picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/copilot_dark.svg"><img src="public/agents/copilot.svg" height="24" alt="GitHub Copilot" title="GitHub Copilot"></picture>&nbsp;&nbsp;&nbsp;
-<img src="public/agents/gemini.svg" height="24" alt="Gemini CLI" title="Gemini CLI">&nbsp;&nbsp;&nbsp;
-<picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/windsurf-dark.svg"><img src="public/agents/windsurf-light.svg" height="24" alt="Windsurf" title="Windsurf"></picture>&nbsp;&nbsp;&nbsp;
-<picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/cline-dark.svg"><img src="public/agents/cline.svg" height="24" alt="Cline" title="Cline"></picture>&nbsp;&nbsp;&nbsp;
-<img src="public/agents/amp.svg" height="24" alt="Amp" title="Amp">&nbsp;&nbsp;&nbsp;
-<img src="public/agents/devin.svg" height="24" alt="Devin" title="Devin">&nbsp;&nbsp;&nbsp;
-<picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/zed-logo_dark.svg"><img src="public/agents/zed-logo.svg" height="24" alt="Zed" title="Zed"></picture>
+<p><sub>WORKS WITH ANY CODING AGENT</sub></p>
+
+<p>
+<picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/claude-ai-icon.svg"><img src="public/agents/claude-ai-icon.svg" height="18" alt="Claude Code" title="Claude Code"></picture>&nbsp;&nbsp;&nbsp;
+<picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/openai_dark.svg"><img src="public/agents/openai.svg" height="18" alt="Codex" title="Codex"></picture>&nbsp;&nbsp;&nbsp;
+<picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/cursor_dark.svg"><img src="public/agents/cursor_light.svg" height="18" alt="Cursor" title="Cursor"></picture>&nbsp;&nbsp;&nbsp;
+<picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/t3-light.svg"><img src="public/agents/t3-dark.svg" height="18" alt="T3 Code" title="T3 Code"></picture>&nbsp;&nbsp;&nbsp;
+<picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/opencode-dark.svg"><img src="public/agents/opencode.svg" height="18" alt="OpenCode" title="OpenCode"></picture>&nbsp;&nbsp;&nbsp;
+<picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/copilot_dark.svg"><img src="public/agents/copilot.svg" height="18" alt="GitHub Copilot" title="GitHub Copilot"></picture>&nbsp;&nbsp;&nbsp;
+<img src="public/agents/gemini.svg" height="18" alt="Gemini CLI" title="Gemini CLI">&nbsp;&nbsp;&nbsp;
+<picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/windsurf-dark.svg"><img src="public/agents/windsurf-light.svg" height="18" alt="Windsurf" title="Windsurf"></picture>&nbsp;&nbsp;&nbsp;
+<picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/cline-dark.svg"><img src="public/agents/cline.svg" height="18" alt="Cline" title="Cline"></picture>&nbsp;&nbsp;&nbsp;
+<img src="public/agents/amp.svg" height="18" alt="Amp" title="Amp">&nbsp;&nbsp;&nbsp;
+<img src="public/agents/devin.svg" height="18" alt="Devin" title="Devin">&nbsp;&nbsp;&nbsp;
+<picture><source media="(prefers-color-scheme: dark)" srcset="public/agents/zed-logo_dark.svg"><img src="public/agents/zed-logo.svg" height="18" alt="Zed" title="Zed"></picture>
 </p>
 
 </div>
