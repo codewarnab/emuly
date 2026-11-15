@@ -171,6 +171,24 @@ test("a late failure from a closed connection cannot close its replacement", asy
   links.close(phone);
 });
 
+test("a slow screenshot does not close the connection that a video stream uses", async () => {
+  let closes = 0;
+  const links = createEmulyLinks({ token: async () => "synthetic",
+    fetch: async url => {
+      if (String(url).startsWith("https://")) return new Response(null, { status: 403 });
+      if (String(url).endsWith("/screenshot")) throw new DOMException("The operation timed out.", "TimeoutError");
+      return Response.json({ ok: true });
+    },
+    tunnel: async () => ({ url: "http://127.0.0.1:10002", close: () => { closes++; } }) });
+  try {
+    const stream = await links.stream(phone);
+    await assert.rejects(links.request(phone, "/screenshot"), /Phone connection failed/);
+    assert.equal(stream.signal.aborted, false);
+    assert.equal(closes, 0);
+    stream.release();
+  } finally { links.close(phone); }
+});
+
 test("a stream holds its Phase 0 lease until release and closes when the phone closes", async () => {
   let closes = 0;
   const links = createEmulyLinks({ token: async () => "synthetic", idleMs: 15,
@@ -274,4 +292,20 @@ test("a failed keep-awake logs a bounded error without the credential", async t 
   stream.release(); links.close(phone);
   assert.ok(warnings.some(line => line.includes("keep_awake_failed")));
   assert.ok(warnings.every(line => !line.includes("gho_SECRET123")), "logs never contain the token");
+});
+
+test("closing a connection gives each stream the reason, so the proxy can log it", async () => {
+  const links = createEmulyLinks({ token: async () => "synthetic", idleMs: 10,
+    fetch: async () => new Response(null, { status: 403 }),
+    tunnel: async () => ({ url: "http://127.0.0.1:10003", close: () => {} }) });
+  try {
+    const stream = await links.stream(phone);
+    stream.drop();
+    assert.equal(stream.signal.reason, "stream_dropped");
+    stream.release();
+    const next = await links.stream(phone);
+    next.release();
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(next.signal.reason, "idle_timeout");
+  } finally { links.close(phone); }
 });

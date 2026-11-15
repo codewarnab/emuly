@@ -6,6 +6,8 @@ const HIDDEN_DISCONNECT_MS = 60_000;
 const RESUME_FRAME_WAIT_MS = 5_000;
 // A cold capture start measured 6.5 s to its first packet; 6 s dropped working streams.
 const FIRST_FRAME_WAIT_MS = 15_000;
+const STALE_FRAME_MS = 1_000;
+const STALE_LIMIT_MS = 5_000;
 // Browser -> Vercel -> GitHub port forward -> runner can take several seconds to open.
 const CONNECT_WAIT_MS = 20_000;
 
@@ -45,6 +47,10 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
   // The browser cannot decode this H.264 stream. Each retry starts a new scrcpy on the runner,
   // so after DECODE_LIMIT failures use the screenshot view instead.
   let decodeFailures = 0;
+  // When the decoder fell behind the last time; see the queue check in onmessage.
+  let skippedAt = -Infinity;
+  // Stale-frame skip; see the age check in onmessage.
+  let staleSince = 0, keyAskedAt = -Infinity;
   const DECODE_LIMIT = 2;
   let retry = 0, timer: ReturnType<typeof setTimeout> | undefined, decoder: VideoDecoder | undefined;
   const transition = (next: VideoConnectionState) => {
@@ -231,8 +237,40 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
             try { decoder!.configure(decoderConfig); } catch { decodeFailed(); return; }
             needKey = true; return;
           }
+          // Skip old video (speed report, fix 10). On a slow network the old frames wait in the
+          // operating system's network buffers (several MB). The runner and the proxy cannot see
+          // those buffers: a test with a viewer that stopped reading for 12 s showed 12 s old frames
+          // and an empty runner queue. Only the browser sees each frame's age, from the runner's send
+          // time in the packet. So when a frame is older than STALE_FRAME_MS, drop it and every frame
+          // up to a fresh keyframe (delta frames need the frames before them; an old keyframe is old
+          // too), and ask the runner for a keyframe. The old bytes must still arrive, so the picture
+          // stops for a moment, but it then continues from the current screen and does not replay
+          // the old video. If the frames stay old for STALE_LIMIT_MS, the network is slower than the
+          // video: reconnect, with saver quality on "auto".
+          const age = calibrated ? Date.now() + offset - packet.sent : 0;
+          if (age > STALE_FRAME_MS) {
+            needKey = true; staleSince ||= Date.now();
+            if (Date.now() - staleSince > STALE_LIMIT_MS) {
+              report?.("reconnect", "stale"); if (quality === "auto") onSaver(); ws.close(); return;
+            }
+            if (Date.now() - keyAskedAt >= 1000) { keyAskedAt = Date.now(); ws.send(JSON.stringify({ type: "keyframe" })); }
+            return;
+          }
+          staleSince = 0;
           if (decoder!.state !== "configured" || (needKey && !packet.key)) return;
-          if (decoder!.decodeQueueSize > 5) { report?.("reconnect", "queue_full"); if (quality === "auto") onSaver(); ws.close(); return; }
+          if (decoder!.decodeQueueSize > 5) {
+            // The decoder is behind. Before, this closed the socket at once, so the viewer saw a
+            // reconnect for a short slow moment. Now drop frames until the next keyframe (delta
+            // frames need the frames before them) and ask the runner for one. Only when it falls
+            // behind again within 10 s is the device too slow for this quality: then reconnect
+            // as before, with saver quality on "auto".
+            if (Date.now() - skippedAt > 10_000) {
+              skippedAt = Date.now(); needKey = true;
+              ws.send(JSON.stringify({ type: "keyframe" }));
+              return;
+            }
+            report?.("reconnect", "queue_full"); if (quality === "auto") onSaver(); ws.close(); return;
+          }
           let data = packet.data;
           if (packet.key) { data = new Uint8Array(config.length + packet.data.length); data.set(config); data.set(packet.data, config.length); }
           needKey = false; sent.set(packet.pts, { sent: packet.sent, receivedAt: performance.now() });

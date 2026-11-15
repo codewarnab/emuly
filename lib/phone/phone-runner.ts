@@ -22,8 +22,8 @@ export async function runnerRequest(userId: number, id: string, path: RunnerPath
   if (!row) throw new Error("Phone is not available");
   return links().request({ userId, id, codespaceName: row.codespace_name }, path, body);
 }
-export function closeRunner(userId: number, id: string, codespaceName: string) {
-  links().close({ userId, id, codespaceName });
+export function closeRunner(userId: number, id: string, codespaceName: string, reason?: string) {
+  links().close({ userId, id, codespaceName }, reason);
 }
 
 export async function runnerApps(userId: number, id: string, path: AppsPath, options: AppsRequest) {
