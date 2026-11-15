@@ -3,6 +3,7 @@ import { useActionState, useEffect } from "react";
 import { approveDevice, denyDevice, type DeviceActionResult } from "@/app/actions/devices";
 import { useToast } from "@/components/ui/ui-provider";
 import s from "@/components/link/link.module.css";
+import { DEVICE_RESULT_EVENT } from "@/lib/webmcp/events";
 
 const EMPTY: DeviceActionResult = { ok: false, message: "" };
 
@@ -15,6 +16,9 @@ export function DeviceActions({ code }: { code: string }) {
   // Success re-renders the page into its final state, so only failures need a toast.
   useEffect(() => { if (approved.message && !approved.ok) notify(approved.message); }, [approved, notify]);
   useEffect(() => { if (denied.message && !denied.ok) notify(denied.message); }, [denied, notify]);
+  // Tells a waiting WebMCP connect_agent call which button the human clicked.
+  useEffect(() => { if (approved.ok) dispatchEvent(new CustomEvent(DEVICE_RESULT_EVENT, { detail: "approved" })); }, [approved]);
+  useEffect(() => { if (denied.ok) dispatchEvent(new CustomEvent(DEVICE_RESULT_EVENT, { detail: "denied" })); }, [denied]);
 
   return <div className={s.actions}>
     <form action={approve}>

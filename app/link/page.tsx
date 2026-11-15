@@ -80,7 +80,7 @@ function DeviceState({ request, login }: { request: DeviceRequest; login: string
   if (request.status !== "pending") {
     const state = DONE[request.status];
     return <>
-      <p className={s.eyebrow} data-state={request.status}>{state.eyebrow}</p>
+      <p className={s.eyebrow} data-state={request.status} data-device-state={request.status}>{state.eyebrow}</p>
       <h1 id="link-title" className={s.title}>{state.title}</h1>
       <p className={s.sub}>{state.message}</p>
       <Footer login={login} createdAt={request.createdAt} />
