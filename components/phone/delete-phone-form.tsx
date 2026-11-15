@@ -23,5 +23,9 @@ export function DeletePhoneForm({ request, phoneName }: { request: string; phone
       <button type="submit" className={s.dangerButton} disabled={busy}>{approving ? "Deleting…" : "Delete phone"}</button>
       <button type="submit" formAction={deny} className={s.quiet} disabled={busy}>{denying ? "Keeping…" : "Keep it"}</button>
     </div>
+    <label className={s.neverAsk}>
+      <input type="checkbox" name="neverAsk" disabled={busy} />
+      <span>Don&apos;t ask again</span>
+    </label>
   </form>;
 }

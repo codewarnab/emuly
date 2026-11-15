@@ -7,6 +7,7 @@ import { removePhone } from "../../lib/phone/delete-phone";
 import { createPhoneDeleteApproval } from "../../lib/phone/phone-delete-approval";
 import type { DeletePhoneActionResult } from "../../lib/phone/phone-delete-approval";
 import { findPhone } from "../../lib/phone/phones";
+import { updateSettings } from "../../lib/data/settings";
 
 export type { DeletePhoneActionResult } from "../../lib/phone/phone-delete-approval";
 
@@ -32,6 +33,15 @@ export async function approvePhoneDelete(_previous: DeletePhoneActionResult,
   const user = await requireUser();
   const result = await approvalFor(user).approve(form.get("request"), form.get("confirmation"));
   if (result.phoneId) refresh(result.phoneId);
+  // "Don't ask again": only a browser session that just approved may turn approvals off.
+  if (result.ok && user.authKind !== "agent" && form.get("neverAsk") === "on") {
+    try {
+      await updateSettings(asyncDb(), user.id, { agent_delete_phones: true });
+      revalidatePath("/app/settings/agents");
+    } catch {
+      return { ...result, message: "Phone deleted, but the setting could not be saved. Change it in Settings." };
+    }
+  }
   return result;
 }
 

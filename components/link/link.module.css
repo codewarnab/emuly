@@ -132,3 +132,8 @@
 .deleteView .deleteActions { margin-top: 10px; }
 .deleteView .dangerButton { flex: 1; }
 
+.neverAsk {
+  display: flex; align-items: center; gap: 8px; margin-top: 14px;
+  font-size: 13px; color: var(--text); opacity: 0.75; cursor: pointer;
+}
+.neverAsk input { margin: 0; accent-color: var(--accent); }
