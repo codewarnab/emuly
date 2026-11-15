@@ -9,6 +9,7 @@
     "start": "node server.mjs --production",
     "lint": "tsc --noEmit",
     "test": "node --expose-gc --conditions=react-server --test --experimental-strip-types \"lib/**/*.test.ts\"",
+    "emuly": "node emuly.mjs",
     "db:migrate": "node --experimental-strip-types scripts/migrate-database.ts",
     "db:rotate-key": "node --experimental-strip-types scripts/rotate-token-key.ts"
   },
@@ -36,5 +37,6 @@
     "@types/ws": "^8.18.2",
     "typescript": "^5"
   },
-  "packageManager": "pnpm@12.8.1"
+  "packageManager": "pnpm@12.8.1",
+  "bin": { "emuly": "emuly.mjs" }
 }

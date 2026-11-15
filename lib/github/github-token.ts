@@ -5,6 +5,7 @@ import { transaction } from "../data/async-database.ts";
 import type { Client } from "@libsql/client";
 import { open, seal, contexts } from "../auth/crypto.ts";
 import { exchangeTokens } from "../auth/github-oauth.ts";
+import { SELF_HOST, ghToken } from "../selfhost.ts";
 
 type TokenRow = {
   github_id: number;
@@ -73,6 +74,9 @@ export function createAccessTokenProvider({ database, encrypt = seal, decrypt = 
 
 const providers = new WeakMap<Client, ReturnType<typeof createAccessTokenProvider>>();
 export function getAccessToken(userId: number, options: Options = {}): Promise<string> {
+  // Self-host: the token lives in gh's own store and gh auto-refreshes it before printing.
+  // There is one user, so the userId is ignored; this also covers billingClient.
+  if (SELF_HOST) return ghToken();
   const database = asyncDb();
   let provider = providers.get(database);
   if (!provider) { provider = createAccessTokenProvider({ database }); providers.set(database, provider); }

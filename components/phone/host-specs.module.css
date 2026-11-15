@@ -1,0 +1,8 @@
+.specs { margin-top: 24px; padding-top: 14px; border-top: 1px solid var(--line2); display: flex; align-items: center; flex-wrap: wrap; gap: 6px 18px; font-size: 12.5px; color: var(--dim); }
+.specs h5 { font-size: 12.5px; font-weight: 500; color: var(--dim); margin: 0; }
+.specs dl { display: contents; }
+.tile { display: inline-flex; align-items: center; gap: 5px; }
+.icon { display: inline-grid; color: var(--dim2); }
+.icon svg { width: 13px; height: 13px; }
+.tile dd { margin: 0; color: var(--text); }
+.tile dt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

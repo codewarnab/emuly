@@ -1,0 +1,12 @@
+.panel { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin-bottom: 20px; }
+.panel h2 { font-size: 12.5px; font-weight: 400; color: var(--dim); margin: 0 4px 0 0; }
+.grid { display: contents; }
+.card { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 8px; border-radius: 999px;
+  border: 1px solid var(--line2); background: transparent; color: var(--dim); font: inherit; font-size: 12.5px; cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease; }
+.card:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+.card:disabled { cursor: progress; }
+.icon { display: inline-grid; color: var(--accent); }
+.icon svg { width: 14px; height: 14px; }
+.title { white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .card { transition: none; } }

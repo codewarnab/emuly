@@ -1,0 +1,29 @@
+.root { max-width: 1440px; margin: auto; }
+.nav { max-width: 1264px; padding: 24px 32px; margin: auto; display: flex; align-items: center; justify-content: space-between; }
+.nav > div { display: flex; gap: 24px; align-items: center; font-size: 14px; }
+.nav a:hover { color: var(--accent); }
+.wrap { max-width: 960px; margin: auto; padding: 72px 32px 96px; text-align: center; }
+.wrap h1 { font: 500 clamp(32px, 4vw, 46px)/1.15 var(--font-display), sans-serif; letter-spacing: -.045em; margin: 0 0 12px; }
+.lead { font-size: 18px; color: var(--dim); margin: 0 0 28px; }
+.wrap > button { padding: 14px 28px; font-size: 16px; }
+
+.steps { list-style: none; padding: 0; margin: 64px 0 48px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; position: relative; }
+.steps::before { content: ""; position: absolute; top: 36px; left: 12.5%; right: 12.5%; border-top: 1px dashed var(--line); }
+.steps li { display: flex; flex-direction: column; align-items: center; gap: 8px; position: relative; }
+.icon { position: relative; width: 72px; height: 72px; border-radius: 20px; display: grid; place-items: center; background: var(--panel); border: 1px solid var(--line2); }
+.icon > svg { width: 36px; height: 36px; }
+.agent .icon { color: var(--accent); }
+.you .icon { color: var(--safe); }
+.num { position: absolute; top: -8px; right: -8px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 600; background: var(--text); color: var(--bg); }
+.who { font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 999px; }
+.agent .who { background: var(--accent-soft); color: var(--accent); }
+.you .who { background: var(--safe-soft); color: var(--safe); }
+.steps strong { font-size: 16px; font-weight: 500; }
+
+.more { font-size: 14px; color: var(--dim); }
+.more a { color: var(--accent); }
+
+@media (max-width: 680px) {
+  .nav { padding: 16px 20px; } .wrap { padding: 40px 20px 64px; }
+  .steps { grid-template-columns: 1fr 1fr; row-gap: 32px; } .steps::before { display: none; }
+}

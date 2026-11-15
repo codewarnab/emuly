@@ -1,3 +1,5 @@
+import { assertSelfHostEnvironment } from "./selfhost-guard.mjs";
+assertSelfHostEnvironment();
 import type { NextConfig } from "next";
 
 /** Applied to every response. Script sources are not restricted yet: that needs a per-request

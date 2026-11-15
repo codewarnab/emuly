@@ -1,0 +1,9 @@
+# dependencies and build output — the image builds its own
+.git
+.next
+node_modules
+coverage
+tsconfig.tsbuildinfo
+# local data and secrets never enter the image
+.data
+.env*

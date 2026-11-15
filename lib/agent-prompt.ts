@@ -3,14 +3,20 @@
 // Server only: this reads the Markdown files in content/.
 // The prompt holds only key setup. Phone work lives in the emuly-playbook skill.
 import { AGENT_RUNBOOK_VERSION, SKILL_NAME, setupOsIds, setupOsUrl, setupShared, skillUrl } from "./agent-runbook";
+import { SELF_HOST } from "./selfhost";
 
 function prompt(baseUrl: string, keyLine: string) {
   const base = baseUrl.replace(/\/$/, "");
   const osLinks = setupOsIds().map(id => `  - ${id}: ${setupOsUrl(base, id)}`).join("\n");
+  // Only self-host gets the self-host bullet: hosted output must stay byte-for-byte as it was.
+  const selfHostNote = SELF_HOST ? `- Self-host: if I run my own Emuly (Docker or \`pnpm emuly up\`), this base URL already
+  points at my instance and every step is the same. Guide: docs/SELF-HOST.md in the
+  https://github.com/codewarnab/emuly repository.
+` : "";
   return `Set me up with an Android phone using Emuly.
 
 - Emuly base URL: ${base}
-- ${keyLine}
+${selfHostNote}- ${keyLine}
 - Prompt version: ${AGENT_RUNBOOK_VERSION}
 
 ## 0. Where you run

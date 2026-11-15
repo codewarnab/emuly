@@ -1,7 +1,7 @@
 /** Client-safe. The prompt behind "Install the skill" on the home page: it installs only the
     emuly-playbook skill, with no key setup. Paths come from the vercel-labs/skills agent list
     and the vendors' docs (checked 2026-11-14). The prompt tells the agent to trust its own docs first. */
-const BASE = "https://emuly.vercel.app";
+const HOSTED = "https://emuly.vercel.app";
 const SKILL = "emuly-playbook";
 
 export type SkillAgent = { name: string; id?: string; path?: string; docs?: string; note?: string; light: string; dark: string };
@@ -35,7 +35,9 @@ export const SKILL_AGENTS: SkillAgent[] = [
   { name: "T3 Code", light: "t3-dark", dark: "t3-light", note: "Uses the folder of the agent it runs (Codex or Claude Code)." },
 ];
 
-export function skillInstallPrompt() {
+/** Self-host passes its own base so agents get local URLs; the hosted page keeps HOSTED. */
+export function skillInstallPrompt(base: string = HOSTED) {
+  const BASE = base.replace(/\/$/, "") || HOSTED;
   const table = SKILL_AGENTS.map(a => a.path
     ? `- ${a.name} (id \`${a.id}\`): \`${a.path}${SKILL}/\`. Docs: ${a.docs}`
     : `- ${a.name}: ${a.note}`).join("\n");

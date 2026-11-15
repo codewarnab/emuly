@@ -9,6 +9,7 @@ import { createPhoneSetup } from "./phone-setup.ts";
 import { runnerRequest, closeRunner } from "./phone-runner.ts";
 import { syncError, type SyncError } from "../shared/sync-error.ts";
 import { CoordinationBusyError } from "../data/coordination.ts";
+import { SELF_HOST } from "../selfhost.ts";
 
 // Share mutation guards across requests and development hot reloads.
 // Hot reload keeps globalThis but runs this module again, so a service built by older code
@@ -22,7 +23,7 @@ export function phoneControl() {
     database: asyncDb(), github: createGitHubClient({ database: asyncDb(), accessToken: getAccessToken }), encrypt: seal,
     setup: createPhoneSetup({ token: userId => getAccessToken(userId) }),
     collectProgress: createPhoneSetup({ token: userId => getAccessToken(userId) }).collect,
-    runner: runnerRequest, disconnect: closeRunner, dispatchBoot,
+    runner: runnerRequest, disconnect: closeRunner, dispatchBoot: SELF_HOST ? undefined : dispatchBoot,
     maxPhones: process.env.EMULY_MAX_PHONES ? Number(process.env.EMULY_MAX_PHONES) : undefined,
   });
 }
@@ -79,7 +80,7 @@ export function templateRepository() {
  * started it. After a long setup that request can end before Android boots, and the result
  * is lost. So the boot runs in its own request, which answers at once and boots in waitUntil.
  */
-async function dispatchBoot(userId: number, id: string) {
+async function dispatchBoot(userId: number, id: string): Promise<void> {
   const secret = process.env.CRON_SECRET;
   if (!process.env.VERCEL || !secret) throw new Error("Boot dispatch needs Vercel and CRON_SECRET");
   const base = (process.env.EMULY_BASE_URL ?? "").replace(/\/$/, "");

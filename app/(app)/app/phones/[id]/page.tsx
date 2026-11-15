@@ -29,6 +29,9 @@ import { Pill } from "@/components/ui/pill";
 import { mockLog, mockDetail, mockPhones } from "@/lib/shared/fixtures";
 import { streamQuality } from "../../../../../lib/shared/display-settings";
 import { PhoneApps } from "@/components/phone/phone-apps";
+import { HostSpecs } from "@/components/phone/host-specs";
+import { AgentTasks } from "@/components/phone/agent-tasks";
+import { env } from "../../../../../lib/env";
 
 // A Stop server action may call the runner three times, up to 80 s each.
 export const maxDuration = 300;
@@ -140,6 +143,8 @@ async function StoredPhone({ phone, user, search, syncError }: {
   const androidBooting = phone.state === "running" && phone.android_state === "booting";
   const inProgress = Boolean(phone.keeping) || ["pending", "booting", "stopping"].includes(phone.state);
   // The newest event marks when the current step began.
+  const mood = screenReady ? "ready" as const : phone.state === "stopped" && !phone.keeping ? "stopped" as const
+    : inProgress || androidBooting ? "starting" as const : null;
   const stepStarted = androidBooting ? phone.android_started_at : events[0]?.at ?? null;
   return <>
     <KeyboardTools phones={(await listPhones(user.id)).map(item => ({ id: item.id, name: item.name }))} />
@@ -169,15 +174,14 @@ async function StoredPhone({ phone, user, search, syncError }: {
         </div>
       </section>
       <div>
+        {mood && <AgentTasks id={phone.id} name={phone.name} mood={mood} base={env.baseUrl.replace(/\/$/, "")} />}
         <Tabs active={tab} phoneId={phone.id} />
         <section role="tabpanel" className={s.tabPanel} id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} tabIndex={0}>
         {tab === "danger" ? <DangerPanel phoneName={phone.id} /> : tab === "apps" ? <PhoneApps key={phone.id} id={phone.id} ready={screenReady} /> :
           <LogFeed rows={tab === "log" ? events : []} live={false}
             running={tab === "log" ? `Current status: ${status.title}` : undefined} emptyMessage="No activity yet." />}
         </section>
-        <div className={s.subgrid}>
-          <Mini title="Host codespace" rows={[...machineRows(phone.machine, phone.cores), ["Idle stop", idleLabel(phone.idle_timeout_min)]]} />
-        </div>
+        <HostSpecs rows={[...machineRows(phone.machine, phone.cores), ["Idle stop", idleLabel(phone.idle_timeout_min)]]} />
         <p className={s.fineprint}><a href="https://docs.github.com/en/codespaces/setting-your-user-preferences/setting-your-timeout-period-for-github-codespaces" target="_blank" rel="noreferrer">GitHub timeout settings</a></p>
       </div>
     </main>

@@ -1,0 +1,25 @@
+services:
+  emuly:
+    build:
+      context: ../..
+      dockerfile: deploy/selfhost/Dockerfile
+    # Come back after a restart or a reboot without manual action.
+    restart: unless-stopped
+    # Loopback only: the self-host API is intentionally unauthenticated, so it must
+    # never be reachable from other machines.
+    ports:
+      - "127.0.0.1:4321:4321"
+    # Only for the rare webhook receiver that must reach Emuly from another machine:
+    # uncomment and set a URL those receivers can reach (docs/SELF-HOST.md). Emuly
+    # itself stays on loopback; GitHub's webhooks are outbound deliveries.
+    # environment:
+    #   - EMULY_BASE_URL=http://your-reachable-address:4321
+    volumes:
+      # gh's credential store. Log in once, keep it across restarts.
+      - emuly-gh:/gh
+      # The SQLite database and the generated token key.
+      - emuly-data:/app/.data
+
+volumes:
+  emuly-gh:
+  emuly-data:

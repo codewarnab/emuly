@@ -34,10 +34,46 @@ pnpm dev                     # http://localhost:4321
 
 ### Create a GitHub OAuth App
 
+The OAuth App is only needed for the hosted, multi-user deployment below. Running
+it for yourself needs no OAuth App — see [Self-host](#self-host). For the hosted
+path:
+
 1. Open GitHub **Settings → Developer settings → OAuth Apps → New OAuth App**.
 2. Set the callback URL to `http://localhost:4321/auth/callback`.
 3. Turn on expiring user tokens. Keep the device flow off.
 4. Copy the client ID and a new client secret into `.env.local`.
+
+## Self-host
+
+Run Emuly on your own machine, in a browser or driven by your agent, with no
+hosted service. Sign-in is your machine's `gh` CLI; there is exactly one user
+(you) and no GitHub OAuth App. Two ways:
+
+**Docker (recommended)** — one container, from `deploy/selfhost/`:
+
+```sh
+docker compose build
+docker compose run --rm emuly gh auth login -h github.com -s codespace
+docker compose up
+```
+
+**Local, without Docker** — Node 26, pnpm and gh signed in on this machine:
+
+```sh
+pnpm install
+pnpm emuly up
+```
+
+Both land on `http://localhost:4321`. Full guide, scope repair, `emuly doctor`,
+volumes and backups: [docs/SELF-HOST.md](docs/SELF-HOST.md).
+
+## Hosted deployment
+
+Everything above runs Emuly for one person. To run the multi-user hosted product
+(the path this repository deploys), keep the OAuth App setup from
+[Run it locally](#run-it-locally): each visitor signs in with GitHub through your
+OAuth App, Emuly stores their token encrypted, and `EMULY_BASE_URL` names the
+public origin.
 
 ### Checks
 
