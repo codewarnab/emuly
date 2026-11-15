@@ -20,8 +20,8 @@ the user kept it, and `expired` means ask again.
 
 ## Errors, settings and webhooks
 
-- If a request fails with a network error, report the exact URL and the error text to the
-  user. Do not retry more than twice without saying so.
+- If a request fails with a network error, follow "When something fails" in `SKILL.md`.
+  Do not retry more than twice without saying so.
 - Any **403** body may include `manage_url`. Give the user that absolute link and say what
   to do on that page. Do not try to work around a 403, and never ask for a session cookie.
 - Read settings with `GET /v1/settings` (no secrets) and one webhook with

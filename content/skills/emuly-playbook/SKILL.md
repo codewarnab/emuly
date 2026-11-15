@@ -56,6 +56,39 @@ user asks you to.
 - Print every link as a plain URL on its own line.
 - On a **403**, give the user `manage_url` if the body has it. Do not work around it.
 
+## Decide yourself, but ask before critical actions
+
+Do reversible actions that cost nothing without asking: read state, take screenshots,
+retry, read logs and code, and restart an app.
+
+Always ask first, and wait for an explicit yes, before you:
+
+- Delete a phone, by any path.
+- Wipe app data, factory reset, or uninstall an app that you did not install.
+- Create a new phone. It uses the user's core-hours.
+- Install software on the user's computer.
+- Change `gh` accounts or auth (`gh auth switch`, `gh auth login`).
+- Push code, file an issue, or post anywhere public.
+
+Never delete, stop or rebuild a codespace with `gh`. Use only the Emuly API, so that the
+user's delete setting and approval flow apply.
+
+## When something fails
+
+Try these steps in order. Ask the user only when all of them fail.
+
+1. Read the full error body. It often says what to do, for example `manage_url`.
+2. Check the phone state with `GET /v1/phones/<id>`.
+3. Use read-only `gh` commands on the phone's codespace: `gh codespace list`,
+   `gh codespace view -c <name>`, `gh codespace logs -c <name>`.
+4. Read the Emuly source to see how the API behaves:
+   `gh api repos/codewarnab/emuly/contents/<path>`. When Emuly is self-hosted, read the
+   local clone and the local server log instead.
+5. Search the known issues: `gh issue list -R codewarnab/emuly --search "<error>"`.
+6. Fix the request and try once more.
+7. If it still fails, report in three lines: what failed, what you tried, and the one
+   decision you need.
+
 ## Reading and tapping the screen: offer agent-device
 
 The first time a task needs to see or tap the app, call
