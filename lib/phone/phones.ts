@@ -2,6 +2,7 @@ import { asyncDb } from "../data/async-db.ts";
 import "server-only";
 import { shortMessage } from "../shared/short-message.ts";
 import { phoneName } from "../shared/phone-name.ts";
+import { devicePreset, isWide } from "../shared/device-presets.ts";
 import { phoneStatus, phoneEventMessage } from "./phone-status.ts";
 
 import type { PhoneRow } from "@/lib/shared/fixtures";
@@ -28,10 +29,12 @@ export type Phone = {
   android_state: string;
   android_started_at: string | null;
   android_error: string | null;
+  /** Screen preset id (lib/shared/device-presets.ts). */
+  device_preset: string;
 };
 
 const columns = `id, codespace_name, machine, state, state_detail, created_at, retention_at, idle_timeout_min,
-  last_started_at, last_stopped_at, cores, retention_min, android_state, android_started_at, android_error,
+  last_started_at, last_stopped_at, cores, retention_min, android_state, android_started_at, android_error, device_preset,
   EXISTS(SELECT 1 FROM phone_keeps WHERE phone_id = phones.id) AS keeping,
   EXISTS(SELECT 1 FROM phone_setup_attempts WHERE phone_id = phones.id AND failed = 1) AS setup_failed`;
 
@@ -56,6 +59,8 @@ export function phoneCard(phone: Phone): PhoneRow {
     statusLabel: status.label,
     thumbDim: status.kind !== "running",
     screenReady: status.kind === "running",
+    screen: devicePreset(phone.device_preset)?.short ?? "Generic",
+    wide: isWide(phone.device_preset),
     meta: [
       ["Status", status.title],
       ["Machine", "4-core · 16 GB"],

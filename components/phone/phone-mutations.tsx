@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { InfoTip } from "@/components/ui/info-tip";
 import { IdleTimeoutField } from "@/components/settings/idle-timeout-field";
+import { HostSpecs } from "@/components/phone/host-specs";
 import { usePhoneAction } from "@/components/phone/use-phone-action";
+import { DEFAULT_DEVICE_PRESET, DEVICE_PRESETS, devicePreset } from "@/lib/shared/device-presets";
 import type { Usage } from "@/lib/data/usage";
 import s from "@/components/console.module.css";
 
@@ -54,6 +56,7 @@ export function NewPhone({ usage, stopped = 0 }: { usage: Usage; stopped?: numbe
     setOptions(await phoneCreationOptions());
   }
   const [open, setOpen] = useState(false);
+  const [presetId, setPresetId] = useState(DEFAULT_DEVICE_PRESET);
   // The refusal hides once the user stops phones; a new create result shows again.
   const [dismissed, setDismissed] = useState<object | null>(null);
   const [result, action, pending] = useActionState(mutatePhone, { message: "" });
@@ -67,13 +70,23 @@ export function NewPhone({ usage, stopped = 0 }: { usage: Usage; stopped?: numbe
       </div>
       : <form action={action} className={s.createForm}>
         <input type="hidden" name="operation" value="create" />
-        <div className={s.specRow} aria-label="Machine">
-          <span><b>4</b> cores</span><span><b>16</b> GB RAM</span><span><b>32</b> GB storage</span>
-        </div>
+        {/* Every phone uses the 4-core machine (PHONE_MACHINE in lib/github/github.ts). */}
+        <HostSpecs bare label="" rows={[["CPU", "4 cores"], ["RAM", "16 GB"], ["Disk", "32 GB"]]} />
         {running && <p className={s.createHint}>Running phones share your hours, so each extra phone uses them faster.</p>}
         {stopped > 0 && <p className={s.createHint}>
-          {stopped === 1 ? "Your stopped phone still uses" : `Your ${stopped} stopped phones still use`} GitHub storage. Delete the phones you do not need.
+          {stopped === 1 ? "1 stopped phone uses" : `${stopped} stopped phones use`} storage.{" "}
+          <InfoTip label="About storage">GitHub bills storage for stopped codespaces. Delete the phones you do not need.</InfoTip>
         </p>}
+        <fieldset className={s.idleField}>
+          <legend>Phone type</legend>
+          <div className={s.idleChoices} role="radiogroup">
+            {DEVICE_PRESETS.map(preset => <label key={preset.id} className={s.idleChip}>
+              <input type="radio" name="devicePreset" value={preset.id} checked={presetId === preset.id} onChange={() => setPresetId(preset.id)} />
+              <span>{preset.short}</span>
+            </label>)}
+          </div>
+          <PresetHint key={presetId} id={presetId} />
+        </fieldset>
         <IdleTimeoutField name="idleTimeoutMin" defaultValue={options.settings.default_idle_min ?? 30} />
         <div className={s.createFoot}>
           <p className={s.createHint}>
@@ -84,8 +97,8 @@ export function NewPhone({ usage, stopped = 0 }: { usage: Usage; stopped?: numbe
           </p>
           <Button disabled={pending}>{pending ? "Creating…" : running ? "Start another" : "Create phone"}</Button>
         </div>
-        {result.message && dismissed !== result && <p role="status">{result.message}</p>}
-        {result.message && !result.phoneId && !(result.refused && running) && <p className={s.createHint}><a href="https://github.com/settings/billing/usage" target="_blank" rel="noreferrer">Check exact usage on GitHub</a>, then try again.</p>}
+        {result.message && dismissed !== result && <p role="status" className={result.phoneId ? s.createHint : s.createError}>{result.message}</p>}
+        {result.message && !result.phoneId && !(result.refused && running) && /hour|quota|billing|spending/i.test(result.message) && <p className={s.createHint}><a href="https://github.com/settings/billing/usage" target="_blank" rel="noreferrer">Check exact usage on GitHub</a>, then try again.</p>}
         {result.phoneId && <Link href={`/app/phones/${encodeURIComponent(result.phoneId)}`}>Open phone</Link>}
       </form>}
       {/* Outside the create form: forms cannot be nested. */}
@@ -97,13 +110,17 @@ export function NewPhone({ usage, stopped = 0 }: { usage: Usage; stopped?: numbe
   </>;
 }
 
+/** The chosen type's screen size, shown under the chips. */
+function PresetHint({ id }: { id: string }) {
+  const preset = devicePreset(id) ?? DEVICE_PRESETS[0]!;
+  return <span className={s.presetHint} aria-live="polite">
+    {preset.label} · {preset.width ? `${preset.width} × ${preset.height}` : "standard screen"}
+  </span>;
+}
+
 function NewPhoneSkeleton() {
   return <div className={s.createForm} role="status" aria-label="Loading phone options" aria-busy="true">
-    <div className={s.specRow} aria-hidden="true">
-      <div className={s.newPhoneSkeletonSpec} />
-      <div className={s.newPhoneSkeletonSpec} />
-      <div className={s.newPhoneSkeletonSpec} />
-    </div>
+    <div className={s.newPhoneSkeletonLabel} aria-hidden="true" />
     <div aria-hidden="true">
       <div className={s.newPhoneSkeletonLabel} />
       <div className={s.idleChoices}>

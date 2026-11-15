@@ -105,7 +105,8 @@ export async function startScrcpy(ws, { adb, ADB, SERIAL, ROOT, quality }) {
           return;
         }
         const bytes = controlMessage(input);
-        inputAccepted = true;
+        // A keyframe request comes from the browser decoder (stale video), not from the user.
+        if (input.type !== "keyframe") inputAccepted = true;
         if (input.type === "touch") {
           if (["up", "cancel"].includes(input.action)) touches.delete(input.pointer);
           else touches.set(input.pointer, input);

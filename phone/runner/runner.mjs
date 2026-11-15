@@ -225,6 +225,18 @@ const apps = await createApps({ root: join(ROOT, "data", "app-installs"), sdk: S
 // The agent-device proxy runs only while this process does; its token never reaches a log.
 const agentDevice = startAgentDeviceProxy({ sdk: SDK });
 
+const SCREENSHOT_REUSE_MS = 1_000;
+let shot; // { at, png } or { pending }
+function screenshot() {
+  if (shot?.pending) return shot.pending;
+  if (shot && Date.now() - shot.at < SCREENSHOT_REUSE_MS) return Promise.resolve(shot.png);
+  const pending = adb(["exec-out", "screencap", "-p"], { binary: true, timeout: 15_000 });
+  shot = { pending };
+  pending.then(png => { if (shot?.pending === pending) shot = { at: Date.now(), png }; },
+    () => { if (shot?.pending === pending) shot = undefined; });
+  return pending;
+}
+
 const routes = {
   "GET /health": async () => ({ ok: true, version: 10, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles"], avd: "t", api_level: 36, booted: await booted() }),
 
@@ -260,7 +272,10 @@ const routes = {
     return { ok: true };
   },
 
-  "GET /screenshot": async () => ({ png: await adb(["exec-out", "screencap", "-p"], { binary: true, timeout: 15_000 }) }),
+  // A full-screen PNG costs ~2 s of phone CPU (more during boot). Callers that ask at the same time
+  // (previews in several tabs, fallback polls, agents) share one capture, and a result stays
+  // valid for SCREENSHOT_REUSE_MS, so Android does the work once.
+  "GET /screenshot": async () => ({ png: await screenshot() }),
 
   "POST /tap": async ({ x, y }) => {
     await adb(["shell", "input", "tap", int(x), int(y)]);

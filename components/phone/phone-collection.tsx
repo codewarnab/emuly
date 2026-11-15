@@ -18,6 +18,8 @@ export function PhoneCollection({ phones, userId }: { phones: Item[]; userId: nu
       setChoice(value === "grid" || value === "list" ? value : null);
     } catch { /* The automatic view still works when storage is unavailable. */ }
   }, [key]);
+  // Name the screen type only when the phones differ; with one type it is noise.
+  const mixed = new Set(phones.map(phone => phone.card.screen)).size > 1;
   const view = choice ?? (phones.length > 6 ? "list" : "grid");
   function choose(value: "grid" | "list") {
     // A transition lets <ViewTransition> morph each phone between the grid and the list.
@@ -33,9 +35,9 @@ export function PhoneCollection({ phones, userId }: { phones: Item[]; userId: nu
         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor"><rect x="1.5" y="2.5" width="13" height="2.2" rx="1"/><rect x="1.5" y="6.9" width="13" height="2.2" rx="1"/><rect x="1.5" y="11.3" width="13" height="2.2" rx="1"/></svg>
       </button>
     </div>
-    {view === "grid" ? <div className={s.grid}>{phones.map(phone => <ViewTransition key={phone.card.id} name={`phone-${phone.card.id}`} share="phone-morph" default="none"><div><PhoneCard phone={phone.card} controlState={phone.state} retention={phone.retention} codespace={phone.codespace} /></div></ViewTransition>)}</div>
+    {view === "grid" ? <div className={s.grid}>{phones.map(phone => <ViewTransition key={phone.card.id} name={`phone-${phone.card.id}`} share="phone-morph" default="none"><div><PhoneCard phone={phone.card} showScreen={mixed} controlState={phone.state} retention={phone.retention} codespace={phone.codespace} /></div></ViewTransition>)}</div>
       : <ul className={s.phoneList}>{phones.map(phone => <ViewTransition key={phone.card.id} name={`phone-${phone.card.id}`} share="phone-morph" default="none"><li className={s.phoneRow}>
-        <div><Link className={s.name} href={`/app/phones/${encodeURIComponent(phone.card.id)}`}>{phone.card.name}</Link><Pill kind={phone.card.state}>{phone.card.statusLabel ?? phone.card.state}</Pill></div>
+        <div><Link className={s.name} href={`/app/phones/${encodeURIComponent(phone.card.id)}`}>{phone.card.name}</Link><Pill kind={phone.card.state}>{phone.card.statusLabel ?? phone.card.state}</Pill>{mixed && <span className={s.screenTag}>{phone.card.screen}</span>}</div>
         <div className={s.rowDetails}><span>Last used: {phone.lastUsed ? `${phone.lastUsed.slice(0, 16).replace("T", " ")} UTC` : "Not recorded"}</span>{phone.retention && <>
           <span className={phone.retention.warning ? s.retentionWarning : undefined}>{phone.retention.message}</span>
           {phone.retention.canKeep && phone.state !== "keeping" && <KeepPhone id={phone.card.id} />}

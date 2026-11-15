@@ -52,14 +52,16 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
   const entries = new Map<string, Entry>();
   const streamFallback = new Set<string>();
   const key = (phone: Owner) => `${phone.userId}:${phone.id}:${phone.codespaceName}`;
-  const close = (phone: Owner) => {
+  // reason: why the shared connection closed. Every stream on it ends with "lease_abort", so the
+  // proxy logs signal.reason to tell an idle timeout from a failed request or a phone stop.
+  const close = (phone: Owner, reason = "phone_state_change") => {
     const entry = entries.get(key(phone));
     if (!entry) return;
     entries.delete(key(phone));
     clearTimeout(entry.timer);
     clearInterval(entry.awake);
     if (entry.awake) observations?.mark(phone, "awake_timer_stop", { count: entry.viewers, errorCode: "observer_shutdown" });
-    entry.abort.abort();
+    entry.abort.abort(reason);
     void entry.connection.then(connection => connection.close(), () => {});
   };
   async function connect(phone: Owner, signal: AbortSignal): Promise<Connection> {
@@ -106,7 +108,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
       released = true;
       entry.active--;
       if (!entry.active && entries.get(key(phone)) === entry) {
-        entry.timer = setTimeout(() => { if (entries.get(key(phone)) === entry) close(phone); }, idleMs);
+        entry.timer = setTimeout(() => { if (entries.get(key(phone)) === entry) close(phone, "idle_timeout"); }, idleMs);
         entry.timer.unref();
       }
     } };
@@ -215,7 +217,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
       } catch (error) {
         release();
         // A client walking away is not a tunnel failure; keep the reusable bridge for the next call.
-        if (!init.signal?.aborted && entries.get(key(phone)) === entry) close(phone);
+        if (!init.signal?.aborted && entries.get(key(phone)) === entry) close(phone, "relay_failed");
         throw new Error("Phone connection failed. Try again.");
       }
     },
@@ -298,10 +300,10 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
           route: connection.forwarded ? "forwarded" as const : "tunnel" as const,
           get viewers() { return entry.viewers; },
           get lastAwakeSuccess() { return entry.lastAwakeSuccess; },
-          drop() { if (entries.get(key(phone)) === entry) close(phone); },
+          drop() { if (entries.get(key(phone)) === entry) close(phone, "stream_dropped"); },
           acceptedInput() { observations?.input(phone); activity?.mark(phone); },
-          failed() { if (connection.forwarded && entries.get(key(phone)) === entry) { close(phone); streamFallback.add(key(phone)); } } };
-      } catch { release(); if (entries.get(key(phone)) === entry) close(phone); throw new Error("Stream unavailable"); }
+          failed() { if (connection.forwarded && entries.get(key(phone)) === entry) { close(phone, "stream_failed"); streamFallback.add(key(phone)); } } };
+      } catch { release(); if (entries.get(key(phone)) === entry) close(phone, "stream_open_failed"); throw new Error("Stream unavailable"); }
     },
     async request(phone: Owner, path: RunnerPath, body?: Record<string, unknown>): Promise<Response> {
       if (!/^[\w-]{1,100}$/.test(phone.codespaceName)) throw new Error("Invalid codespace name");
@@ -324,7 +326,11 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
         const cause = error instanceof Error ? (error as Error & { cause?: { code?: string } }).cause?.code : undefined;
         console.error(`[runner] ${phone.codespaceName} ${path} failed:`, error instanceof RunnerResponseError ? error.message
           : error instanceof Error ? `${error.name}${cause ? ` (${cause})` : ""}` : "unknown");
-        if (!(error instanceof RunnerResponseError) && entries.get(key(phone)) === entry) close(phone);
+        // A timeout means the phone was slow (a screenshot during boot can take >20 s), not that the
+        // connection is dead. Closing it would stop every viewer's video. A dead connection fails
+        // the video stream too, and the stream closes it.
+        const slow = error instanceof Error && error.name === "TimeoutError";
+        if (!(error instanceof RunnerResponseError) && !slow && entries.get(key(phone)) === entry) close(phone, `request_failed:${path}`);
         throw new Error(`Phone connection failed (${path}). Try again.`);
       } finally {
         release();

@@ -6,3 +6,5 @@
 .icon svg { width: 13px; height: 13px; }
 .tile dd { margin: 0; color: var(--text); }
 .tile dt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.specs.bare { margin: 0; padding: 0; border: 0; font-size: 13px; }
+.bare h5 { font-size: 13px; }

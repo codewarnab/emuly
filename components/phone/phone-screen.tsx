@@ -33,7 +33,8 @@ function ControlIcon({ name }: { name: keyof typeof controlIcons }) {
     strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{controlIcons[name]}</svg>;
 }
 
-export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: string; live: boolean; resting: boolean; quality?: StreamQuality }) {
+/** `aspect` is the screen width / height, so the placeholder has the same shape as the video. */
+export function PhoneScreen({ id, live, resting, quality = "auto", aspect = 0.5 }: { id: string; live: boolean; resting: boolean; quality?: StreamQuality; aspect?: number }) {
   const [frame, setFrame] = useState("");
   const [screenshotFresh, setScreenshotFresh] = useState(false);
   const [screenshotAt, setScreenshotAt] = useState(0);
@@ -331,7 +332,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto" }: { id: strin
       }}>
       <canvas ref={canvas} className={s.screenImage} style={{ display: showCanvas ? "block" : "none" }} aria-label="Live Android screen" />
       {frame && <img ref={image} src={frame} alt="Android screen" className={s.screenImage} style={{ display: showCanvas ? "none" : "block" }} />}
-      {!frame && !video.painted && <div className={s.screenPlaceholder}>{video.stopped ? "Phone stopped" : live ? "Connecting to the screen..." : resting ? "Resting" : "Waiting for Android..."}</div>}
+      {!frame && !video.painted && <div className={s.screenPlaceholder} style={{ aspectRatio: aspect, width: `calc(var(--screen-height) * ${aspect})` }}>{video.stopped ? "Phone stopped" : live ? (video.starting ? "Starting video..." : "Connecting to the screen...") : resting ? "Resting" : "Waiting for Android..."}</div>}
       <AgentOverlay id={id} live={live} delayMs={video.active ? video.stats.delay : 0}
         onActivity={at => { setLastAgentAt(at); setAgentNow(at); }} />
     </div>

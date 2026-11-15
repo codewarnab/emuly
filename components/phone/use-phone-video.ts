@@ -8,6 +8,7 @@ export function usePhoneVideo(id: string, live: boolean, quality: string, canvas
   const [active, setActive] = useState(false);
   const [stopped, setStopped] = useState(false);
   const [painted, setPainted] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [stats, setStats] = useState({ fps: 0, delay: 0 });
   const [saver, setSaver] = useState(false);
   const [capabilities, setCapabilities] = useState<string[]>([]);
@@ -16,14 +17,15 @@ export function usePhoneVideo(id: string, live: boolean, quality: string, canvas
   const reportFallback = useRef<(() => void) | undefined>(undefined);
   useEffect(() => {
     setSupported("VideoDecoder" in window);
-    if (!live) { setActive(false); setStopped(false); return; }
+    if (!live) { setActive(false); setStopped(false); setStarting(false); return; }
     const session = createPhoneVideoConnection({
       id, quality: quality === "auto" && saver ? "saver" : quality,
-      onState: state => { if (state === "fallback") setSupported(false); setActive(state === "streaming"); setStopped(state === "stopped"); },
+      onState: state => { setStarting(false); if (state === "fallback") setSupported(false); setActive(state === "streaming"); setStopped(state === "stopped"); },
       onStats: setStats,
       onCapabilities: setCapabilities,
       onClipboard: setClipboard,
       onSaver: () => setSaver(true),
+      onOpen: () => setStarting(true),
       onFrame(frame) {
         const element = canvas.current;
         if (!element) return false;
@@ -45,6 +47,6 @@ export function usePhoneVideo(id: string, live: boolean, quality: string, canvas
   function send(input: Record<string, unknown>) {
     return connection.current?.send(input) ?? false;
   }
-  return { supported, active, stopped, painted, stats, send, lastFrameAt, reportFallback, capabilities, clipboard,
+  return { supported, active, stopped, painted, starting, stats, send, lastFrameAt, reportFallback, capabilities, clipboard,
     clearClipboard: () => setClipboard(null) };
 }

@@ -460,7 +460,7 @@ test("the optional operator cap blocks creation before HTTP but never prevents s
     f.add("phone-aaaa");
     const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: value => Buffer.from(value),
       maxPhones: 1, clock: () => Date.parse("2026-11-07T00:00:00Z") });
-    await assert.rejects(service.create(1, input), /safety cap/);
+    await assert.rejects(service.create(1, input), /You can have up to 1 phone here/);
     assert.equal(calls, 0);
     await service.stop(1, "phone-aaaa");
     assert.equal(calls, 1);
@@ -527,6 +527,11 @@ test("phone HTTP API authenticates, rejects cross-site creation, passes defaults
     const { id } = await created.json();
     assert.match(id, /^phone-[a-z]+-[a-z]+$/);
     assert.equal(f.database.prepare("SELECT idle_timeout_min FROM phones WHERE id = ?").get(id)?.idle_timeout_min, 240);
+    assert.equal(f.database.prepare("SELECT device_preset FROM phones WHERE id = ?").get(id)?.device_preset, "generic");
+    assert.equal(posts, 2);
+    const unknown = await api.create(request(undefined, JSON.stringify({ device_preset: "galaxy_s23" })));
+    assert.equal(unknown.status, 400);
+    assert.match((await unknown.json()).message, /pixel_9/);
     assert.equal(posts, 2);
   } finally { await f.close(); }
 });

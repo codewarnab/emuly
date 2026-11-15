@@ -36,7 +36,8 @@ function browser(t: TestContext, supported = true) {
     constructor(callbacks: Decoder["callbacks"]) { this.callbacks = callbacks; decoders.push(this); }
     static async isConfigSupported() { return { supported: true }; }
     configure() { this.state = "configured"; }
-    decode(chunk: { timestamp: number }) { if (this.automatic) this.output(chunk.timestamp); }
+    decoded: number[] = [];
+    decode(chunk: { timestamp: number }) { this.decoded.push(chunk.timestamp); if (this.automatic) this.output(chunk.timestamp); }
     output(timestamp: number) {
       let closed = false;
       this.callbacks.output({ timestamp, close: () => { closed = true; } } as VideoFrame);
@@ -78,9 +79,9 @@ function browser(t: TestContext, supported = true) {
     sessions.push(connection);
     return connection;
   };
-  function packet(socket: Socket, flags: number, pts = 100) {
+  function packet(socket: Socket, flags: number, pts = 100, sent = Date.now()) {
     const bytes = new ArrayBuffer(29), view = new DataView(bytes);
-    view.setUint8(0, flags); view.setBigUint64(1, BigInt(pts)); view.setFloat64(9, Date.now());
+    view.setUint8(0, flags); view.setBigUint64(1, BigInt(pts)); view.setFloat64(9, sent);
     new Uint8Array(bytes, 17).set([0, 0, 0, 1, 0x67, 0x42, 0x80, 0x1f, 0, 0, 1, 0x68]);
     socket.onmessage?.({ data: bytes });
   }
@@ -168,16 +169,16 @@ test("visibility keeps brief switches alive and suspends longer hidden sessions"
   session.dispose();
 });
 
-test("a slow socket open gets 20 s, then 6 s for the first frame", async t => {
+test("a slow socket open gets 20 s, then 15 s for the first frame", async t => {
   const b = browser(t), session = b.start(); await setImmediate();
   const ws = b.sockets[0];
   t.mock.timers.tick(15000); await setImmediate();
   assert.notEqual(ws.readyState, 3, "a socket that is still opening is not closed after 6 s");
   ws.onopen?.();
-  t.mock.timers.tick(5000); await setImmediate();
+  t.mock.timers.tick(14000); await setImmediate();
   assert.notEqual(ws.readyState, 3);
   t.mock.timers.tick(1000); await setImmediate();
-  assert.equal(ws.readyState, 3, "no frame 6 s after open closes the socket");
+  assert.equal(ws.readyState, 3, "no frame 15 s after open closes the socket");
   session.dispose();
 });
 
@@ -195,7 +196,7 @@ test("pongs do not hide a socket without a painted frame", async t => {
   const b = browser(t), session = b.start(); await setImmediate();
   const ws = b.sockets[0];
   ws.onopen?.();
-  for (let waited = 0; waited < 6000; waited += 1000) {
+  for (let waited = 0; waited < 15000; waited += 1000) {
     ws.onmessage?.({ data: JSON.stringify({ type: "pong", server: Date.now(), time: Date.now() }) });
     t.mock.timers.tick(1000);
   }
@@ -207,13 +208,18 @@ test("pongs do not hide a socket without a painted frame", async t => {
   session.dispose();
 });
 
-test("resume reconnects a static screen and queue pressure requests saver quality", async t => {
+test("resume reconnects a static screen; the decoder skips to a keyframe once, then asks for saver quality", async t => {
   const b = browser(t); b.start(); await setImmediate();
   b.window.dispatchEvent(new Event("focus"));
   t.mock.timers.tick(4999); await setImmediate(); assert.equal(b.sockets.length, 1);
   t.mock.timers.tick(1); await setImmediate();
   assert.equal(b.sockets.length, 2);
   const ws = b.sockets[1]; b.packet(ws, 2); b.decoders[1].decodeQueueSize = 6; b.packet(ws, 1);
+  // First time behind: keep the socket, drop frames, and ask the runner for a keyframe.
+  assert.equal(b.saver(), 0); assert.notEqual(ws.readyState, 3);
+  assert.ok(ws.messages.includes('{"type":"keyframe"}'));
+  // Behind again within 10 s: the device is too slow for this quality, so reconnect with saver.
+  b.packet(ws, 1);
   assert.equal(b.saver(), 1); assert.equal(ws.readyState, 3);
 });
 
@@ -303,4 +309,23 @@ test("a tab switch keeps a live socket streaming, so input works at once", async
   t.mock.timers.tick(10000); await setImmediate();
   assert.equal(b.sockets.length, 1, "no reconnect for a static screen");
   session.dispose();
+});
+
+test("old frames are skipped up to a fresh keyframe, and video that stays old reconnects with saver", async t => {
+  const b = browser(t); b.start(); await setImmediate();
+  const ws = b.sockets[0];
+  ws.onmessage?.({ data: JSON.stringify({ type: "pong", server: Date.now(), time: Date.now() }) });
+  b.packet(ws, 2); b.packet(ws, 1, 100);
+  // A 3 s old delta and a 3 s old keyframe: both dropped, and one keyframe request.
+  b.packet(ws, 0, 101, Date.now() - 3000); b.packet(ws, 1, 102, Date.now() - 3000);
+  assert.equal(ws.messages.filter(m => m === '{"type":"keyframe"}').length, 1);
+  // A fresh delta still waits for a keyframe; a fresh keyframe decodes again.
+  b.packet(ws, 0, 103); b.packet(ws, 1, 104);
+  assert.deepEqual(b.decoders[0].decoded, [100, 104]);
+  assert.equal(b.saver(), 0); assert.notEqual(ws.readyState, 3);
+  // Old for more than 5 s: the network is slower than the video.
+  b.packet(ws, 0, 105, Date.now() - 3000);
+  t.mock.timers.tick(5001);
+  b.packet(ws, 0, 106, Date.now() - 3000);
+  assert.equal(b.saver(), 1); assert.equal(ws.readyState, 3);
 });

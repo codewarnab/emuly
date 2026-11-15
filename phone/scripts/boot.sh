@@ -31,10 +31,28 @@ hide_anr_dialogs() {
 # visible, but it draws nothing until another app opens and closes. A launcher restart does not
 # fix it. So open Settings, then go home, one time, only while home has the focus.
 # It runs in the background, so "ready" does not wait.
+# Before, the trick ran after every boot, so users saw Settings open and close ~20 s after "ready"
+# (speed report, fix 5). The blank launcher came mostly from the old 1-core boot (4 startup ANRs);
+# with 2 cores it is rare. So now the trick runs only when the launcher's UI tree has no app icons.
+# The result goes to /tmp/redraw-home.log, so we can see how often the blank launcher still happens.
+# If the log shows "skip" on every boot for some weeks, remove the trick.
+# Risk: if a blank launcher still lists its icons in the UI tree, this check skips the trick. Then
+# the log shows "skip" while a user sees no icons; check the log first if that is reported.
+launcher_icons() {
+  adb -s "emulator-$PORT" shell uiautomator dump /sdcard/emuly-ui.xml >/dev/null 2>&1 || { echo 0; return; }
+  # App icons are launcher nodes with a name (content-desc), for example "Chrome" or "Play Store".
+  adb -s "emulator-$PORT" shell cat /sdcard/emuly-ui.xml 2>/dev/null \
+    | grep -o 'package="[^"]*launcher[^"]*"[^>]*content-desc="[^"]\+"' | grep -c . || true
+}
 redraw_home() {
   ( sleep 20
+    log=/tmp/redraw-home.log
     # Skip it when a user or an agent already opened an app.
-    adb -s "emulator-$PORT" shell dumpsys window 2>/dev/null | grep mCurrentFocus | grep -qi launcher || exit 0
+    adb -s "emulator-$PORT" shell dumpsys window 2>/dev/null | grep mCurrentFocus | grep -qi launcher \
+      || { echo "$(date -u +%FT%TZ) skip reason=app_open" >> "$log"; exit 0; }
+    icons=$(launcher_icons)
+    if [ "${icons:-0}" -gt 0 ]; then echo "$(date -u +%FT%TZ) skip icons=$icons" >> "$log"; exit 0; fi
+    echo "$(date -u +%FT%TZ) redraw icons=0" >> "$log"
     adb -s "emulator-$PORT" shell am start -W -a android.settings.SETTINGS >/dev/null 2>&1 || exit 0
     sleep 2
     adb -s "emulator-$PORT" shell input keyevent KEYCODE_HOME >/dev/null 2>&1 || true
@@ -82,6 +100,41 @@ mapfile -t stale_locks < <(
 if [ "${#stale_locks[@]}" -gt 0 ]; then
   echo "removing stale emulator locks: ${stale_locks[*]}"
   rm -f -- "${stale_locks[@]}"
+fi
+
+# Screen preset from the server (lib/shared/device-presets.ts), written by setup as device.env.
+# Every boot is cold, so a config.ini edit here takes effect now. "generic" changes nothing.
+DEVICE_ENV="$HOME/emuly/device.env"
+if [ -f "$DEVICE_ENV" ]; then
+  # shellcheck disable=SC1090
+  source "$DEVICE_ENV"
+  cfg="$avd_dir/config.ini"
+  set_cfg() { sed -i "/^$1[ ]*=/d" "$cfg"; echo "$1=$2" >> "$cfg"; }
+  if [ -n "${EMULY_LCD_WIDTH:-}" ] && [ -f "$cfg" ]; then
+    set_cfg hw.lcd.width "$EMULY_LCD_WIDTH"
+    set_cfg hw.lcd.height "$EMULY_LCD_HEIGHT"
+    set_cfg hw.lcd.density "$EMULY_LCD_DENSITY"
+    [ -z "${EMULY_DEVICE:-}" ] || set_cfg hw.device.name "$EMULY_DEVICE"
+    echo "preset: ${EMULY_PRESET} ${EMULY_LCD_WIDTH}x${EMULY_LCD_HEIGHT} ${EMULY_LCD_DENSITY}dpi"
+  fi
+fi
+
+# 2 guest cores: cold boot 68 s -> 35 s and no startup ANRs (1 core before).
+# 4 cores gave no further gain and leaves no CPU for SwiftShader and the encoder.
+if [ -f "$avd_dir/config.ini" ]; then
+  sed -i '/^hw.cpu.ncore[ ]*=/d' "$avd_dir/config.ini"
+  echo "hw.cpu.ncore=2" >> "$avd_dir/config.ini"
+fi
+
+# 8 GB guest RAM. avdmanager writes hw.ramSize=96M, and the emulator then gives Android ~3.8 GB.
+# Measured 2026-11-15 on standardLinux32gb (16 GB host), 2560x1600, 2 cores, warm disk:
+#   default: boot 32.9 s, Android free 2000 MB, 4 app kills, qemu 4519 MB, host free 10279 MB
+#   8192:    boot 33.0 s, Android free 5938 MB, 0 app kills, qemu 4671 MB, host free 10097 MB
+# The boot time does not change; the gain is that apps the user opens stay in memory.
+# The host pays only for pages Android uses, so the cost at boot is ~150 MB.
+if [ -f "$avd_dir/config.ini" ]; then
+  sed -i '/^hw.ramSize[ ]*=/d' "$avd_dir/config.ini"
+  echo "hw.ramSize=8192" >> "$avd_dir/config.ini"
 fi
 
 ph_begin adb_init

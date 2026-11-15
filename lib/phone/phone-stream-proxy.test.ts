@@ -120,3 +120,18 @@ test("socket proxy forwards video and input privately and releases the upstream 
     await Promise.all([new Promise<void>(r => server.close(() => r())), new Promise<void>(r => upstreamHttp.close(() => r()))]);
   }
 });
+
+test("a browser reset during the ticket lookup is handled and does not crash the server", async () => {
+  const { EventEmitter } = await import("node:events");
+  const { PassThrough } = await import("node:stream");
+  const server = new EventEmitter();
+  attachPhoneStreams(server as never, () => {});
+  const socket = new PassThrough();
+  // An unknown ticket goes to the shared-ticket lookup, which awaits before ticket.open().
+  server.emit("upgrade", { url: "/app/phones/a/stream?ticket=unknown", headers: {} }, socket, Buffer.alloc(0));
+  // The listener must exist before the first await, so a reset in that wait cannot become an uncaughtException.
+  assert.equal(socket.listenerCount("error"), 1);
+  const reset = Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
+  assert.doesNotThrow(() => socket.emit("error", reset));
+  assert.equal(socket.destroyed, true);
+});

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import s from "@/components/console.module.css";
 
-export function PhonePreview({ id, ready, children }: { id?: string; ready?: boolean; children: ReactNode }) {
+export function PhonePreview({ id, ready, wide, children }: { id?: string; ready?: boolean; wide?: boolean; children: ReactNode }) {
   const [frame, setFrame] = useState("");
   const element = useRef<HTMLDivElement>(null);
 
@@ -65,7 +65,7 @@ export function PhonePreview({ id, ready, children }: { id?: string; ready?: boo
     };
   }, [id, ready]);
 
-  return <div ref={element} className={`${s.thumb} ${frame && ready ? s.thumbReal : ""}`}>
+  return <div ref={element} className={`${s.thumb} ${wide ? s.thumbWide : ""} ${frame && ready ? s.thumbReal : ""}`}>
     {frame && ready ? <img src={frame} alt="Phone screen preview" className={s.thumbPreview}
       title="Phone screen preview" /> : children}
   </div>;

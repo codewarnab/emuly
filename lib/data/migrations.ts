@@ -307,4 +307,6 @@ export const MIGRATIONS = [
   // The /app/events stream reads max(id) for one user every 1.5 s. Without this index it scans all events.
   // The index holds the rowid (id), so max(id) for one user reads one index entry.
   `CREATE INDEX IF NOT EXISTS events_user ON events(user_id);`,
+  // Screen preset id from lib/shared/device-presets.ts. boot.sh applies it to the AVD.
+  `ALTER TABLE phones ADD COLUMN device_preset TEXT NOT NULL DEFAULT 'generic';`,
 ];

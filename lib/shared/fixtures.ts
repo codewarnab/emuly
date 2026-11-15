@@ -14,6 +14,10 @@ export type PhoneRow = {
   meta: Array<[string, string]>;
   thumbDim?: boolean;
   screenReady?: boolean;
+  /** Short screen type name, such as "Pixel 9". */
+  screen?: string;
+  /** Landscape screen, such as the tablet. */
+  wide?: boolean;
   foot: { ghost: string; primary: string };
 };
 
