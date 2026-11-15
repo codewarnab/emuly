@@ -80,8 +80,9 @@ Install nothing without my yes. After an install, read the installed \`SKILL.md\
 ## 3. Do the task
 
 Follow the skill to choose or start a phone. When Android is ready, always offer me both ways
-to see it, even if scrcpy is not installed: the browser link first, then a scrcpy window. Use
-the "Two ways to see the phone" text in the skill. Install nothing for scrcpy without my yes.
+to see it, even if scrcpy is not installed: a scrcpy window first, marked recommended, then
+the browser link. Say why scrcpy is better: its video skips the Emuly server, so it is faster.
+Use the "Two ways to see the phone" text in the skill. Install nothing for scrcpy without my yes.
 
 ---
 

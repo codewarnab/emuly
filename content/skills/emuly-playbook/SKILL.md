@@ -94,6 +94,10 @@ The first time a task needs to see or tap the app, call
   `pnpm add -g agent-device@{{AGENT_DEVICE_VERSION}}` (needs `pnpm setup` once), or
   `bun add -g agent-device@{{AGENT_DEVICE_VERSION}}` (Node is still required). Then check
   that `agent-device --version` prints the pin.
+- **How to use it**: only when agent-device is in use (installed, or the user said yes),
+  read https://agent-device.dev/docs/introduction before the first command, together with
+  `references/tools/agent-device.md`. Do not fetch the docs when the user said no or the
+  route gave 404.
 - The token from the route never appears in chat or in a file in the user's repo.
 
 ## References

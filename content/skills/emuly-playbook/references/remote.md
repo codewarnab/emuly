@@ -45,11 +45,11 @@ need `sudo`: ask first, and never type a password for the user. Prefer a user-le
 ## 4. scrcpy from a remote machine
 
 There is no screen here, so a scrcpy window can never open here. In the scrcpy offer in
-`references/phones.md`, change option 2 to:
+`references/phones.md`, change option 1 to:
 
 ```text
-2. scrcpy window on your computer (<computer name>)
-   + Smoother, with less delay.
+1. scrcpy window on your computer (<computer name>) (recommended)
+   + Faster: the video skips the Emuly server. Smoother, with less delay.
    - You install scrcpy on <computer name> once, and run one command I give you.
 ```
 
