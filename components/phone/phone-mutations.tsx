@@ -77,13 +77,14 @@ export function NewPhone({ usage, stopped = 0 }: { usage: Usage; stopped?: numbe
           {stopped === 1 ? "Your stopped phone still uses" : `Your ${stopped} stopped phones still use`} GitHub storage. Delete the phones you do not need.
         </p>}
         <fieldset className={s.idleField}>
-          <legend className={s.presetLegend}><span>Phone type</span><PresetHint key={presetId} id={presetId} /></legend>
+          <legend>Phone type</legend>
           <div className={s.idleChoices} role="radiogroup">
             {DEVICE_PRESETS.map(preset => <label key={preset.id} className={s.idleChip}>
               <input type="radio" name="devicePreset" value={preset.id} checked={presetId === preset.id} onChange={() => setPresetId(preset.id)} />
               <span>{preset.short}</span>
             </label>)}
           </div>
+          <PresetHint key={presetId} id={presetId} />
         </fieldset>
         <IdleTimeoutField name="idleTimeoutMin" defaultValue={options.settings.default_idle_min ?? 30} />
         <div className={s.createFoot}>
@@ -108,11 +109,11 @@ export function NewPhone({ usage, stopped = 0 }: { usage: Usage; stopped?: numbe
   </>;
 }
 
-/** The chosen type's screen size, shown next to the "Phone type" label. */
+/** The chosen type's screen size, shown under the chips. */
 function PresetHint({ id }: { id: string }) {
   const preset = devicePreset(id) ?? DEVICE_PRESETS[0]!;
   return <span className={s.presetHint} aria-live="polite">
-    {preset.width ? `${preset.width} × ${preset.height}` : "Standard screen"}
+    {preset.label} · {preset.width ? `${preset.width} × ${preset.height}` : "standard screen"}
   </span>;
 }
 
