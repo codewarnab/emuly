@@ -460,7 +460,7 @@ test("the optional operator cap blocks creation before HTTP but never prevents s
     f.add("phone-aaaa");
     const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: value => Buffer.from(value),
       maxPhones: 1, clock: () => Date.parse("2026-11-07T00:00:00Z") });
-    await assert.rejects(service.create(1, input), /safety cap/);
+    await assert.rejects(service.create(1, input), /You can have up to 1 phone here/);
     assert.equal(calls, 0);
     await service.stop(1, "phone-aaaa");
     assert.equal(calls, 1);

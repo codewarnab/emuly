@@ -97,8 +97,8 @@ export function NewPhone({ usage, stopped = 0 }: { usage: Usage; stopped?: numbe
           </p>
           <Button disabled={pending}>{pending ? "Creating…" : running ? "Start another" : "Create phone"}</Button>
         </div>
-        {result.message && dismissed !== result && <p role="status">{result.message}</p>}
-        {result.message && !result.phoneId && !(result.refused && running) && <p className={s.createHint}><a href="https://github.com/settings/billing/usage" target="_blank" rel="noreferrer">Check exact usage on GitHub</a>, then try again.</p>}
+        {result.message && dismissed !== result && <p role="status" className={result.phoneId ? s.createHint : s.createError}>{result.message}</p>}
+        {result.message && !result.phoneId && !(result.refused && running) && /hour|quota|billing|spending/i.test(result.message) && <p className={s.createHint}><a href="https://github.com/settings/billing/usage" target="_blank" rel="noreferrer">Check exact usage on GitHub</a>, then try again.</p>}
         {result.phoneId && <Link href={`/app/phones/${encodeURIComponent(result.phoneId)}`}>Open phone</Link>}
       </form>}
       {/* Outside the create form: forms cannot be nested. */}

@@ -662,7 +662,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         if (maxPhones !== undefined) {
           const count = (await queries.execute({ sql: `SELECT count(*) AS n FROM phones WHERE user_id = ? AND state != 'deleted'
             AND (state != 'error' OR codespace_name NOT LIKE 'pending:%')`, args: [userId] })).rows[0]!.n as number;
-          if (count >= maxPhones) throw new PhoneInputError("You reached the local operator's phone safety cap (EMULY_MAX_PHONES).");
+          if (count >= maxPhones) throw new PhoneInputError(`You can have up to ${maxPhones} ${maxPhones === 1 ? "phone" : "phones"} here. Delete a phone to make another.`);
         }
         await queries.execute({ sql: `INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state,
           created_at, idle_timeout_min, retention_min, device_preset) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, 43200, ?)`, args: [id, userId, `pending:${id}`, input.repository, input.machine ?? "Choosing machine", iso(), input.idleTimeoutMin, input.devicePreset ?? DEFAULT_DEVICE_PRESET] });
