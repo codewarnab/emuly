@@ -4,7 +4,8 @@ import { phoneTiming } from "./phone-timing.ts";
 
 const HIDDEN_DISCONNECT_MS = 60_000;
 const RESUME_FRAME_WAIT_MS = 5_000;
-const FIRST_FRAME_WAIT_MS = 6_000;
+// A cold capture start measured 6.5 s to its first packet; 6 s dropped working streams.
+const FIRST_FRAME_WAIT_MS = 15_000;
 // Browser -> Vercel -> GitHub port forward -> runner can take several seconds to open.
 const CONNECT_WAIT_MS = 20_000;
 
@@ -19,6 +20,8 @@ type VideoConnectionOptions = {
   onSaver: () => void;
   onCapabilities?: (capabilities: string[]) => void;
   onClipboard?: (clipboard: { text: string; at: number }) => void;
+  /** The socket opened; video has not painted yet. */
+  onOpen?: () => void;
 };
 
 /** The ticket route answers 409 with a distinct code once the phone row is no longer running. */
@@ -36,7 +39,7 @@ async function phoneStopped(response: Response) {
  */
 export function createPhoneVideoConnection(options: VideoConnectionOptions) {
   if (!("VideoDecoder" in window)) return createFallback(options);
-  const { id, quality, onState, onFrame, onStats, onSaver, onCapabilities, onClipboard } = options;
+  const { id, quality, onState, onFrame, onStats, onSaver, onCapabilities, onClipboard, onOpen } = options;
   let state: VideoConnectionState = "suspended";
   let socket: WebSocket | null = null;
   // The browser cannot decode this H.264 stream. Each retry starts a new scrcpy on the runner,
@@ -60,6 +63,8 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
   let report: ReturnType<typeof phoneTiming> | undefined;
   let acceptFramesAfter = performance.now();
   let lastResume = -Infinity;
+  // True once the current socket painted a frame. `frames` resets every second, so it cannot say this.
+  let socketPainted = false;
   let request: AbortController | undefined, frames = 0, tick = performance.now(), offset = 0, delay = 0;
   const sent = new Map<number, { sent: number; receivedAt: number }>();
   const stop = () => {
@@ -146,6 +151,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
       const ws = new WebSocket(url); socket = ws; ws.binaryType = "arraybuffer";
       let config = new Uint8Array(), needKey = true, lastMessage = Date.now(), lastVideo = lastMessage;
       let decoded = false, painted = false, opened = false;
+      socketPainted = false;
       // Do not remove or merge this check into the pong-based watchdog "for efficiency".
       // Pongs prove only that the socket is open, not that video works. When pongs counted as
       // liveness, a socket with no video stayed open for minutes. The page showed an old image
@@ -173,7 +179,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
             if (document.hidden || !timing || timing.receivedAt < acceptFramesAfter) return;
             if (!onFrame(frame)) return;
             if (!painted) {
-              painted = true; clearTimeout(firstFrame);
+              painted = true; socketPainted = true; clearTimeout(firstFrame);
               // Two animation callbacks observe a rendering opportunity after canvas submission.
               afterPaint(() => afterPaint(() => {
                 if (current(ws, attempt) && !document.hidden) report?.("first_painted");
@@ -195,6 +201,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
       ws.onopen = () => {
         if (!current(ws, attempt)) return;
         opened = true; lastMessage = lastVideo = Date.now();
+        onOpen?.();
         clearTimeout(firstFrame);
         firstFrame = setTimeout(() => { if (current(ws, attempt) && !painted) stale(); }, FIRST_FRAME_WAIT_MS);
         ws.send(JSON.stringify({ type: "ping", time: Date.now() }));
@@ -258,7 +265,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
     const open = socket;
     // The socket painted frames before the tab switch and is still open. It is live, so input works
     // at once. A static screen sends no frames; the 15 s message watchdog catches a dead socket.
-    if (open && open.readyState === WebSocket.OPEN && frames > 0) {
+    if (open && open.readyState === WebSocket.OPEN && socketPainted) {
       open.send(JSON.stringify({ type: "ping", time: Date.now() }));
       report?.("presence"); transition("streaming"); return;
     }

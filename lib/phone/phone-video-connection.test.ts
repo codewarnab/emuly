@@ -168,16 +168,16 @@ test("visibility keeps brief switches alive and suspends longer hidden sessions"
   session.dispose();
 });
 
-test("a slow socket open gets 20 s, then 6 s for the first frame", async t => {
+test("a slow socket open gets 20 s, then 15 s for the first frame", async t => {
   const b = browser(t), session = b.start(); await setImmediate();
   const ws = b.sockets[0];
   t.mock.timers.tick(15000); await setImmediate();
   assert.notEqual(ws.readyState, 3, "a socket that is still opening is not closed after 6 s");
   ws.onopen?.();
-  t.mock.timers.tick(5000); await setImmediate();
+  t.mock.timers.tick(14000); await setImmediate();
   assert.notEqual(ws.readyState, 3);
   t.mock.timers.tick(1000); await setImmediate();
-  assert.equal(ws.readyState, 3, "no frame 6 s after open closes the socket");
+  assert.equal(ws.readyState, 3, "no frame 15 s after open closes the socket");
   session.dispose();
 });
 
@@ -195,7 +195,7 @@ test("pongs do not hide a socket without a painted frame", async t => {
   const b = browser(t), session = b.start(); await setImmediate();
   const ws = b.sockets[0];
   ws.onopen?.();
-  for (let waited = 0; waited < 6000; waited += 1000) {
+  for (let waited = 0; waited < 15000; waited += 1000) {
     ws.onmessage?.({ data: JSON.stringify({ type: "pong", server: Date.now(), time: Date.now() }) });
     t.mock.timers.tick(1000);
   }

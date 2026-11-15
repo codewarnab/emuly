@@ -332,7 +332,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto", aspect = 0.5 
       }}>
       <canvas ref={canvas} className={s.screenImage} style={{ display: showCanvas ? "block" : "none" }} aria-label="Live Android screen" />
       {frame && <img ref={image} src={frame} alt="Android screen" className={s.screenImage} style={{ display: showCanvas ? "none" : "block" }} />}
-      {!frame && !video.painted && <div className={s.screenPlaceholder} style={{ aspectRatio: aspect, width: `calc(var(--screen-height) * ${aspect})` }}>{video.stopped ? "Phone stopped" : live ? "Connecting to the screen..." : resting ? "Resting" : "Waiting for Android..."}</div>}
+      {!frame && !video.painted && <div className={s.screenPlaceholder} style={{ aspectRatio: aspect, width: `calc(var(--screen-height) * ${aspect})` }}>{video.stopped ? "Phone stopped" : live ? (video.starting ? "Starting video..." : "Connecting to the screen...") : resting ? "Resting" : "Waiting for Android..."}</div>}
       <AgentOverlay id={id} live={live} delayMs={video.active ? video.stats.delay : 0}
         onActivity={at => { setLastAgentAt(at); setAgentNow(at); }} />
     </div>
