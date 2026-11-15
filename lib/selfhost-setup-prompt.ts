@@ -30,7 +30,8 @@ Follow ${REPO}/blob/main/docs/SELF-HOST.md. If this prompt and that guide differ
 8. Install or update the emuly-playbook skill from this server: \`npx skills add http://localhost:4321 -g -a <your agent id> -y\`.
    If an older copy from https://emuly.vercel.app is installed, replace it.
 9. Open http://localhost:4321/agent.md and follow it, so you can start and drive phones for me.
-10. Tell me in two lines: the URL (http://localhost:4321) and how to stop it.
+10. If \`T3CODE_THREAD_ID\` is set, you run in T3 Code. Follow the "T3 Code" part of the skill to show phones in its Device panel.
+11. Tell me in two lines: the URL (http://localhost:4321) and how to stop it.
 
 Rules:
 - Do not set GH_TOKEN or GITHUB_TOKEN. Emuly refuses to start with them.
@@ -44,4 +45,4 @@ Rules:
 - Use the default phone template, codewarnab/emuly. Do not ask me about it. It has a Codespaces prebuild, so phones boot fast.
   Only if I say I want my own fork, tell me in simple words: "A fork has no prebuild, so each new phone boots slowly.
   To fix it, set up a Codespaces prebuild in your fork. I recommend the default." Then let me choose.
-Keep messages short. Ask only for decisions.`;
+Keep each message to 3 short lines or fewer. Ask only for decisions.`;

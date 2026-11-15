@@ -9,6 +9,9 @@ supports adb on its own, you add 3 small helper files that make T3 Code find one
 This file covers Linux. On Windows, read `references/t3code-windows.md`. On macOS, say in
 one line that this is not supported yet, and keep the browser link.
 
+Steps 2 and 3 of "T3 Code" in `SKILL.md` (turn on devices, show the phone) come after
+this file.
+
 ## 1. Check that this is the right machine
 
 T3 Code reads files on the computer where T3 Code runs. If you run on a remote machine
@@ -28,6 +31,9 @@ grep -l "emuly-t3code" "$sdk/platform-tools/adb" 2>/dev/null
 - If `grep` prints the path, the helper files are already in place. Go to step 5.
 - If `ANDROID_HOME` points to a real SDK with missing parts, stop and tell the user. Never
   change their SDK.
+- If the helper files are in place, but the folder now also has real SDK parts (for example
+  `platforms`, `system-images`, or an `adb` without `emuly-t3code`), the user installed a real
+  SDK. Offer once to remove the helper files (see the end of this file).
 
 ## 3. Find the real adb
 
@@ -94,8 +100,8 @@ only, not scrcpy. Then:
 "$HOME/Android/Sdk/platform-tools/adb" devices
 ```
 
-The phone must show as `device`. Then tell the user: "Restart T3 Code. Your phone is under
-Settings → Devices." Keep the browser link too.
+The phone must show as `device`. Then do steps 2 and 3 of "T3 Code" in `SKILL.md`. If the
+phone does not show, tell the user: "Restart T3 Code." Keep the browser link too.
 
 ## 6. Close it
 

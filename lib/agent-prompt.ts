@@ -24,14 +24,14 @@ ${selfHostNote}- ${keyLine}
 Find out, without asking me, where you run and where I sit. On Linux or macOS run:
 
 \`\`\`sh
-uname -s; echo "ssh=\${SSH_CONNECTION:-none} display=\${DISPLAY:-}\${WAYLAND_DISPLAY:-}"
+uname -s; echo "ssh=\${SSH_CONNECTION:-none} display=\${DISPLAY:-}\${WAYLAND_DISPLAY:-} t3=\${T3CODE_THREAD_ID:+yes}"
 command -v tailscale >/dev/null && tailscale status --self --peers=false
 \`\`\`
 
 On Windows, run this in PowerShell:
 
 \`\`\`powershell
-"ssh=$(if ($env:SSH_CONNECTION) { $env:SSH_CONNECTION } else { 'none' }) session=$env:SESSIONNAME"
+"ssh=$(if ($env:SSH_CONNECTION) { $env:SSH_CONNECTION } else { 'none' }) session=$env:SESSIONNAME t3=$(if ($env:T3CODE_THREAD_ID) { 'yes' })"
 if (Get-Command tailscale -ErrorAction SilentlyContinue) { tailscale status --self --peers=false }
 \`\`\`
 
@@ -44,6 +44,8 @@ if (Get-Command tailscale -ErrorAction SilentlyContinue) { tailscale status --se
 
 If your sandbox blocks the network (Codex does by default), ask me to approve network
 access for your first Emuly \`curl\` instead of reporting an error.
+
+- **In T3 Code:** \`T3CODE_THREAD_ID\` is set. Also set up the T3 Code Device panel (the skill says how).
 
 Tell me in one line what you found, for example "You are on a remote Linux machine over
 Tailscale from <computer>, so I will give you links to open there." The skill uses this.
@@ -76,6 +78,8 @@ Ask me once: "Should I install the ${SKILL_NAME} skill so I can run Emuly phones
 - **No:** do not install anything. Fetch ${skillUrl(base)} and follow it for this session only.
 
 Install nothing without my yes. After an install, read the installed \`SKILL.md\`.
+
+Keep every message to me at 3 short lines or fewer. Put the next action first.
 
 ## 3. Do the task
 

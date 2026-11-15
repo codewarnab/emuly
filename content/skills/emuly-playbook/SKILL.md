@@ -33,10 +33,13 @@ user asks you to.
    files only when the task needs them.
 4. If you run over SSH or Tailscale, or with no display, also read `references/remote.md`.
    It changes how you give links, scrcpy and screenshots.
+5. Check for T3 Code every time, not only at setup. See "T3 Code" below.
 
 ## How to talk to the user
 
 - Keep every message short and easy to read. Never be verbose.
+- Use 3 short lines or fewer for each message, unless the user asks for more.
+  Example: "Phone ready. Open the side panel, then click **Device**."
 - One idea in each sentence, and 20 words or fewer in each sentence.
 - Use plain words. Do not use jargon that the user did not use first.
 - Ask only for what you cannot find out yourself, such as a decision or an approval.
@@ -78,6 +81,32 @@ Always ask first, and wait for an explicit yes, before you:
 
 Never delete, stop or rebuild a codespace with `gh`. Use only the Emuly API, so that the
 user's delete setting and approval flow apply.
+
+## T3 Code
+
+T3 Code can show an Emuly phone in its Device panel. Check where you run:
+
+- `T3CODE_THREAD_ID` is set: you run inside T3 Code. Set it up without a request.
+- `T3CODE_THREAD_ID` is not set, but `~/.t3` exists (Windows: `%USERPROFILE%\.t3`): T3 Code
+  is installed. Ask once per session: "You have T3 Code. Show the phone there too?"
+- Neither: skip this section.
+
+Run the check on the machine where you run. Each T3 Code environment (for example a
+remote Linux machine) has its own settings and its own helper files. When the user
+switches to another environment, set that one up too.
+
+To set it up:
+
+1. Follow `references/t3code.md` (Linux) or `references/t3code-windows.md` (Windows).
+   On macOS, keep the browser link.
+2. Turn on devices. Open `~/.t3/userdata/settings.json` (or `$T3CODE_HOME/userdata/settings.json`).
+   Set `enableDeviceSupport` and `enableAgentDeviceAccess` to `true`. Keep every other key.
+   Create the file with only these 2 keys if it does not exist. Then tell the user in
+   one line: "I turned on Devices in T3 Code."
+   If the phone does not show after a restart, ask the user to turn on **Use devices** and
+   **Agents can use devices** in Settings → Devices.
+3. Show the phone. If you have the `device_open` tool, call it to open the phone.
+   Else tell the user: "Open the side panel, then click **Device** (or press **M**)."
 
 ## When something fails
 

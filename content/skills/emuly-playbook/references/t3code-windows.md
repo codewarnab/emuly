@@ -17,6 +17,9 @@ Framework 4). `avdmanager.bat` runs through `cmd.exe`, so a batch file works for
 
 Run the commands below in PowerShell. Tested on Windows 11 with adb 37.0.0.
 
+Steps 2 and 3 of "T3 Code" in `SKILL.md` (turn on devices, show the phone) come after
+this file.
+
 ## 1. Check that this is the right machine
 
 T3 Code reads files on the computer where T3 Code runs. If T3 Code runs on another
@@ -35,6 +38,9 @@ Select-String -Path "$sdk\platform-tools\adb.exe" -Pattern emuly-t3code -SimpleM
 - If `Select-String` prints a match, the helper files are already in place. Go to step 5.
 - If `ANDROID_HOME` points to a real SDK with missing parts, stop and tell the user. Never
   change their SDK.
+- If the helper files are in place, but the folder now also has real SDK parts (for example
+  `platforms`, `system-images`, or an `adb.exe` without `emuly-t3code`), the user installed a
+  real SDK. Offer once to remove the helper files (see the end of this file).
 
 ## 3. Find the real adb
 
@@ -159,8 +165,8 @@ only, not scrcpy. If the codespace was stopped, the phone must boot again first,
 & "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" devices
 ```
 
-The phone must show as `device`. Then tell the user: "Restart T3 Code. Your phone is under
-Settings → Devices." Keep the browser link too.
+The phone must show as `device`. Then do steps 2 and 3 of "T3 Code" in `SKILL.md`. If the
+phone does not show, tell the user: "Restart T3 Code." Keep the browser link too.
 
 ## 6. Close it
 
