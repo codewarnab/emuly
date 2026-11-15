@@ -8,6 +8,8 @@ Follow ${REPO}/blob/main/docs/SELF-HOST.md. If this prompt and that guide differ
 1. Check what this machine has: Docker or Podman with Compose, Node 26, pnpm, and gh (version 2.103 or newer).
    Tell me in one line what you found and which option you will use:
    - Option A (preferred): Docker. Use it when Docker with Compose works.
+     If I ask for Podman, or only Podman is installed, use \`podman compose\` in place of \`docker compose\` in every step.
+     On macOS or Windows, run \`podman machine start\` first.
    - Option B: local with Node 26, pnpm and gh.
    Ask me before you install anything.
 2. Clone ${REPO} into a folder I agree to. Skip this if a clone is already there.

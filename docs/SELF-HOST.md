@@ -47,6 +47,15 @@ codespace scope and the data directory in one go. Publish the port on loopback
 only (the compose file already does): the self-host API is intentionally
 unauthenticated and must not be reachable from other machines.
 
+### Podman
+
+Every command above works with `podman compose` in place of `docker compose`.
+
+- `podman compose` needs a compose provider: `podman-compose` or `docker-compose`.
+- On macOS and Windows, start the VM first: `podman machine init` (once), then `podman machine start`.
+- Rootless Podman is fine. The port is still published on loopback, and the
+  `emuly-data` and `emuly-gh` volumes work the same way.
+
 ## Option B: local, without Docker
 
 You need Node 26, pnpm and the gh CLI, signed in on this machine.
