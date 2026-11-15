@@ -23,7 +23,7 @@ case "$*" in
 esac
 `, { mode: 0o755 });
     for (const scope of ["codespace", "gist", "network"]) {
-      const result = spawnSync(process.execPath, [resolve("emuly.mjs"), "doctor"], {
+      const result = spawnSync(process.execPath, [resolve("bin/emuly.mjs"), "doctor"], {
         encoding: "utf8", env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, GH_TOKEN: "", GITHUB_TOKEN: "", EMULY_DB: join(directory, "test.db"), TEST_SCOPE: scope },
       });
       const output = result.stdout + result.stderr;

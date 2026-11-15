@@ -15,7 +15,7 @@ registerHooks({
     return nextResolve(specifier, context);
   },
 });
-const { attachPhoneStreams } = await import("./lib/phone/phone-stream-proxy.mjs");
+const { attachPhoneStreams } = await import("../lib/phone/phone-stream-proxy.mjs");
 
 const port = Number(process.env.PORT ?? 4321);
 const listenHostname = process.env.HOST ?? "127.0.0.1";

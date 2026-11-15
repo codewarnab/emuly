@@ -23,7 +23,7 @@ Follow ${REPO}/blob/main/docs/SELF-HOST.md. If this prompt and that guide differ
    Option A: \`docker compose up -d\`
    Option B: \`pnpm emuly up\` (keep it running in the background).
 6. Run the doctor and fix each failed check.
-   Option A: \`docker compose run --rm emuly node emuly.mjs doctor\`
+   Option A: \`docker compose run --rm emuly node bin/emuly.mjs doctor\`
    Option B: \`pnpm emuly doctor\`
 7. Point the Emuly skill at this server. Write one line, \`http://localhost:4321\`, to \`~/.config/emuly/base-url\`
    (on Windows, \`%USERPROFILE%\\.config\\emuly\\base-url\`). Option B's \`pnpm emuly up\` already writes it.

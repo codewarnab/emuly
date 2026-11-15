@@ -42,7 +42,7 @@ If the login reports the scope is missing, run:
 docker compose run --rm emuly gh auth refresh -h github.com -s codespace
 ```
 
-`docker compose run --rm emuly node emuly.mjs doctor` checks gh, the token, the
+`docker compose run --rm emuly node bin/emuly.mjs doctor` checks gh, the token, the
 codespace scope and the data directory in one go. Publish the port on loopback
 only (the compose file already does): the self-host API is intentionally
 unauthenticated and must not be reachable from other machines.
@@ -176,7 +176,7 @@ database. It does not ask again until a newer version comes out. To turn the che
 
 ## Checks and repair
 
-- `pnpm emuly doctor` (or `docker compose run --rm emuly node emuly.mjs doctor`)
+- `pnpm emuly doctor` (or `docker compose run --rm emuly node bin/emuly.mjs doctor`)
   reports what is missing: gh version, a signed-in account, the `codespace`
   scope, `gh auth token`, and a writable data directory.
 - A scope error from GitHub: run the `gh auth refresh -h github.com -s codespace`

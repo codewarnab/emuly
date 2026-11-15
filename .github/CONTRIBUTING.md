@@ -32,7 +32,7 @@ Checks: `pnpm lint`, `pnpm test`, `pnpm build`.
 
 - `GET /v1/usage`: remaining phone hours and storage.
 - `POST /v1/phones`: create a phone. Optional body `{ "machine": "<name>", "idle_timeout_min": 30 }`.
-- `POST /v1/webhooks`: register a webhook. See [docs/WEBHOOKS.md](docs/WEBHOOKS.md).
+- `POST /v1/webhooks`: register a webhook. See [docs/WEBHOOKS.md](../docs/WEBHOOKS.md).
 
 ### Key rotation
 

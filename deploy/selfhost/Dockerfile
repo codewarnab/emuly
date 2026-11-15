@@ -32,7 +32,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
   && apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 COPY --from=build /runtime/node_modules ./node_modules
 COPY --from=build /app/.next ./.next
-COPY package.json pnpm-lock.yaml next.config.ts tsconfig.json instrumentation.ts server.mjs emuly.mjs selfhost-guard.mjs ./
+COPY package.json pnpm-lock.yaml next.config.ts tsconfig.json instrumentation.ts ./
+COPY bin ./bin
 # lib/ source must ship: the stream proxy dynamically imports ./phone-control.ts outside
 # the Next bundle, and the agent runbook reads content/ at request time.
 COPY lib ./lib
@@ -43,4 +44,4 @@ COPY scripts/migrate-database.ts ./scripts/migrate-database.ts
 # Owned by the node user so the app can write the database and the token key there.
 RUN mkdir -p /gh .data && chown node:node /gh .data
 USER node
-CMD ["node", "emuly.mjs", "up", "--prod", "--no-browser"]
+CMD ["node", "bin/emuly.mjs", "up", "--prod", "--no-browser"]

@@ -20,7 +20,7 @@ Then open `http://localhost:4321`.
 - If GitHub says the scope is missing:
   `docker compose run --rm emuly gh auth refresh -h github.com -s codespace`.
 - Health check:
-  `docker compose run --rm emuly node emuly.mjs doctor`.
+  `docker compose run --rm emuly node bin/emuly.mjs doctor`.
 - Reset (keeps your phones; they live in your codespaces):
   `docker compose down -v`.
 

@@ -4,12 +4,12 @@
   "license": "MIT",
   "private": true,
   "scripts": {
-    "dev": "node server.mjs",
+    "dev": "node bin/server.mjs",
     "build": "next build",
-    "start": "node server.mjs --production",
+    "start": "node bin/server.mjs --production",
     "lint": "tsc --noEmit",
     "test": "node --expose-gc --conditions=react-server --test --experimental-strip-types \"lib/**/*.test.ts\"",
-    "emuly": "node emuly.mjs",
+    "emuly": "node bin/emuly.mjs",
     "db:migrate": "node --experimental-strip-types scripts/migrate-database.ts",
     "db:rotate-key": "node --experimental-strip-types scripts/rotate-token-key.ts"
   },
@@ -38,5 +38,5 @@
     "typescript": "^5"
   },
   "packageManager": "pnpm@12.8.1",
-  "bin": { "emuly": "emuly.mjs" }
+  "bin": { "emuly": "bin/emuly.mjs" }
 }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { assertSelfHostEnvironment } from "../selfhost-guard.mjs";
+import { assertSelfHostEnvironment } from "../bin/selfhost-guard.mjs";
 
 test("self-host rejects hosted deployments and allows loopback builds", () => {
   assert.throws(() => assertSelfHostEnvironment({ EMULY_SELF_HOST: "1", VERCEL: "1" }), /cannot be used/);

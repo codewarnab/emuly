@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // Emuly CLI: `emuly up|login|doctor`. Plain Node, no dependencies. Used on the host
-// (`pnpm emuly up`) and as the container command (`node emuly.mjs up --prod --no-browser`).
+// (`pnpm emuly up`) and as the container command (`node bin/emuly.mjs up --prod --no-browser`).
 // All interactive child output is inherited, so the user sees gh's device-flow code and the
 // server log. Checks run with piped output so their stderr can be shown on failure.
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // gh's device flow needs no OAuth App: the credential store (a named volume in a container)
 // holds the token, and `gh auth token` hands it to the app at request time.
@@ -125,7 +126,7 @@ async function up(args) {
   }
 
   // A child that survives this process would keep the port, so forward both stop signals.
-  const child = spawn("node", ["server.mjs", ...(args.includes("--prod") ? ["--production"] : [])],
+  const child = spawn(process.execPath, [fileURLToPath(new URL("./server.mjs", import.meta.url)), ...(args.includes("--prod") ? ["--production"] : [])],
     { stdio: "inherit", env: { ...process.env, EMULY_SELF_HOST: "1" } });
   for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => child.kill(signal));
   child.on("close", code => process.exit(code ?? 1));

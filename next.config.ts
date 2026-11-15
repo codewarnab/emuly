@@ -1,4 +1,4 @@
-import { assertSelfHostEnvironment } from "./selfhost-guard.mjs";
+import { assertSelfHostEnvironment } from "./bin/selfhost-guard.mjs";
 assertSelfHostEnvironment();
 import type { NextConfig } from "next";
 

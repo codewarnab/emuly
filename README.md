@@ -13,7 +13,7 @@
   &nbsp;·&nbsp;
   <a href="docs/SELF-HOST.md">Self-host</a>
   &nbsp;·&nbsp;
-  <a href="CONTRIBUTING.md">Contribute</a>
+  <a href=".github/CONTRIBUTING.md">Contribute</a>
 </p>
 
 <p><sub>WORKS WITH ANY CODING AGENT</sub></p>
@@ -81,7 +81,7 @@ See the [self-host guide](docs/SELF-HOST.md).
 
 ## Docs
 
-[Self-host](docs/SELF-HOST.md) · [Webhooks](docs/WEBHOOKS.md) · [Billing and usage](docs/BILLING-USAGE.md) · [Contributing](CONTRIBUTING.md) · [Report a security issue](https://github.com/codewarnab/emuly/security/advisories/new)
+[Self-host](docs/SELF-HOST.md) · [Webhooks](docs/WEBHOOKS.md) · [Billing and usage](docs/BILLING-USAGE.md) · [Contributing](.github/CONTRIBUTING.md) · [Report a security issue](https://github.com/codewarnab/emuly/security/advisories/new)
 
 <br />
 
