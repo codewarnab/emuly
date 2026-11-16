@@ -7,4 +7,6 @@ export type AppInstall = {
   bytesReceived: number; totalBytes: number | null; canCancel: boolean;
   createdAt?: string; updatedAt?: string;
   packageId?: string; versionCode?: string; errorCode?: string; message?: string;
+  /** Server URLs inside the APK that the phone cannot reach without a link. */
+  serverUrls?: { url: string; host: string; port: number }[];
 };

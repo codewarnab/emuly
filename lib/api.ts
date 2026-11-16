@@ -6,7 +6,9 @@ import { phoneControl, templateRepository } from "./phone/phone-control";
 import { createPhoneApi } from "./phone/phone-api";
 import { createPhoneAgentApi } from "./phone/phone-agent-api";
 import { findPhone, listPhones } from "./phone/phones";
-import { runnerAdb, runnerAgentDevice } from "./phone/phone-runner";
+import { runnerAdb, runnerAgentDevice, runnerLinks } from "./phone/phone-runner";
+import { createPhoneLinksApi } from "./phone/phone-links-api";
+import { issueLinkTicket } from "./phone/link-ticket";
 import { recordPhoneAdb } from "./phone/phone-activity";
 import { readUsage, userSettings } from "./data/usage";
 import { SELF_HOST } from "./selfhost";
@@ -27,6 +29,13 @@ export function agentPhoneApi() {
   return createPhoneAgentApi({ user: getUser, phones: listPhones, phone: findPhone, service: phoneControl(),
     adb: runnerAdb, agentDevice: runnerAgentDevice, baseUrl: () => env.baseUrl, log: recordPhoneAdb,
     update: () => updateCheck().hint(env.baseUrl) });
+}
+
+/** Links and net-check. Agent keys and the console use the same routes. */
+export function linksApi() {
+  return createPhoneLinksApi({ user: getUser, phone: findPhone, runner: runnerLinks,
+    issue: ticket => issueLinkTicket(asyncDb(), ticket), baseUrl: () => env.baseUrl,
+    owner: async userId => (await asyncDb().execute({ sql: "SELECT login FROM users WHERE id = ?", args: [userId] })).rows[0]?.login as string | undefined });
 }
 
 let updateCheckInstance: ReturnType<typeof createUpdateCheck> | undefined;

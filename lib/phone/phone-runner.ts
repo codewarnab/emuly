@@ -2,7 +2,7 @@ import "server-only";
 import { asyncDb } from "../data/async-db.ts";
 import { getAccessToken } from "../github/github-token.ts";
 import { codespaceExec, openCodespacePort } from "../github/codespace-tunnel.ts";
-import { createEmulyLinks, type RunnerPath, type AppsPath, type AppsRequest, type AdbRequest, type ProxyRequest } from "./phone-link.ts";
+import { createEmulyLinks, type RunnerPath, type AppsPath, type LinksPath, type AppsRequest, type AdbRequest, type ProxyRequest } from "./phone-link.ts";
 import { agentDeviceInfo, agentDeviceTokenHash, agentDeviceTokenMatches } from "./agent-device.ts";
 import { phoneObservations } from "./phone-observation.ts";
 import { createActivity, androidIdleMs, ANDROID_IDLE_COMMAND } from "./last-activity.ts";
@@ -10,7 +10,7 @@ import { createActivity, androidIdleMs, ANDROID_IDLE_COMMAND } from "./last-acti
 const global = globalThis as unknown as { __emulyLinks?: ReturnType<typeof createEmulyLinks>; __emulyLinksVersion?: number; __emulyActivity?: ReturnType<typeof createActivity> };
 const activity = () => global.__emulyActivity ??= createActivity(asyncDb());
 const links = () => {
-  if (global.__emulyLinksVersion !== 8) { global.__emulyLinks = undefined; global.__emulyLinksVersion = 8; }
+  if (global.__emulyLinksVersion !== 9) { global.__emulyLinks = undefined; global.__emulyLinksVersion = 9; }
   return global.__emulyLinks ??= createEmulyLinks({ token: getAccessToken, tunnel: openCodespacePort,
   observations: phoneObservations(asyncDb()), activity: activity(),
   // Command completion is measured; provider idle-timer reset remains unverified.
@@ -88,4 +88,23 @@ export async function runnerStream(userId: number, id: string, sessionId: string
     AND EXISTS(SELECT 1 FROM sessions WHERE id = ? AND user_id = ? AND expires_at > ?)`, args: [userId, id, userId, sessionId, userId, new Date().toISOString()] })).rows[0] as unknown as { codespace_name: string } | undefined;
   if (!row) throw new Error("Phone is not available");
   return links().stream({ userId, id, codespaceName: row.codespace_name });
+}
+
+async function runningCodespace(userId: number, id: string) {
+  const row = (await asyncDb().execute({ sql: `SELECT codespace_name FROM phones WHERE user_id = ? AND id = ? AND state = 'running'
+    AND EXISTS(SELECT 1 FROM users WHERE id = ? AND blocked = 0)`, args: [userId, id, userId] })).rows[0] as unknown as { codespace_name: string } | undefined;
+  if (!row) throw new Error("Phone is not available");
+  return row.codespace_name;
+}
+
+/** Link and net-check calls to the runner. Links work while Android boots; net-check needs Android. */
+export async function runnerLinks(userId: number, id: string, path: LinksPath, body?: Record<string, unknown>) {
+  const codespaceName = await runningCodespace(userId, id);
+  return { codespaceName, response: await links().links({ userId, id, codespaceName }, path, body) };
+}
+
+/** The runner end of a Route B relay. */
+export async function runnerRelay(userId: number, id: string, ports: number[]) {
+  const codespaceName = await runningCodespace(userId, id);
+  return links().relay({ userId, id, codespaceName }, ports);
 }

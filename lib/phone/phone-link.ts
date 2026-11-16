@@ -33,6 +33,7 @@ function safeErrorText(error: unknown, secret = "") {
  */
 const BOOT_REQUEST_MS = process.env.VERCEL ? 240_000 : 1_200_000;
 export type RunnerPath = "/health" | "/boot" | "/stop" | "/screenshot" | "/tap" | "/key" | "/agent-device-info";
+export type LinksPath = "/links" | "/links/remove" | "/net-check" | "/link-hints";
 export type AppsPath = "/apps" | "/apps/open" | "/app-installs" | `/app-installs/${string}`;
 export type AppsRequest = { method: "GET" | "POST" | "PUT"; json?: Record<string, unknown>; bytes?: Uint8Array; offset?: number; digest?: string; signal?: AbortSignal };
 export type AdbRequest = { args: string[]; timeout_s: number; binary?: boolean; files?: { name: string; bytes: Uint8Array }[] };
@@ -304,6 +305,39 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
           acceptedInput() { observations?.input(phone); activity?.mark(phone); },
           failed() { if (connection.forwarded && entries.get(key(phone)) === entry) { close(phone, "stream_failed"); streamFallback.add(key(phone)); } } };
       } catch { release(); if (entries.get(key(phone)) === entry) close(phone, "stream_open_failed"); throw new Error("Stream unavailable"); }
+    },
+    /** Link and net-check calls. The runner's status and JSON error reach the caller unchanged. */
+    async links(phone: Owner, path: LinksPath, body?: Record<string, unknown>): Promise<Response> {
+      if (!["/links", "/links/remove", "/net-check", "/link-hints"].includes(path)) throw new Error("Invalid links route");
+      // Reading the list is not an action: an open console tab polls it and must not keep the phone awake.
+      if (body) activity?.mark(phone);
+      const { entry, release } = acquire(phone);
+      try {
+        const connection = await entry.connection;
+        const headers = new Headers({ "content-type": "application/json" });
+        if (connection.forwarded) headers.set("X-Github-Token", await token(phone.userId));
+        const response = await request(`${connection.url}${path}`, { method: body ? "POST" : "GET", headers,
+          body: body ? JSON.stringify(body) : undefined, redirect: "manual", cache: "no-store",
+          signal: AbortSignal.any([entry.abort.signal, AbortSignal.timeout(40_000)]) });
+        const bytes = await response.arrayBuffer();
+        if (!response.headers.get("content-type")?.includes("application/json")) {
+          return Response.json({ error: "Update the phone runner before using links.", errorCode: "runner_update_required" }, { status: 503 });
+        }
+        return new Response(bytes, { status: response.status, headers: { "content-type": "application/json" } });
+      } finally { release(); }
+    },
+    /** The runner end of a relay websocket. The caller opens it and calls release() when it closes. */
+    async relay(phone: Owner, ports: number[]) {
+      const { entry, release } = acquire(phone);
+      try {
+        const connection = await entry.connection;
+        const headers: Record<string, string> = {};
+        if (connection.forwarded) headers["X-Github-Token"] = await token(phone.userId);
+        entry.abort.signal.throwIfAborted();
+        activity?.mark(phone);
+        return { url: `${connection.url.replace(/^http/, "ws")}/links/relay?ports=${ports.join(",")}`, headers,
+          signal: entry.abort.signal, release };
+      } catch (error) { release(); throw error; }
     },
     async request(phone: Owner, path: RunnerPath, body?: Record<string, unknown>): Promise<Response> {
       if (!/^[\w-]{1,100}$/.test(phone.codespaceName)) throw new Error("Invalid codespace name");

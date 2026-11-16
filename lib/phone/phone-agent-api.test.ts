@@ -57,16 +57,47 @@ test("phone list and read require authentication, scope to the caller and build 
   assert.deepEqual(calls, [`phones:7`, `phone:7:${stored.id}`, "phone:7:phone-other"]);
 });
 
+test("a stop answers before Android saves, and wait_for holds a read until the phone stops", async () => {
+  const phoneState = { ...stored };
+  const { api, calls } = fixture({
+    waitStepMs: 5,
+    phone: async (_userId, id) => id === stored.id ? phoneState : undefined,
+    service: {
+      start: async (_u, id) => id,
+      stop: async () => { throw new Error("the detached stop must be used"); },
+      requestStop: async (userId, id) => { calls.push(`requestStop:${userId}:${id}`); return id; },
+    },
+  });
+  const accepted = await api.stop(post(`/v1/phones/${stored.id}/stop`, undefined, { origin: "https://emuly.test" }), stored.id);
+  assert.equal(accepted.status, 202);
+  assert.deepEqual(calls, [`requestStop:7:${stored.id}`]);
+
+  setTimeout(() => { phoneState.state = "stopped"; phoneState.android_state = "idle"; }, 30);
+  const waited = await (await api.read(get(`/v1/phones/${stored.id}?wait_for=stopped&timeout_s=5`), stored.id)).json();
+  assert.equal(waited.state, "stopped");
+  assert.deepEqual(waited.wait, { for: "stopped", done: true, failed: false, timed_out: false });
+
+  // A wait for ready ends at once when the phone is stopped: it cannot become ready by itself.
+  const failed = await (await api.read(get(`/v1/phones/${stored.id}?wait_for=ready&timeout_s=5`), stored.id)).json();
+  assert.deepEqual(failed.wait, { for: "ready", done: false, failed: true, timed_out: false });
+  assert.equal((await api.read(get(`/v1/phones/${stored.id}?wait_for=gone`), stored.id)).status, 400);
+  assert.equal((await api.read(get(`/v1/phones/${stored.id}?wait_for=stopped&timeout_s=999`), stored.id)).status, 400);
+});
+
 test("start and stop allow agent keys without Origin but reject origin-less cookie requests", async () => {
   const { api, calls } = fixture({ user: async () => ({ id: 7, authKind: "agent", agentKeyId: 42 }) });
   const started = await api.start(post(`/v1/phones/${stored.id}/start`), stored.id);
   assert.equal(started.status, 202);
-  assert.deepEqual(await started.json(), { id: stored.id, status: "starting" });
+  const startBody = await started.json();
+  assert.equal(startBody.status, "starting");
+  assert.equal(startBody.wait, `/v1/phones/${stored.id}?wait_for=ready&timeout_s=60`);
   assert.deepEqual(calls, [`start:7:${stored.id}`]);
 
   const stopped = await api.stop(post(`/v1/phones/${stored.id}/stop`, undefined, { origin: "https://emuly.test" }), stored.id);
   assert.equal(stopped.status, 202);
-  assert.deepEqual(await stopped.json(), { id: stored.id, status: "stopping" });
+  const stopBody = await stopped.json();
+  assert.equal(stopBody.status, "stopping");
+  assert.equal(stopBody.wait, `/v1/phones/${stored.id}?wait_for=stopped&timeout_s=60`);
 
   const cookie = fixture({ user: async () => ({ id: 7, authKind: "session" }) });
   assert.equal((await cookie.api.start(post(`/v1/phones/${stored.id}/start`), stored.id)).status, 403);

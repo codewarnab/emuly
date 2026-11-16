@@ -102,8 +102,9 @@ Always ask first, and wait for an explicit yes, before you:
 - Delete a phone, by any path.
 - Wipe app data, factory reset, or uninstall an app that you did not install.
 - Create a new phone. It uses the user's core-hours.
-- Install software on the user's computer.
+- Install software on the user's computer. This includes the GitHub CLI for a link.
 - Change `gh` accounts or auth (`gh auth switch`, `gh auth login`).
+- Link a phone port to a target that is not localhost (`emuly link ... --to`), or to a database port.
 - Push code, file an issue, or post anywhere public.
 
 Never delete, stop or rebuild a codespace with `gh`. Use only the Emuly API, so that the
@@ -136,6 +137,22 @@ To set it up:
    **Agents can use devices** in Settings → Devices.
 3. Show the phone. If you have the `device_open` tool, call it to open the phone.
    Else tell the user: "Open the side panel, then click **Device** (or press **M**)."
+
+## Check the app's server before you test it
+
+An app on the phone cannot reach a server on the user's laptop, LAN or tailnet by itself.
+On the phone, `localhost` is the phone. Do not change the app's server code.
+
+Do this check before you test any app, even when the user does not mention a server. Do not
+wait for the app to fail.
+
+1. Find the server address. Look in the project's env files and build config. When you install
+   with `POST /v1/phones/<id>/app-installs`, also read `serverUrls` in the finished operation.
+2. If an address is loopback, `10.0.2.2`, a private LAN address or a `.ts.net` name, test it
+   with `GET /v1/phones/<id>/net-check?target=host:port`, and start a link if the `fix` says so.
+3. Tell the user in one line, for example: "Your app calls localhost:3000. I linked it to your computer."
+
+`references/local-servers.md` has the full steps: where to look, links (`emuly link`), and net-check.
 
 ## When something fails
 
@@ -207,6 +224,7 @@ Topics (paths relative to this file):
 - `references/screenshots.md`: when and how to show a screenshot or video in the chat.
 - `references/delete-and-errors.md`: delete approval, errors, settings, webhooks.
 - `references/native-adb.md`: native adb or scrcpy over `gh codespace ssh`.
+- `references/local-servers.md`: check the app's server before a test; links and net-check.
 - `references/remote.md`: you run on a remote machine (SSH or Tailscale); links, scrcpy and
   screenshots for a user at another computer.
 - `references/t3code.md`: show an Emuly phone in T3 Code (Linux).

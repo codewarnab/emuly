@@ -30,6 +30,8 @@ export function phoneStatus(phone: StatusPhone): { kind: PillKind; label: string
           description: "Waiting for GitHub to start this phone." };
     }
     case "running": {
+      if (phone.android_state === "stopping") return { kind: "stopping", label: "stopping", title: "Stopping Android",
+        description: "Saving Android. Then GitHub stops the codespace." };
       if (phone.android_state === "ready") return { kind: "running", label: "running", title: "Live screen", description: "Android is ready." };
       if (phone.android_state === "failed") return { kind: "needsyou", label: "Android failed", title: "Android boot failed",
         description: "The codespace is running, but Android failed to start." };

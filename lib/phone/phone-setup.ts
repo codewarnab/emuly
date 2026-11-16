@@ -7,9 +7,11 @@ import { codespaceExec } from "../github/codespace-tunnel.ts";
 import { AGENT_DEVICE_VERSION } from "../agent-device-version.ts";
 import { collectProgress, measure, progressCursor, diagnosticHealth, diagnosticOperation } from "../diagnostics/diagnostics.ts";
 import { validateStep, type Step } from "../diagnostics/diagnostic-contract.ts";
+// Must match the version that phone/runner/runner.mjs reports in GET /health.
+export const RUNNER_VERSION = 14;
 
 /** Files copied into each codespace, relative to `phone/` in this repository. */
-const FILES = ["scripts/progress.sh", "scripts/node-path.sh", "scripts/read-progress.py", "scripts/bounded-log.py", "scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "scripts/autostart.sh", "runner/runner.mjs", "runner/agent-device-proxy.mjs", "runner/apps.mjs", "runner/apps-protocol.mjs", "runner/adb-protocol.mjs", "runner/apk-download.mjs", "runner/scrcpy.mjs", "runner/scrcpy-protocol.mjs"];
+const FILES = ["scripts/progress.sh", "scripts/node-path.sh", "scripts/read-progress.py", "scripts/bounded-log.py", "scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "scripts/autostart.sh", "runner/runner.mjs", "runner/agent-device-proxy.mjs", "runner/apps.mjs", "runner/apps-protocol.mjs", "runner/adb-protocol.mjs", "runner/apk-download.mjs", "runner/scrcpy.mjs", "runner/scrcpy-protocol.mjs", "runner/links.mjs", "runner/links-protocol.mjs"];
 
 /** The pinned version reaches shell scripts, so refuse anything that is not a plain release version. */
 function agentDeviceExport() {
@@ -62,13 +64,20 @@ export function setupScript(root = join(process.cwd(), "phone"), cursor = 0, pre
     ["device.env", Buffer.from(deviceEnv(preset)).toString("base64")],
     ["run.sh", Buffer.from(RUN.replace('builtin cd', `export EMULY_DIAGNOSTICS=${diagnosticOperation() ? "1" : "0"}\nexport PH_OPERATION_ID=${diagnosticOperation() ?? "disabled"}\n${agentDeviceExport()}\nbuiltin cd`)).toString("base64")]];
   const writes = files.map(([file, body]) => `mkdir -p "$(dirname "${file}")"\necho '${body}' | base64 -d > "${file}"`);
-  writes.push(`echo '${scriptsVersion(root)}' > .scripts-version`);
+  const hash = scriptsVersion(root);
+  writes.push(`echo '${hash}' > .scripts-version`);
   // A plain shell, not a login shell: the image's rvm profile fails under bash and kills the run.
   // Node comes from the image's nvm, which the profile would add to PATH.
   return `export PATH="/usr/local/share/nvm/current/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 mkdir -p "$HOME/emuly" && builtin cd "$HOME/emuly"
 ${diagnosticOperation() ? `if [ -f scripts/read-progress.py ]; then python3 scripts/read-progress.py ${diagnosticOperation()} ${Number.isSafeInteger(cursor) && cursor >= 0 ? cursor : 0}; fi` : ""}
-if curl -fsS http://127.0.0.1:8790/health 2>/dev/null | grep -q '"version":10'; then echo EMULY_READY; exit 0; fi
+# Current means the same runner version and the same file hash. A changed file without a
+# version change still replaces the runner.
+emuly_current() {
+  health=$(curl -fsS http://127.0.0.1:8790/health 2>/dev/null) || return 1
+  printf '%s' "$health" | grep -q '"version":${RUNNER_VERSION}[,}]' && printf '%s' "$health" | grep -q '"scripts":"${hash}"'
+}
+if emuly_current; then echo EMULY_READY; exit 0; fi
 # A runner from an older build answers health but must be replaced before files are uploaded.
 if curl -fsS http://127.0.0.1:8790/health >/dev/null 2>&1; then
   pkill -f "node runner/runner.mjs" 2>/dev/null || true
@@ -82,7 +91,7 @@ emuly_wait() {
   [ -f .pid ] && kill -0 "$(cat .pid)" 2>/dev/null || return 0
   for i in $(seq 1 75); do
     if [ -f .failed ]; then rm -f .failed .pid; echo EMULY_FAILED; exit 1; fi
-    if curl -fsS http://127.0.0.1:8790/health 2>/dev/null | grep -q '"version":10'; then echo EMULY_READY; exit 0; fi
+    if emuly_current; then echo EMULY_READY; exit 0; fi
     kill -0 "$(cat .pid)" 2>/dev/null || return 0
     sleep 1
   done
@@ -164,7 +173,7 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
         redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(5000) });
       if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) { await response.body?.cancel(); return false; }
       const health = await response.json();
-      return health?.ok === true && health.version === 10 && health.scripts === scriptsVersion();
+      return health?.ok === true && health.version === RUNNER_VERSION && health.scripts === scriptsVersion();
     } catch { return false; }
   }
   return Object.assign(async function setupPhone(userId: number, codespaceName: string, preset = DEFAULT_DEVICE_PRESET): Promise<SetupResult> {

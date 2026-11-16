@@ -24,6 +24,8 @@ const nextConfig: NextConfig = {
   partialPrefetching: true,
   // Codespace tunnel stack (lib/github/codespace-tunnel.ts). These packages use optional
   // requires (node-rsa, cpu-features) and native Node APIs, so load them with plain require.
+  // GET /v1/cli serves this file; a traced deployment must contain it.
+  outputFileTracingIncludes: { "/v1/cli": ["./bin/emuly.mjs"] },
   serverExternalPackages: [
     "@microsoft/dev-tunnels-connections", "@microsoft/dev-tunnels-management",
     "@microsoft/dev-tunnels-contracts", "@microsoft/dev-tunnels-ssh", "@microsoft/dev-tunnels-ssh-tcp",

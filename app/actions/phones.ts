@@ -45,9 +45,9 @@ export async function mutatePhone(_previous: MutationResult, form: FormData): Pr
       const value = form.get("phoneId");
       if (typeof value !== "string" || !PHONE_ID.test(value)) throw new PhoneInputError("Invalid phone ID");
       id = value;
-      await phoneControl()[operation](user.id, id);
+      await (operation === "stop" ? phoneControl().requestStop(user.id, id) : phoneControl()[operation](user.id, id));
       message = operation === "retryBoot" ? "Android boot requested." : operation === "keep" ? "Keep it started. The phone stops again when GitHub is available. Check Activity for progress."
-        : operation === "stop" ? "Stop requested. Check Activity for progress." : "Wake requested. Check Activity for progress.";
+        : operation === "stop" ? "Stop requested. Android saves its state, then GitHub stops the codespace. The status changes to stopped when it finishes." : "Wake requested. Check Activity for progress.";
     } else if (operation === "delete") {
       const value = form.get("phoneId");
       if (typeof value !== "string" || !PHONE_ID.test(value)) throw new PhoneInputError("Invalid phone ID");

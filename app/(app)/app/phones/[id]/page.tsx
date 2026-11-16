@@ -30,6 +30,7 @@ import { mockLog, mockDetail, mockPhones } from "@/lib/shared/fixtures";
 import { streamQuality } from "../../../../../lib/shared/display-settings";
 import { PhoneApps } from "@/components/phone/phone-apps";
 import { HostSpecs } from "@/components/phone/host-specs";
+import { PhoneLinks } from "@/components/phone/phone-links";
 import { AgentTasks } from "@/components/phone/agent-tasks";
 import { env } from "../../../../../lib/env";
 import { devicePreset, isWide, screenAspect } from "../../../../../lib/shared/device-presets";
@@ -171,7 +172,7 @@ async function StoredPhone({ phone, user, search, syncError }: {
         {screenReady && <Pill kind={status.kind}>{status.label}</Pill>}
         {phone.codespace_name.startsWith("pending:")
           ? phone.state === "error" && <Link className={`${s.btn} ${s.btnTiny} ${s.btnGhost}`} href={`/app/phones/${encodeURIComponent(phone.id)}?tab=danger`}>Delete this phone</Link>
-          : <PhoneMutation id={phone.id} state={phone.keeping ? "keeping" : phone.state} />}
+          : <PhoneMutation id={phone.id} state={phone.keeping ? "keeping" : phone.android_state === "stopping" ? "stopping" : phone.state} />}
         </div>
       </section>
       <div>
@@ -183,6 +184,7 @@ async function StoredPhone({ phone, user, search, syncError }: {
             running={tab === "log" ? `Current status: ${status.title}` : undefined} emptyMessage="No activity yet." />}
         </section>
         <HostSpecs rows={[["Screen", devicePreset(phone.device_preset)?.short ?? "Generic"], ...machineRows(phone.machine, phone.cores), ["Idle stop", idleLabel(phone.idle_timeout_min)]]} />
+        <PhoneLinks id={phone.id} running={phone.state === "running"} />
         <p className={s.fineprint}><a href="https://docs.github.com/en/codespaces/setting-your-user-preferences/setting-your-timeout-period-for-github-codespaces" target="_blank" rel="noreferrer">GitHub timeout settings</a></p>
       </div>
     </main>

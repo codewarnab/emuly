@@ -29,6 +29,10 @@ progress. Every operation needs a fresh UUID in `key`.
 
 Poll the operation until its `stage` is `succeeded`, `failed`, `cancelled` or `interrupted`.
 
+The operation also has `serverUrls` after validation: local server URLs inside the APK, such as
+`http://localhost:3000`. If it is not empty, follow `references/local-servers.md` before the
+test. The adb `install` route does not scan the APK.
+
 If an APK endpoint returns `503` with `runner_update_required`, the phone runner is old:
 ask the user to open the phone in the browser and retry. `POST /v1/phones/<id>/apps/update`
 also exists for that case.

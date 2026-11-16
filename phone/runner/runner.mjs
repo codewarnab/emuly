@@ -7,6 +7,8 @@ import { startAgentDeviceProxy } from "./agent-device-proxy.mjs";
 import { ADB_DOWNLOAD_MAX_BYTES, ADB_FILES_MAX, ADB_OUTPUT_MAX_BYTES, ADB_UPLOAD_MAX_BYTES,
   adbArguments, adbTimeout, isDownload, isScreencap } from "./adb-protocol.mjs";
 import { AppError } from "./apk-download.mjs";
+import { createLinks } from "./links.mjs";
+import { RELAY_MAX_PAYLOAD } from "./links-protocol.mjs";
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
 import { mkdtemp, open, readFile, readdir, rm, stat } from "node:fs/promises";
@@ -224,6 +226,9 @@ async function adbRoute(req) {
 const apps = await createApps({ root: join(ROOT, "data", "app-installs"), sdk: SDK, run, adb, exclusive, booted });
 // The agent-device proxy runs only while this process does; its token never reaches a log.
 const agentDevice = startAgentDeviceProxy({ sdk: SDK });
+const links = createLinks({ adb, booted });
+// A new runner has no links, so any reverse rule on the phone is left from the last runner.
+void links.sweep().catch(() => {});
 
 const SCREENSHOT_REUSE_MS = 1_000;
 let shot; // { at, png } or { pending }
@@ -238,7 +243,7 @@ function screenshot() {
 }
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 10, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles"], avd: "t", api_level: 36, booted: await booted() }),
+  "GET /health": async () => ({ ok: true, version: 14, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "links", "netCheck"], avd: "t", api_level: 36, booted: await booted() }),
 
   "POST /boot": ({ diagnosticOperation }) => {
     return boot ??= exclusive(async () => {
@@ -247,6 +252,8 @@ const routes = {
       await run("bash", [join(ROOT, "scripts", "boot.sh")], { timeout: 600000,
         env: { ...process.env, EMULY_DIAGNOSTICS: operation ? "1" : "0", PH_OPERATION_ID: operation ?? "disabled" } });
       apps.resume();
+      // A new emulator has no adb reverse rules. Put back the links of this runner.
+      await links.reapply();
       return { booted: await booted(), seconds: Math.round((Date.now() - start) / 1000) };
     }).finally(() => { boot = undefined; });
   },
@@ -257,6 +264,7 @@ const routes = {
     stopping ??= (async () => { await apps.stop(); return exclusive(async () => {
       const start = Date.now();
       for (const client of streams.clients) client.close();
+      links.clear();
       await script("stop.sh");
       return { stopped: true, seconds: Math.round((Date.now() - start) / 1000) };
     }); })().finally(() => { setTimeout(() => { stopping = undefined; }, 60_000); });
@@ -300,6 +308,13 @@ const routes = {
   "GET /app-installs": () => apps.list(),
   "POST /app-installs": body => apps.create(body),
   "GET /agent-device-info": () => agentDevice.info(),
+
+  // Links (docs/link-plan.html). The body of each call is small JSON; see links.mjs.
+  "GET /links": () => links.list(),
+  "POST /links": body => links.add(body),
+  "POST /links/remove": body => links.remove(body),
+  "POST /net-check": body => links.netCheck(body),
+  "GET /link-hints": async () => ({ logcat: await links.hints() }),
 
 };
 
@@ -360,8 +375,14 @@ const server = createServer(async (req, res) => {
 }).listen(PORT, "127.0.0.1", () => console.log(`runner listening on 127.0.0.1:${PORT}`));
 
 const streams = new ws.WebSocketServer({ noServer: true, maxPayload: 16_384, perMessageDeflate: false });
+const relays = new ws.WebSocketServer({ noServer: true, maxPayload: RELAY_MAX_PAYLOAD, perMessageDeflate: false });
 server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url ?? "/", "http://localhost");
+  if (url.pathname === "/links/relay") {
+    if (SECRET && req.headers["x-phone-secret"] !== SECRET) return socket.destroy();
+    const ports = (url.searchParams.get("ports") ?? "").split(",").filter(Boolean).map(Number);
+    return relays.handleUpgrade(req, socket, head, client => links.relay(client, ports));
+  }
   if (url.pathname !== "/stream" || (SECRET && req.headers["x-phone-secret"] !== SECRET)) return socket.destroy();
   streams.handleUpgrade(req, socket, head, client => {
     void startScrcpy(client, { adb, ADB, SERIAL, ROOT, quality: url.searchParams.get("quality") ?? "auto" });

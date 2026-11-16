@@ -101,7 +101,14 @@ scrcpy --tcpip=127.0.0.1:<port>
 When the user is done, stop the background tunnel here. Never leave the port open after
 the task.
 
-## 5. Screenshots and files
+## 5. Links to a local server
+
+Run `emuly link` on the machine that can reach the server (see `references/local-servers.md`).
+If the server runs on this machine, run it here. If the server runs on the user's computer,
+the user runs `emuly link` there; give them one command. If the server is on a machine that
+this machine reaches over Tailscale, run it here with `--to <host>:<port>`, after the user says yes.
+
+## 6. Screenshots and files
 
 The user cannot open a path on this machine. Use the first way that works:
 

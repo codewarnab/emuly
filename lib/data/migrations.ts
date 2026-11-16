@@ -309,4 +309,9 @@ export const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS events_user ON events(user_id);`,
   // Screen preset id from lib/shared/device-presets.ts. boot.sh applies it to the AVD.
   `ALTER TABLE phones ADD COLUMN device_preset TEXT NOT NULL DEFAULT 'generic';`,
+  // One-use tickets for a Route B link relay (docs/link-plan.html). Only the sha256 of the ticket is stored.
+  `CREATE TABLE IF NOT EXISTS link_tickets (
+    hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    phone_id TEXT NOT NULL REFERENCES phones(id) ON DELETE CASCADE, ports TEXT NOT NULL, expires_at INTEGER NOT NULL
+  );`,
 ];

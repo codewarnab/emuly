@@ -30,6 +30,10 @@ export const UNCONFIRMED_CREATION_EXPIRY_MS = 30 * 60_000;
 export const START_WATCH_MS = 5_000;
 /** A pending start stops watching after this long; the poller continues as before. */
 export const START_WATCH_DEADLINE_MS = 15 * 60_000;
+/** How often a stop asks GitHub for the codespace state, until Shutdown. */
+export const STOP_WATCH_MS = 3_000;
+/** A stop stops watching after this long; the poller continues as before. */
+export const STOP_WATCH_DEADLINE_MS = 5 * 60_000;
 
 /** A user action waits this long for a sync or another action to release the phone lock. */
 export const USER_LOCK_WAIT_MS = 20_000;
@@ -393,7 +397,37 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     afterCommit();
   }
 
-  async function change(userId: number, id: string, operation: "start" | "stop", bulk = false, automatic: false | "auto-stop" | "idle stop" = false) {
+  /** After GitHub accepts a stop, watch until Shutdown, so "stopped" (and phone.stopped) comes in seconds, not at the next poller run. */
+  const watchStop = (userId: number, id: string) => independentWork(async () => {
+    try { await withLease(database, `watch:${id}`, () => pollStop(userId, id)); }
+    catch { /* The poller still reconciles. */ }
+  });
+  async function pollStop(userId: number, id: string) {
+    const deadline = clock() + STOP_WATCH_DEADLINE_MS;
+    let errors = 0;
+    while (clock() < deadline) {
+      await sleep(STOP_WATCH_MS);
+      if (busy.has(id)) continue;
+      let stored: StoredPhone;
+      try { stored = await phone(userId, id); } catch { return; }
+      if (stored.state !== "stopping") return;
+      let reply: Codespace;
+      try { reply = await github.getCodespace(userId, id); }
+      catch (error) {
+        if (error instanceof GitHubError && (error.status === 403 || error.status === 429)) return;
+        if (++errors >= 3) return;
+        continue;
+      }
+      errors = 0;
+      if (reply.state === "Shutdown" || reply.state === "Deleted") {
+        busy.add(id);
+        try { await apply(userId, id, reply, "emuly"); } finally { busy.delete(id); }
+        return;
+      }
+    }
+  }
+
+  async function change(userId: number, id: string, operation: "start" | "stop", bulk = false, automatic: false | "auto-stop" | "idle stop" = false, detach = false) {
     const stored = await phone(userId, id);
     if ((await keeping(id))) throw new PhoneInputError("Keep it is in progress. Wait until the phone stops again.");
     if (operation === "stop" && stored.state === "stopping") return id;
@@ -401,6 +435,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     if (busy.has(id)) throw new PhoneInputError("A phone request is already in progress. Try again shortly.");
     busy.add(id);
     let claimed = false;
+    /** True when a detached stop owns `busy` and the rest of the work. */
+    let handedOff = false;
     let diagnosticOperation: string | undefined;
     try {
       await claim(userId, id, automatic || operation, undefined, bulk);
@@ -432,8 +468,62 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         await apply(userId, id, current);
       } else {
         await apply(userId, id, current, "reconciled");
+        if (runner) await database.execute({ sql: "UPDATE phones SET android_state = 'stopping' WHERE id = ?", args: [id] });
+        if (detach) {
+          // Answer now. The Android save and the GitHub stop run on; the state and the
+          // phone.stopped event tell the caller when they finish.
+          handedOff = true;
+          const operationId = diagnosticOperation;
+          background(independentWork(async () => {
+            try {
+              await finishStop(userId, id, stored, automatic, operationId);
+              await event(userId, id, "step", "stop accepted");
+            } catch (error) {
+              void diagnostics.finish(operationId, "unknown");
+              await stopFailed(userId, id, error);
+              return;
+            } finally { busy.delete(id); }
+            await watchStop(userId, id);
+          }));
+          return id;
+        }
+        await finishStop(userId, id, stored, automatic, diagnosticOperation);
+      }
+      await event(userId, id, "step", `${operation} accepted`);
+      if (operation === "start" && observed !== "Available") {
+        // GitHub has no webhook for codespace state; watch until setup can start.
+        if ((await phone(userId, id)).state === "booting") background(watchStart(userId, id));
+      }
+      if (operation === "stop" && (await phone(userId, id)).state === "stopping") background(watchStop(userId, id));
+      return id;
+    } catch (error) {
+      void diagnostics.finish(diagnosticOperation, "unknown");
+      if (claimed) {
+        if (operation === "stop") await stopFailed(userId, id, error);
+        else {
+          const message = error instanceof GitHubError ? redact(error.message)
+            : "The phone request could not be confirmed. Refresh to check its state before trying again.";
+          await database.execute({ sql: "UPDATE phones SET state_detail = ? WHERE user_id = ? AND id = ?", args: [message, userId, id] });
+          await event(userId, id, "error", message);
+          await outgoing(userId, id, "phone.error", { message });
+        }
+      }
+      throw error;
+    } finally { if (!handedOff) busy.delete(id); }
+  }
+
+  async function stopFailed(userId: number, id: string, error: unknown) {
+    await database.execute({ sql: `UPDATE phones SET android_state = 'failed',
+      android_error = 'Stop could not be confirmed. Try Stop again.' WHERE user_id = ? AND id = ? AND android_state = 'stopping'`, args: [userId, id] });
+    const message = error instanceof GitHubError ? redact(error.message)
+      : "The phone request could not be confirmed. Refresh to check its state before trying again.";
+    await database.execute({ sql: "UPDATE phones SET state_detail = ? WHERE user_id = ? AND id = ?", args: [message, userId, id] });
+    await event(userId, id, "error", message);
+  }
+
+  /** Save Android through the runner, then ask GitHub to stop the codespace. */
+  async function finishStop(userId: number, id: string, stored: StoredPhone, automatic: false | "auto-stop" | "idle stop", diagnosticOperation: string | undefined) {
         if (runner) {
-          await database.execute({ sql: "UPDATE phones SET android_state = 'stopping' WHERE id = ?", args: [id] });
           try {
             // The runner answers within 80 s; while the emulator still shuts down it says pending.
             let answer: { stopped?: unknown; pending?: unknown } = {};
@@ -458,26 +548,6 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         await queries.execute({ sql: "UPDATE phones SET state = 'stopping', state_detail = ? WHERE user_id = ? AND id = ?", args: [runner ? "Android stopped. GitHub is stopping the codespace." : "GitHub is stopping the codespace. Runner snapshot saving is not connected yet.", userId, id] });
         });
         disconnect?.(userId, id, stored.codespace_name);
-      }
-      await event(userId, id, "step", `${operation} accepted`);
-      if (operation === "start" && observed !== "Available") {
-        // GitHub has no webhook for codespace state; watch until setup can start.
-        if ((await phone(userId, id)).state === "booting") background(watchStart(userId, id));
-      }
-      return id;
-    } catch (error) {
-      void diagnostics.finish(diagnosticOperation, "unknown");
-      if (claimed) {
-        if (operation === "stop") await database.execute({ sql: `UPDATE phones SET android_state = 'failed',
-          android_error = 'Stop could not be confirmed. Try Stop again.' WHERE user_id = ? AND id = ? AND android_state = 'stopping'`, args: [userId, id] });
-        const message = error instanceof GitHubError ? redact(error.message)
-          : "The phone request could not be confirmed. Refresh to check its state before trying again.";
-        await database.execute({ sql: "UPDATE phones SET state_detail = ? WHERE user_id = ? AND id = ?", args: [message, userId, id] });
-        await event(userId, id, "error", message);
-        if (operation === "start") await outgoing(userId, id, "phone.error", { message });
-      }
-      throw error;
-    } finally { busy.delete(id); }
   }
 
   async function keeping(id: string, queries: DatabaseQueries = database) {
@@ -708,6 +778,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     },
     start: (userId: number, id: string) => change(userId, id, "start"),
     stop: (userId: number, id: string) => change(userId, id, "stop"),
+    /** Like stop, but answers once the stop is claimed. The phone state and phone.stopped report the end. */
+    requestStop: (userId: number, id: string) => change(userId, id, "stop", false, false, true),
     autoStop: (userId: number, id: string) => change(userId, id, "stop", true, "auto-stop"),
     /** Emuly's own idle rule: no human or agent action for the phone's idle time. */
     idleStop: (userId: number, id: string) => change(userId, id, "stop", true, "idle stop"),
@@ -762,6 +834,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     create: (...args: Parameters<typeof service.create>) => withLease(database, `phones:${args[0]}`, () => service.create(...args), USER_LOCK_WAIT_MS),
     start: (...args: Parameters<typeof service.start>) => withLease(database, `phones:${args[0]}`, () => service.start(...args), USER_LOCK_WAIT_MS),
     stop: (...args: Parameters<typeof service.stop>) => withLease(database, `phones:${args[0]}`, () => service.stop(...args), USER_LOCK_WAIT_MS),
+    requestStop: (...args: Parameters<typeof service.requestStop>) => withLease(database, `phones:${args[0]}`, () => service.requestStop(...args), USER_LOCK_WAIT_MS),
     remove: (...args: Parameters<typeof service.remove>) => withLease(database, `phones:${args[0]}`, () => service.remove(...args), USER_LOCK_WAIT_MS),
     keep: (...args: Parameters<typeof service.keep>) => withLease(database, `phones:${args[0]}`, () => service.keep(...args), USER_LOCK_WAIT_MS),
     sync: (...args: Parameters<typeof service.sync>) => withLease(database, `phones:${args[0]}`, () => service.sync(...args)),

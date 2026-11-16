@@ -14,6 +14,19 @@ type Identity = { id: number; authKind?: "session" | "agent"; agentKeyId?: numbe
 type PhoneView = Pick<Phone, "id" | "name" | "state" | "android_state" | "idle_timeout_min"> & { device_preset?: string };
 type AdbCall = { userId: number; phoneId: string; args: string[]; agentKeyId?: number; exitCode: number };
 
+const WAIT_STATES = new Set(["stopped", "running", "ready"]);
+
+/** Did the phone reach `target`, or did it fail on the way? */
+export function waitResult(stored: Pick<PhoneView, "state" | "android_state">, target: string): { done: boolean; failed: boolean } {
+  const done = target === "stopped" ? stored.state === "stopped"
+    : target === "running" ? stored.state === "running"
+    : stored.state === "running" && stored.android_state === "ready";
+  const failed = !done && (stored.state === "error" || stored.state === "deleted"
+    || (target === "ready" && stored.state === "running" && stored.android_state === "failed")
+    || (target !== "stopped" && stored.state === "stopped"));
+  return { done, failed };
+}
+
 class InputError extends Error {
   readonly status: number;
   constructor(status: number, message: string) { super(message); this.status = status; }
@@ -82,11 +95,11 @@ async function readAdbMultipart(request: Request): Promise<{ args: unknown; time
 }
 
 /** The agent-facing phone routes: list/read plus lifecycle and adb. Both auth kinds may use them. */
-export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDevice, baseUrl, log, update }: {
+export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDevice, baseUrl, log, update, waitStepMs = 1_000 }: {
   user: () => Promise<Identity | null>;
   phones: (userId: number) => Promise<PhoneView[]>;
   phone: (userId: number, id: string) => Promise<PhoneView | undefined>;
-  service: Pick<ReturnType<typeof createPhoneService>, "start" | "stop">;
+  service: Pick<ReturnType<typeof createPhoneService>, "start" | "stop"> & Partial<Pick<ReturnType<typeof createPhoneService>, "requestStop">>;
   adb: (userId: number, id: string, input: { args: string[]; timeout_s: number; binary?: boolean;
     files?: { name: string; bytes: Uint8Array }[] }) => Promise<Response>;
   agentDevice: (userId: number, id: string) => Promise<unknown>;
@@ -94,6 +107,8 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDe
   log?: (call: AdbCall) => void | Promise<void>;
   /** Self-host only: a once-per-version "newer Emuly on GitHub" hint for the agent. */
   update?: () => Promise<unknown>;
+  /** The wait between reads of a `wait_for` request. Tests make it short. */
+  waitStepMs?: number;
 }) {
   const json = (body: unknown, status = 200, headers?: Record<string, string>) =>
     Response.json(body, { status, headers: { "Cache-Control": "private, no-store", ...headers } });
@@ -118,8 +133,14 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDe
     if (!identity) return json({ error: "unauthorized" }, 401);
     if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden" }, 403);
     try {
-      await service[operation](identity.id, id);
-      return json({ id, status: operation === "start" ? "starting" : "stopping" }, 202);
+      if (operation === "stop") await (service.requestStop ?? service.stop)(identity.id, id);
+      else await service.start(identity.id, id);
+      const target = operation === "start" ? "ready" : "stopped";
+      const wait = `/v1/phones/${encodeURIComponent(id)}?wait_for=${target}&timeout_s=60`;
+      return json({ id, status: operation === "start" ? "starting" : "stopping", wait,
+        message: operation === "start"
+          ? `Start accepted. GET ${wait} answers when Android is ready, or after 60 s. Repeat it until done is true.`
+          : `Stop accepted. Android saves its state, then GitHub stops the codespace. GET ${wait} answers when the phone is stopped, or after 60 s.` }, 202);
     } catch (error) {
       return fail(error, `The ${operation} request could not be confirmed. Check the phone before retrying.`);
     }
@@ -134,12 +155,34 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDe
       }
       catch { return json({ error: "request_failed", message: "The phone list could not be loaded." }, 502); }
     },
-    async read(_request: Request, id: string) {
+    /**
+     * `?wait_for=stopped|running|ready&timeout_s=1..120` holds the request until the phone reaches
+     * that state, fails, or the time ends. One request replaces a loop of polls.
+     */
+    async read(request: Request, id: string) {
       const identity = await user();
       if (!identity) return json({ error: "unauthorized" }, 401);
+      const params = new URL(request.url).searchParams;
+      const waitFor = params.get("wait_for");
+      if (waitFor !== null && !WAIT_STATES.has(waitFor)) {
+        return json({ error: "invalid_input", message: "wait_for is stopped, running or ready." }, 400);
+      }
+      const timeoutRaw = params.get("timeout_s") ?? "60";
+      if (!/^\d{1,3}$/.test(timeoutRaw) || Number(timeoutRaw) < 1 || Number(timeoutRaw) > 120) {
+        return json({ error: "invalid_input", message: "timeout_s is a whole number from 1 to 120." }, 400);
+      }
+      const deadline = Date.now() + Number(timeoutRaw) * 1000;
       try {
-        const stored = await phone(identity.id, id);
-        return stored ? json(view(stored)) : json({ error: "not_found", message: "Phone not found." }, 404);
+        for (;;) {
+          const stored = await phone(identity.id, id);
+          if (!stored) return json({ error: "not_found", message: "Phone not found." }, 404);
+          if (waitFor === null) return json(view(stored));
+          const result = waitResult(stored, waitFor);
+          if (result.done || result.failed || Date.now() >= deadline || request.signal.aborted) {
+            return json({ ...view(stored), wait: { for: waitFor, ...result, timed_out: !result.done && !result.failed } });
+          }
+          await new Promise(resolve => setTimeout(resolve, Math.min(waitStepMs, Math.max(0, deadline - Date.now()))));
+        }
       } catch { return json({ error: "request_failed", message: "The phone could not be loaded." }, 502); }
     },
     start: (request: Request, id: string) => change(request, id, "start"),

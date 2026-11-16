@@ -8,6 +8,9 @@ import { removePhone } from "../../../../lib/phone/delete-phone";
 import { createPhoneDeleteApi } from "../../../../lib/phone/phone-delete-api";
 import { findPhone } from "../../../../lib/phone/phones";
 
+// A GET with wait_for holds the request for up to 120 s.
+export const maxDuration = 150;
+
 type Context = { params: Promise<{ id: string }> };
 
 /** Read one phone. Agent keys and browser sessions are both allowed. */

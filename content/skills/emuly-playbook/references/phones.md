@@ -7,15 +7,29 @@ Use the first rule that fits:
 
 1. **A phone is running with Android ready.** Reuse it. Read it with
    `GET /v1/phones/<id>` and print `browser_url`.
-2. **A phone exists but is stopped.** Start it with `POST /v1/phones/<id>/start`, then poll
-   until Android is ready.
+2. **A phone exists but is stopped.** Start it with `POST /v1/phones/<id>/start`, then wait
+   until Android is ready (see below).
 3. **No phone exists.** Create one with `POST /v1/phones` and body `{"idle_timeout_min":30}`
-   (or `240` for a long task), then poll until Android is ready.
+   (or `240` for a long task), then wait until Android is ready (see below).
 
-A start returns **202** with `{"id":"...","status":"starting"}`. Poll `GET /v1/phones/<id>`
-until `state` is `running` and `android_state` is `ready`. Booting can take several
-minutes. Send a short progress line every 30-60 seconds while it boots. Do not create a
-second phone while the first one is booting.
+A start returns **202** with `status: "starting"` and a `wait` path. Call
+`GET /v1/phones/<id>?wait_for=ready&timeout_s=60`. The server holds the request and answers
+when Android is ready, when the start fails, or after 60 s. The answer has
+`wait: {for, done, failed, timed_out}`:
+
+- `done: true`: the phone is running and Android is ready.
+- `timed_out: true`: it still boots. Send a short progress line, then call the same URL again.
+- `failed: true`: read `state` and `android_state`, and tell the user.
+
+Booting can take several minutes. Do not create a second phone while the first one is booting.
+
+## Stop
+
+`POST /v1/phones/<id>/stop` returns **202** at once with `status: "stopping"`. Android then
+saves its state, and GitHub stops the codespace. This takes about 1-2 minutes. To know when
+it ends, call `GET /v1/phones/<id>?wait_for=stopped&timeout_s=120`. Tell the user that the stop
+started, and do not wait for it unless the next step needs a stopped phone. A webhook gets
+`phone.stopped` when it ends (see `references/delete-and-errors.md`).
 
 After a start, `android_state` is `ready` a little before the home screen and its apps load.
 When you give the link after a start, add this line: "Android is ready. The home screen and

@@ -5,6 +5,7 @@ import { constants, createReadStream } from "node:fs";
 import { AppError, fail, apkUrl, downloadApk } from "./apk-download.mjs";
 
 import { APK_MAX_BYTES as MAX_APK, APK_CHUNK_BYTES as CHUNK_SIZE, installFinished as terminal } from "./apps-protocol.mjs";
+import { LOCAL_SERVER_URL, localServerUrls } from "./links-protocol.mjs";
 // Keep runner consumers compatible with the existing export names.
 export { MAX_APK, CHUNK_SIZE };
 const RESERVE = 1024 * 1024 * 1024;
@@ -154,6 +155,14 @@ export async function createApps({ root, sdk, run, adb, exclusive, booted }) {
     record.packageId = summary[0];
     record.versionCode = summary[1];
     record.priorVersionCode = await installedVersion(record.packageId);
+    // Before the app runs, tell the agent about server URLs that need a link. The scan reads the
+    // JS bundle, dex and Flutter code. It is a hint only, so a failure never stops the install.
+    try {
+      const found = await sandbox("/bin/sh", ["-c",
+        "unzip -p /input.apk 'assets/*' 'res/raw/*' 'classes*.dex' 'lib/*/libapp.so' 2>/dev/null | grep -aoE \"$1\" | sort -u | head -n 200",
+        "sh", LOCAL_SERVER_URL]);
+      record.serverUrls = localServerUrls(String(found));
+    } catch (error) { console.error(`apk-server-scan-failed: ${String(error?.message ?? error).slice(0, 200)}`); }
   }
   async function validateAndInstall(record, signal) {
     await locked(async () => { signal.throwIfAborted(); record.stage = "validating"; await save(record); });

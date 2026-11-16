@@ -46,3 +46,10 @@ If a request that uses the saved key returns **401**, the key is expired or revo
 1. Clear the saved key (the clear command in the OS file).
 2. Ask the user to click **Copy prompt** in the Emuly console and send you the new code.
 3. Exchange the new code once. Do not reuse the old code.
+
+### Optional: check gh for links
+
+Run `gh auth status` once and remember the result. Do not stop setup when gh is missing or
+not logged in. A link (`emuly link`, see `references/local-servers.md` in the skill) uses gh
+when it is logged in with the codespace scope. Without gh, the link uses the Emuly relay.
+Do not install gh during setup.

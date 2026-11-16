@@ -77,6 +77,9 @@ test("setup uploads autostart.sh and a scripts version, and run.sh marks a finis
   const script = generatedScript();
   assert.match(script, /base64 -d > "scripts\/autostart\.sh"/);
   assert.match(script, /echo '[a-f0-9]{16}' > \.scripts-version/);
+  // A runner with old files is replaced even when its version number did not change.
+  const hash = script.match(/echo '([a-f0-9]{16})' > \.scripts-version/)![1];
+  assert.ok(script.includes(`grep -q '"scripts":"${hash}"'`));
   const encoded = script.match(/echo '([A-Za-z0-9+/=]+)' \| base64 -d > "run\.sh"/)?.[1];
   assert.match(Buffer.from(encoded!, "base64").toString("utf8"), /touch \.setup-done/);
 });
@@ -90,12 +93,12 @@ test("the quick check skips SSH only for a runner with this server's scripts", (
         if (url !== "https://space-a-8790.app.github.dev/health" || init.headers["X-Github-Token"] !== "token") throw new Error("bad request");
         return Response.json(body);
       };
-      const current = { ok: true, version: 10, scripts: scriptsVersion() };
+      const current = { ok: true, version: 14, scripts: scriptsVersion() };
       const late = body => { let asks = 0; return async (url, init) => ++asks < 3 ? new Response("", { status: 502 }) : reply(body)(url, init); };
       process.stdout.write(JSON.stringify([
         await setup.quickCheck(1, "space-a", 0, reply(current)),
         await setup.quickCheck(1, "space-a", 0, reply({ ...current, scripts: "0000000000000000" })),
-        await setup.quickCheck(1, "space-a", 0, reply({ ok: true, version: 10 })),
+        await setup.quickCheck(1, "space-a", 0, reply({ ok: true, version: 14 })),
         await setup.quickCheck(1, "space-a", 0, async () => { throw new Error("offline"); }),
         await setup.quickCheck(1, "bad name/..", 0, reply(current)),
         // A wake asks again until the autostarted runner answers; a create asks once.

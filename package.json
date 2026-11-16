@@ -4,7 +4,7 @@
   "license": "MIT",
   "private": true,
   "scripts": {
-    "dev": "node bin/server.mjs",
+    "dev": "node --experimental-strip-types scripts/migrate-database.ts --local-only && node bin/server.mjs",
     "build": "next build",
     "start": "node bin/server.mjs --production",
     "lint": "tsc --noEmit",
