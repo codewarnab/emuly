@@ -262,3 +262,12 @@ test("pull and bugreport relay the runner's bytes and filename", async () => {
   assert.equal(bug.status, 200);
   assert.equal(bug.headers.get("content-disposition"), 'attachment; filename="bugreport.zip"');
 });
+
+test("the phone list carries a skill update hint only when the skill is not current", async () => {
+  const { api } = fixture({ skillUpdate: request => request?.headers.get("x-emuly-skill") === "abcdefabcdef" ? null : { latest: "abcdefabcdef" } });
+  const current = await (await api.list(new Request("https://emuly.test/v1/phones", { headers: { "X-Emuly-Skill": "abcdefabcdef" } }))).json();
+  assert.equal(current.skill_update, undefined);
+  const old = await (await api.list(new Request("https://emuly.test/v1/phones"))).json();
+  assert.deepEqual(old.skill_update, { latest: "abcdefabcdef" });
+  assert.equal(old.phones.length, 1);
+});

@@ -4,11 +4,11 @@
 // All interactive child output is inherited, so the user sees gh's device-flow code and the
 // server log. Checks run with piped output so their stderr can be shown on failure.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // gh's device flow needs no OAuth App: the credential store (a named volume in a container)
@@ -318,19 +318,39 @@ function portOpen(host, port) {
 }
 
 /**
- * GET /v1/cli serves the CLI of the server. When its SHA-256 differs from this file, say how to
- * get the new copy. One HEAD request; a failure is silent.
+ * GET /v1/cli serves the CLI of the server. When its SHA-256 differs from this file, the CLI replaces
+ * itself with the server copy: it downloads it, checks the SHA-256, and renames it over this file.
+ * The new copy runs from the next command. It does not replace the file in a git clone, or when
+ * EMULY_CLI_AUTO_UPDATE=0. Then it only says how to update. A network failure is silent.
  */
-async function checkCliVersion() {
+const sha256 = text => createHash("sha256").update(text).digest("hex");
+async function updateCli() {
+  const self = fileURLToPath(import.meta.url);
+  const url = `${emulyBase()}/v1/cli`;
+  const manual = `the server has a newer emuly.mjs. Get it with: curl -fsSL ${url} -o "${self}"`;
   try {
-    const self = fileURLToPath(import.meta.url);
-    const mine = createHash("sha256").update(readFileSync(self, "utf8").split(String.fromCharCode(13)).join("")).digest("hex");
-    const response = await fetch(`${emulyBase()}/v1/cli`, { method: "HEAD", signal: AbortSignal.timeout(5_000) });
+    const mine = sha256(readFileSync(self, "utf8").split(String.fromCharCode(13)).join(""));
+    const response = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(5_000) });
     const theirs = response.headers.get("x-emuly-cli-sha256");
-    if (response.ok && theirs && theirs !== mine) {
-      say(`the server has a newer emuly.mjs. Get it with: curl -fsSL ${emulyBase()}/v1/cli -o "${self}"`);
+    if (!response.ok || !theirs || theirs === mine) return;
+  } catch { return; }
+  if (process.env.EMULY_CLI_AUTO_UPDATE === "0" || existsSync(join(dirname(self), "..", ".git"))) { say(manual); return; }
+  const temporary = `${self}.${process.pid}.tmp`;
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+    const body = await response.text();
+    const sent = response.headers.get("x-emuly-cli-sha256");
+    if (!response.ok || !sent || sha256(body) !== sent) {
+      say(`the new emuly.mjs did not match its SHA-256, so this copy stays. ${manual}`);
+      return;
     }
-  } catch {}
+    writeFileSync(temporary, body);
+    renameSync(temporary, self);
+    say("updated emuly.mjs from the server. The new copy runs from the next command.");
+  } catch {
+    rmSync(temporary, { force: true });
+    say(manual);
+  }
 }
 
 async function phoneRunning(phone) {
@@ -450,7 +470,7 @@ async function link(args) {
       tip: "gh auth login -s codespace with the account that owns the codespace makes links faster" };
   }
   if (choice.reason) say(`using the relay: ${choice.reason}.${choice.tip ? ` Tip: ${choice.tip}.` : ""}`);
-  void checkCliVersion();
+  void updateCli();
   // The link works without a server on this computer, but the app gets no reply. Say so now.
   const listeningHere = new Map();
   for (const [port, target] of targets) {

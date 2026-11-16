@@ -23,12 +23,12 @@ Optional installs come only from `winget`: `Genymobile.scrcpy` and `GitHub.cli` 
 ## List, start, create and stop
 
 ~~~powershell
-$phones = Invoke-RestMethod -Uri "$base/v1/phones" -Headers $headers
+$phones = Invoke-RestMethod -Uri "$base/v1/phones" -Headers ($headers + @{ "X-Emuly-Skill" = "{{EMULY_SKILL_VERSION}}" })
 $phones.phones | Format-Table id, name, state, android_state, idle_timeout_min, browser_url
 ~~~
 
 ~~~bash
-curl.exe -sS -H "$auth" "$base/v1/phones"
+curl.exe -sS -H "$auth" -H "X-Emuly-Skill: {{EMULY_SKILL_VERSION}}" "$base/v1/phones"
 ~~~
 
 ~~~powershell

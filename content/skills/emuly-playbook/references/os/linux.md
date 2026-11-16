@@ -20,7 +20,7 @@ Optional installs come from the system package manager (`apt`, `dnf`, `pacman`) 
 ## List, start, create and stop
 
 ~~~bash
-curl -sS -H "$auth" "$base/v1/phones"
+curl -sS -H "$auth" -H "X-Emuly-Skill: {{EMULY_SKILL_VERSION}}" "$base/v1/phones"
 ~~~
 
 ~~~bash

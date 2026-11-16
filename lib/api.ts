@@ -12,7 +12,8 @@ import { issueLinkTicket } from "./phone/link-ticket";
 import { recordPhoneAdb } from "./phone/phone-activity";
 import { readUsage, userSettings } from "./data/usage";
 import { SELF_HOST } from "./selfhost";
-import { AGENT_RUNBOOK_VERSION } from "./agent-runbook";
+import { AGENT_RUNBOOK_VERSION, SKILL_NAME, skillVersion } from "./agent-runbook";
+import { skillUpdate } from "./skill-update";
 import { createUpdateCheck, dismissFileFor } from "./update-check";
 import { webhookControl } from "./webhooks/webhook-control";
 import { createWebhookApi } from "./webhooks/webhook-api";
@@ -28,7 +29,8 @@ export function phoneApi() {
 export function agentPhoneApi() {
   return createPhoneAgentApi({ user: getUser, phones: listPhones, phone: findPhone, service: phoneControl(),
     adb: runnerAdb, agentDevice: runnerAgentDevice, baseUrl: () => env.baseUrl, log: recordPhoneAdb,
-    update: () => updateCheck().hint(env.baseUrl) });
+    update: () => updateCheck().hint(env.baseUrl),
+    skillUpdate: request => skillUpdate(request, skillVersion(), env.baseUrl, SKILL_NAME) });
 }
 
 /** Links and net-check. Agent keys and the console use the same routes. */

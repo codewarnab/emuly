@@ -108,8 +108,8 @@ node ~/.config/emuly/emuly.mjs link <phone> 3000 8081
 ```
 
 - In a clone of the Emuly repo, `node bin/emuly.mjs link ...` is the same file.
-- The response header `X-Emuly-Cli-Sha256` is the SHA-256 of the file. The CLI says when
-  the server has a newer copy.
+- The response header `X-Emuly-Cli-Sha256` is the SHA-256 of the file. When the server has a
+  newer copy, the CLI downloads it, checks it and replaces itself. It needs no help.
 - Start it in the background. It runs until you stop it, and it prints one line of JSON on
   stdout when the link works.
 - One process can hold several ports. Do not start one process for each port.

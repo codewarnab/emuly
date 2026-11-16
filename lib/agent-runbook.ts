@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { AGENT_DEVICE_VERSION } from "./agent-device-version.ts";
@@ -18,10 +19,29 @@ const SKILL_DESCRIPTION = /^description:\s*(.+)$/m;
 
 const trim = (base: string) => base.replace(/\/$/, "");
 const md = (name: string) => name.endsWith(".md");
-/** The Markdown uses {{EMULY_BASE_URL}} and {{AGENT_DEVICE_VERSION}}, so every served copy names this host and the pinned CLI. */
+/**
+ * The Markdown uses {{EMULY_BASE_URL}}, {{AGENT_DEVICE_VERSION}} and {{EMULY_SKILL_VERSION}}, so every
+ * served copy names this host, the pinned CLI and its own version.
+ */
 const withBase = (text: string, base: string) => text
   .replaceAll("{{EMULY_BASE_URL}}", trim(base))
-  .replaceAll("{{AGENT_DEVICE_VERSION}}", AGENT_DEVICE_VERSION);
+  .replaceAll("{{AGENT_DEVICE_VERSION}}", AGENT_DEVICE_VERSION)
+  .replaceAll("{{EMULY_SKILL_VERSION}}", skillVersion());
+
+let skillVersionCache: string | undefined;
+/**
+ * The version of the skill: 12 hex digits of the SHA-256 of every skill file (path and text, before
+ * the tokens are replaced). Any edit to the skill changes it, so nobody has to bump it by hand.
+ * The same skill gives the same version on every server, hosted or self-hosted.
+ */
+export function skillVersion() {
+  if (skillVersionCache && process.env.NODE_ENV === "production") return skillVersionCache;
+  const hash = createHash("sha256");
+  for (const file of skillFiles()) {
+    hash.update(`${file}\0`).update(readFileSync(path.join(SKILL, ...file.split("/")), "utf8").split("\r").join("")).update("\0");
+  }
+  return skillVersionCache = hash.digest("hex").slice(0, 12);
+}
 
 export function setupShared(baseUrl: string) {
   return withBase(readFileSync(path.join(SETUP, "shared.md"), "utf8"), baseUrl);
