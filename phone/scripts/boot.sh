@@ -75,7 +75,7 @@ if pgrep -f "qemu-system-x86_6[4]" >/dev/null 2>&1; then
   # Check first, so an already booted phone returns at once. No ph_begin here: the
   # boot that owns qemu writes the boot progress records.
   # Check every second: the old 5 s step added up to 5 s to every ready time.
-  for i in $(seq 1 600); do
+  for _ in $(seq 1 600); do
     if [ "$(adb -s "emulator-$PORT" shell getprop sys.boot_completed 2>/dev/null | tr -d '[:space:]')" = "1" ]; then
       joined=1; break
     fi
