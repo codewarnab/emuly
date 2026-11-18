@@ -1,46 +1,50 @@
 import { spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { connect } from "node:net";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
-import { controlMessage, DeviceMessages, qualities, ScrcpyPackets } from "./scrcpy-protocol.mjs";
+import { DeviceMessages, qualities, ScrcpyPackets } from "./scrcpy-protocol.mjs";
 
-// Copy the jar on every connection. Do not cache it per boot "to save time": the scrcpy server
-// deletes its own jar when it starts (cleanup=true). A per-boot cache made every viewer after the
-// first get no video, with no log line. The push takes about 30 ms on the codespace.
+// Copy the jar for every scrcpy server start. Do not cache it per boot "to save time": the scrcpy
+// server deletes its own jar when it starts (cleanup=true). A per-boot cache made every server after
+// the first get no video, with no log line. The push takes about 30 ms on the codespace.
 async function pushJar(adb, ROOT) {
   await adb(["push", join(ROOT, "runner/scrcpy-server.jar"), "/data/local/tmp/emuly-scrcpy.jar"]);
 }
 
-export async function startScrcpy(ws, { adb, ADB, SERIAL, ROOT, quality }) {
+/**
+ * Start one scrcpy server and open its video and control sockets. It knows nothing about viewers:
+ * scrcpy-hub.mjs shares one session between viewers.
+ * Events: "packet" (browser-framed video packet), "device" (control-socket message), "close" (once).
+ * Methods: start() lets video flow; write(bytes) sends a control message; close() stops the server.
+ */
+export async function openScrcpy({ adb, ADB, SERIAL, ROOT, quality }) {
   const scid = randomBytes(4).readUInt32BE() & 0x7fffffff;
   const name = `scrcpy_${scid.toString(16).padStart(8, "0")}`;
   const [size, fps, bitrate] = qualities[quality] ?? qualities.auto;
+  const session = new EventEmitter();
   let child, video, control, port, closed = false;
-  const touches = new Map(), keys = new Set();
-  const capabilities = ["clipboard"];
   const close = () => {
     if (closed) return;
     closed = true;
     if (control?.writable) {
-      for (const input of touches.values()) control.write(controlMessage({ ...input, action: "cancel" }));
-      for (const key of keys) control.write(controlMessage({ type: "key", key, action: "up" }));
       control.end();
       const cleanup = setTimeout(() => control.destroy(), 500); cleanup.unref();
-    }
-    video?.destroy(); child?.kill(); ws.close();
+    } else control?.destroy();
+    video?.destroy(); child?.kill();
     if (port) void adb(["forward", "--remove", `tcp:${port}`]).catch(() => {});
+    session.emit("close");
   };
-  ws.on("close", close); ws.on("error", close);
-  const timer = setTimeout(close, 20_000);
+  session.close = close;
+  session.write = bytes => { if (!closed && control?.writable) control.write(bytes); };
+  Object.defineProperty(session, "writableLength", { get: () => control?.writableLength ?? 0 });
   // Step times in ms, so the logs show which step makes the first picture slow. No secrets here.
   const started = Date.now(), steps = {};
-  const mark = name => { steps[name] = Date.now() - started; };
-  let firstFrame = true;
+  const mark = step => { steps[step] = Date.now() - started; };
+  const stepText = () => Object.entries(steps).map(([key, value]) => `${key}=${value}`).join(" ");
   try {
     await pushJar(adb, ROOT); mark("jar");
-    if (closed) return;
     port = Number((await adb(["forward", "tcp:0", `localabstract:${name}`])).trim());
-    if (closed) { void adb(["forward", "--remove", `tcp:${port}`]).catch(() => {}); return; }
     child = spawn(ADB, ["-s", SERIAL, "shell", "CLASSPATH=/data/local/tmp/emuly-scrcpy.jar",
       "app_process", "/", "com.genymobile.scrcpy.Server", "3.3.4", `scid=${scid.toString(16)}`,
       "tunnel_forward=true", "audio=false", "control=true", "video_codec=h264", `max_size=${size}`,
@@ -65,76 +69,33 @@ export async function startScrcpy(ws, { adb, ADB, SERIAL, ROOT, quality }) {
         break;
       } catch { if (closed || Date.now() >= deadline) throw new Error("scrcpy timeout"); await new Promise(resolve => setTimeout(resolve, 100)); }
     }
-    if (closed) { video?.destroy(); return; }
+    if (closed) throw new Error("scrcpy closed");
     mark("scrcpy");
     video.on("error", close); video.on("close", close);
     control = connect({ host: "127.0.0.1", port });
     control.on("error", close); control.on("close", close);
-    // The control socket carries clipboard replies. A single request is answered with 0 or 1 messages.
     const devices = new DeviceMessages();
     control.on("data", chunk => {
-      try {
-        for (const message of devices.push(chunk)) {
-          if (message.type === "clipboard" && ws.readyState === 1) {
-            ws.send(JSON.stringify({ type: "clipboard", text: message.text.slice(0, 8000) }));
-          }
-        }
-      } catch { close(); }
+      try { for (const message of devices.push(chunk)) session.emit("device", message); } catch { close(); }
     });
     const parser = new ScrcpyPackets();
+    let firstPacket = true;
     video.on("data", chunk => {
       try {
         for (const packet of parser.push(chunk)) {
-          if (ws.bufferedAmount > 4 * 1024 * 1024) return close();
-          ws.send(packet);
-          if (firstFrame) { firstFrame = false; mark("first_packet");
-            console.log(`[scrcpy] start ${Object.entries(steps).map(([key, value]) => `${key}=${value}`).join(" ")}`); }
+          if (closed) return;
+          session.emit("packet", packet);
+          if (firstPacket) { firstPacket = false; mark("first_packet"); console.log(`[scrcpy] start quality=${quality} ${stepText()}`); }
         }
       } catch { close(); }
     });
-    let count = 0, window = Date.now();
-    let inputAccepted = false;
-    ws.on("message", (data, binary) => {
-      try {
-        if (Date.now() - window >= 1000) { count = 0; window = Date.now(); }
-        if (binary || data.length > 16_384 || ++count > 240 || control.writableLength > 65_536) return close();
-        const input = JSON.parse(data.toString());
-        if (input.type === "ping" && Number.isFinite(input.time)) {
-          ws.send(JSON.stringify({ type: "pong", time: input.time, server: Date.now(), inputAccepted, capabilities }));
-          inputAccepted = false;
-          return;
-        }
-        const bytes = controlMessage(input);
-        // A keyframe request comes from the browser decoder (stale video), not from the user.
-        if (input.type !== "keyframe") inputAccepted = true;
-        if (input.type === "touch") {
-          if (["up", "cancel"].includes(input.action)) touches.delete(input.pointer);
-          else touches.set(input.pointer, input);
-        }
-        if (input.type === "key" && input.action) {
-          if (input.action === "up") keys.delete(input.key); else keys.add(input.key);
-        }
-        control.write(bytes);
-      } catch { close(); }
-    });
-    clearTimeout(timer);
-    video.resume();
-    // Do not remove this wakeup "to save work". The emulator encoder often sends no frame while
-    // the screen is static, so a new viewer saw no picture until a user touched the phone.
-    // KEYCODE_WAKEUP (224) makes Android redraw without changing any app or screen state.
-    // Do not use home, back, or a touch here; those change what the user sees.
-    // Future option, if a stuck static screen still happens: add the scrcpy server option
-    // "video_codec_options=repeat-previous-frame-after:100000" to the spawn args above. The encoder then
-    // repeats the last frame when nothing changes. It uses more bandwidth all the time, and support
-    // in scrcpy 3.3.4 is not confirmed yet, so we do not use it now.
-    const wake = setTimeout(() => {
-      if (closed || !control?.writable) return;
-      try { control.write(controlMessage({ type: "key", key: "wakeup" })); } catch { close(); }
-    }, 300);
-    wake.unref();
+    // The caller calls start() after it adds its listeners. A resume here could emit the config
+    // packet before anyone listens, and a decoder cannot start without it.
+    session.start = () => { if (!closed) video.resume(); };
+    return session;
   } catch (error) {
-    console.log(`[scrcpy] start_failed error=${String(error?.message ?? error).slice(0, 120).replace(/\s+/g, "_")} ${Object.entries(steps).map(([key, value]) => `${key}=${value}`).join(" ")}`);
+    console.log(`[scrcpy] start_failed error=${String(error?.message ?? error).slice(0, 120).replace(/\s+/g, "_")} ${stepText()}`);
     close();
+    throw error;
   }
-  finally { clearTimeout(timer); }
 }
