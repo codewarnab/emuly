@@ -5,6 +5,11 @@
 // An MP4 needs the same NAL units with a 4-byte length in front, plus tables (moov) that list
 // each sample's size, time and keyframe flag. So a recording only copies bytes: no decode, no encode.
 //
+// Audio: scrcpy also sends Opus packets (flag AUDIO). They become a second track ("Opus" sample
+// entry with a dOps box). scrcpy counts video and audio pts from separate origins, so the two
+// tracks are lined up by arrival time: audio that arrives before the first video sample is dropped,
+// and an edit list delays the audio track by the gap.
+//
 // File layout: [head: ftyp + mdat header] [samples ...] [tail: moov].
 // The head has a fixed size (HEAD_SIZE) but its mdat size is known only at the end, so a writer
 // first writes HEAD_SIZE placeholder bytes, then each sample from add(), then finish().tail,
@@ -19,6 +24,9 @@ const ticks = us => Math.round(us * TIMESCALE / 1_000_000);
 const MOVIE_TIMESCALE = 1000;
 const MAX_GAP_US = 10_000_000;
 const MIN_FRAME_US = 1_000;
+const AUDIO_RATE = 48_000; // Opus always decodes at 48 kHz
+const OPUS_FRAME = 960; // 20 ms, the length of one scrcpy Opus packet
+const toUs = value => Math.round(value * 1_000_000 / TIMESCALE);
 
 /** Split Annex B bytes into NAL units (subarrays, no copy). Accepts 3- and 4-byte start codes. */
 // Jump between 0x01 bytes with the native indexOf: a byte-by-byte loop here took 70% of the mux time.
@@ -95,20 +103,31 @@ function parseConfig(data) {
  */
 export function createMp4Muxer({ journal } = {}) {
   const configs = [];
-  const sizes = [], times = [], syncs = [], runs = [];
+  const sizes = [], times = [], syncs = [], runs = [], offsets = [];
+  const audio = { head: null, headHex: null, sizes: [], pts: [], offsets: [], firstAt: 0 };
+  let videoFirstAt = 0;
   let pending = null, current = -1, waitKey = true;
   let bytes = 0, lastPts = 0, lastAt = 0, lastTime = 0;
 
   // The one place that changes the tables. add() and restoreMp4Muxer() both come here.
   function record(index, size, time, key, at) {
-    if (index !== current) { current = index; runs.push({ config: index, first: sizes.length, offset: HEAD_SIZE + bytes }); }
+    if (index !== current) { current = index; runs.push({ config: index, first: sizes.length }); }
     if (key) syncs.push(sizes.length + 1);
+    if (!sizes.length) videoFirstAt = at;
+    offsets.push(HEAD_SIZE + bytes);
     sizes.push(size); times.push(time);
     bytes += size; lastAt = at; lastTime = time;
   }
 
-  /** @param {{ config: boolean, key?: boolean, pts: number, data: Uint8Array, at?: number }} packet */
-  function add({ config, key, pts, data, at = Date.now() }) {
+  function recordAudio(size, pts, at) {
+    if (!audio.sizes.length) audio.firstAt = at;
+    audio.offsets.push(HEAD_SIZE + bytes); audio.sizes.push(size); audio.pts.push(pts);
+    bytes += size;
+  }
+
+  /** @param {{ audio?: boolean, config: boolean, key?: boolean, pts: number, data: Uint8Array, at?: number }} packet */
+  function add({ audio: isAudio = false, config, key, pts, data, at = Date.now() }) {
+    if (isAudio) return addAudio({ config, pts, data, at });
     if (config) { pending = parseConfig(data); waitKey = true; return null; }
     if (waitKey && !key) return null;
     const units = nalUnits(data).filter(unit => ![7, 8, 9].includes(unit[0] & 31));
@@ -137,6 +156,21 @@ export function createMp4Muxer({ journal } = {}) {
     return sample;
   }
 
+  // An Opus packet is one sample, copied as it is. The config packet is the OpusHead.
+  function addAudio({ config, pts, data, at }) {
+    if (config) {
+      audio.head = parseOpusHead(data);
+      const hex = toHex(data);
+      if (hex !== audio.headHex) { audio.headHex = hex; journal?.(`h ${hex}`); }
+      return null;
+    }
+    if (!audio.head || !sizes.length) return null;
+    const sample = data.slice();
+    recordAudio(sample.length, pts, at);
+    journal?.(`a ${sample.length} ${pts} ${at}`);
+    return sample;
+  }
+
   /** endAt: the stop time (ms). The last frame stays on screen until then, as the phone showed it. */
   function finish(endAt = Date.now()) {
     if (!sizes.length) throw new Error("No video frames were recorded.");
@@ -148,12 +182,15 @@ export function createMp4Muxer({ journal } = {}) {
     const durations = new Uint32Array(sizes.length);
     for (let i = 0; i < sizes.length; i++) durations[i] = Math.max(1, (starts[i + 1] ?? end) - starts[i]);
     const total = durations.reduce((sum, value) => sum + value, 0);
+    const sound = audio.sizes.length ? audioTrack(audio, Math.max(0, audio.firstAt - videoFirstAt)) : null;
+    const endUs = Math.max(toUs(total), sound ? sound.delayUs + sound.totalUs : 0);
     const head = new Uint8Array(HEAD_SIZE);
     head.set(box("ftyp", ascii("isom"), u32(0x200), ascii("isomiso2avc1mp41")));
     const mdat = new DataView(head.buffer, 32);
     mdat.setUint32(0, 1); head.set(ascii("mdat"), 36); mdat.setBigUint64(8, BigInt(16 + bytes));
-    const tail = moov({ configs, sizes, durations, syncs, runs, total });
-    return { head, tail, durationMs: Math.round(total * 1000 / TIMESCALE), frames: sizes.length, bytes: HEAD_SIZE + bytes + tail.length };
+    const tail = moov({ configs, sizes, durations, syncs, runs, offsets, total, endUs, sound });
+    return { head, tail, durationMs: Math.round(endUs / 1000), frames: sizes.length, audioSamples: audio.sizes.length,
+      bytes: HEAD_SIZE + bytes + tail.length };
   }
 
   /** Rebuild the tables from journal lines. Only for restoreMp4Muxer(). */
@@ -161,6 +198,16 @@ export function createMp4Muxer({ journal } = {}) {
     // Only whole lines: a line cut inside a number still has five numbers.
     for (const line of text.split("\n").slice(0, -1)) {
       const [kind, ...fields] = line.split(" ");
+      if (kind === "h" && fields.length === 1 && /^([0-9a-f]{2})+$/.test(fields[0])) {
+        try { audio.head = parseOpusHead(fromHex(fields[0])); } catch { break; }
+        continue;
+      }
+      if (kind === "a") {
+        const [size, pts, at] = fields.map(Number);
+        if (fields.length !== 3 || ![size, pts, at].every(Number.isFinite) || !audio.head || !sizes.length || size < 1 || bytes + size > dataBytes) break;
+        recordAudio(size, pts, at);
+        continue;
+      }
       if (kind === "c" && fields.length === 1 && /^([0-9a-f]{2})+$/.test(fields[0])) {
         try { configs.push(parseConfig(fromHex(fields[0]))); } catch { break; }
         continue;
@@ -173,7 +220,7 @@ export function createMp4Muxer({ journal } = {}) {
     }
   }
 
-  return { add, finish, replay, get frames() { return sizes.length; }, get bytes() { return HEAD_SIZE + bytes; },
+  return { add, finish, replay, get audioSamples() { return audio.sizes.length; }, get frames() { return sizes.length; }, get bytes() { return HEAD_SIZE + bytes; },
     get lastAt() { return lastAt; } };
 }
 
@@ -225,38 +272,82 @@ function avc1(config) {
     zeros(4), u16(1), zeros(32), u16(0x18), u16(0xffff), avcc);
 }
 
-function moov({ configs, sizes, durations, syncs, runs, total }) {
-  const movie = Math.round(total / (TIMESCALE / MOVIE_TIMESCALE));
-  const first = configs[runs[0].config];
+const toMovie = us => Math.round(us / (1_000_000 / MOVIE_TIMESCALE));
+function timeToSample(durations) {
   const steps = [];
   for (const duration of durations) {
     if (steps.length && steps.at(-1)[1] === duration) steps.at(-1)[0]++;
     else steps.push([1, duration]);
   }
-  const stts = full("stts", 0, 0, table(steps.length, 2, set => steps.forEach(([count, duration], i) => { set(i * 2, count); set(i * 2 + 1, duration); })));
+  return full("stts", 0, 0, table(steps.length, 2, set => steps.forEach(([count, duration], i) => { set(i * 2, count); set(i * 2 + 1, duration); })));
+}
+// One chunk per sample: audio and video samples alternate in mdat, so samples of one track are not contiguous.
+function chunkOffsets(offsets) {
+  const co64 = new Uint8Array(4 + offsets.length * 8);
+  const view = new DataView(co64.buffer);
+  view.setUint32(0, offsets.length);
+  offsets.forEach((offset, i) => view.setBigUint64(4 + i * 8, BigInt(offset)));
+  return full("co64", 0, 0, co64);
+}
+const sampleSizes = sizes => full("stsz", 0, 0, u32(0), table(sizes.length, 1, set => sizes.forEach((size, i) => set(i, size))));
+
+function moov({ configs, sizes, durations, syncs, runs, offsets, total, endUs, sound }) {
+  const first = configs[runs[0].config];
   const stss = full("stss", 0, 0, table(syncs.length, 1, set => syncs.forEach((sample, i) => set(i, sample))));
+  // One sample per chunk. A new stsc entry starts where the sample description (SPS/PPS) changes.
   const stsc = full("stsc", 0, 0, table(runs.length, 3, set => runs.forEach((run, i) => {
-    const end = runs[i + 1]?.first ?? sizes.length;
-    set(i * 3, i + 1); set(i * 3 + 1, end - run.first); set(i * 3 + 2, run.config + 1);
+    set(i * 3, run.first + 1); set(i * 3 + 1, 1); set(i * 3 + 2, run.config + 1);
   })));
-  const stsz = full("stsz", 0, 0, u32(0), table(sizes.length, 1, set => sizes.forEach((size, i) => set(i, size))));
-  const co64 = new Uint8Array(4 + runs.length * 8);
-  const offsets = new DataView(co64.buffer);
-  offsets.setUint32(0, runs.length);
-  runs.forEach((run, i) => offsets.setBigUint64(4 + i * 8, BigInt(run.offset)));
-  const stbl = box("stbl", full("stsd", 0, 0, u32(configs.length), ...configs.map(avc1)), stts, stss, stsc, stsz, full("co64", 0, 0, co64));
+  const stbl = box("stbl", full("stsd", 0, 0, u32(configs.length), ...configs.map(avc1)), timeToSample(durations), stss, stsc,
+    sampleSizes(sizes), chunkOffsets(offsets));
   const minf = box("minf", full("vmhd", 0, 1, zeros(8)), box("dinf", full("dref", 0, 0, u32(1), full("url ", 0, 1))), stbl);
   const mdia = box("mdia", full("mdhd", 0, 0, zeros(8), u32(TIMESCALE), u32(total), u16(0x55c4), u16(0)),
     full("hdlr", 0, 0, u32(0), ascii("vide"), zeros(12), ascii("Emuly video\0")), minf);
-  const tkhd = full("tkhd", 0, 3, zeros(8), u32(1), zeros(4), u32(movie), zeros(8), zeros(8), MATRIX,
+  const tkhd = full("tkhd", 0, 3, zeros(8), u32(1), zeros(4), u32(toMovie(toUs(total))), zeros(8), zeros(8), MATRIX,
     u32(first.width * 0x10000), u32(first.height * 0x10000));
-  const mvhd = full("mvhd", 0, 0, zeros(8), u32(MOVIE_TIMESCALE), u32(movie), u32(0x10000), u16(0x100), zeros(10), MATRIX, zeros(24), u32(2));
-  return box("moov", mvhd, box("trak", tkhd, mdia));
+  const mvhd = full("mvhd", 0, 0, zeros(8), u32(MOVIE_TIMESCALE), u32(toMovie(endUs)), u32(0x10000), u16(0x100), zeros(10), MATRIX, zeros(24), u32(sound ? 3 : 2));
+  const video = box("trak", tkhd, mdia);
+  return sound ? box("moov", mvhd, video, soundTrak(sound)) : box("moov", mvhd, video);
+}
+
+/** OpusHead (RFC 7845, section 5.1): the scrcpy audio config packet. Its integers are little endian. */
+function parseOpusHead(data) {
+  if (data.length < 19 || new TextDecoder().decode(data.subarray(0, 8)) !== "OpusHead") throw new Error("Audio config without OpusHead");
+  if (data[18] !== 0) throw new Error("Only mono and stereo Opus are supported");
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return { channels: data[9], preSkip: view.getUint16(10, true), inputRate: view.getUint32(12, true), gain: view.getInt16(16, true) };
+}
+
+function audioTrack(audio, delayMs) {
+  const { pts } = audio;
+  const durations = pts.map((value, i) => {
+    const step = i + 1 < pts.length ? pts[i + 1] - value : -1;
+    return step > 0 && step < MAX_GAP_US ? Math.max(1, Math.round(step * AUDIO_RATE / 1_000_000)) : OPUS_FRAME;
+  });
+  const samples = durations.reduce((sum, value) => sum + value, 0);
+  return { ...audio, durations, samples, delayUs: delayMs * 1000, totalUs: Math.round(samples * 1_000_000 / AUDIO_RATE) };
+}
+
+function soundTrak({ head, sizes, offsets, durations, samples, delayUs, totalUs }) {
+  // dOps is the OpusHead in big endian, without the magic and with version 0 (Opus in ISOBMFF, 4.3.2).
+  const dops = box("dOps", u8(0, head.channels), u16(head.preSkip), u32(head.inputRate), u16(head.gain & 0xffff), u8(0));
+  const opus = box("Opus", zeros(6), u16(1), zeros(8), u16(head.channels), u16(16), zeros(4), u32(AUDIO_RATE * 0x10000), dops);
+  const stsc = full("stsc", 0, 0, table(1, 3, set => { set(0, 1); set(1, 1); set(2, 1); }));
+  const stbl = box("stbl", full("stsd", 0, 0, u32(1), opus), timeToSample(durations), stsc, sampleSizes(sizes), chunkOffsets(offsets));
+  const minf = box("minf", full("smhd", 0, 0, zeros(4)), box("dinf", full("dref", 0, 0, u32(1), full("url ", 0, 1))), stbl);
+  const mdia = box("mdia", full("mdhd", 0, 0, zeros(8), u32(AUDIO_RATE), u32(samples), u16(0x55c4), u16(0)),
+    full("hdlr", 0, 0, u32(0), ascii("soun"), zeros(12), ascii("Emuly audio\0")), minf);
+  const delay = toMovie(delayUs), length = toMovie(totalUs);
+  // Edit list: an empty edit (media_time -1) for the time before the first audio sample, then the audio.
+  const edits = [...(delay ? [[delay, 0xffff_ffff]] : []), [length, 0]];
+  const elst = full("elst", 0, 0, u32(edits.length), ...edits.flatMap(([duration, time]) => [u32(duration), u32(time), u32(0x10000)]));
+  const tkhd = full("tkhd", 0, 3, zeros(8), u32(2), zeros(4), u32(delay + length), zeros(8), u16(0), u16(1), u16(0x100), u16(0), MATRIX, u32(0), u32(0));
+  return box("trak", tkhd, box("edts", elst), mdia);
 }
 
 /** Read the 17-byte browser packet header written by ScrcpyPackets (scrcpy-protocol.mjs). */
 export function readPacket(packet, at = Date.now()) {
   const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
-  return { config: Boolean(packet[0] & 2), key: Boolean(packet[0] & 1), pts: Number(view.getBigUint64(1)),
+  return { audio: Boolean(packet[0] & 4), config: Boolean(packet[0] & 2), key: Boolean(packet[0] & 1), pts: Number(view.getBigUint64(1)),
     data: packet.subarray(17), at };
 }

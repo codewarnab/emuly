@@ -24,8 +24,10 @@ type VideoConnectionOptions = {
   onClipboard?: (clipboard: { text: string; at: number }) => void;
   /** The socket opened; video has not painted yet. */
   onOpen?: () => void;
-  /** Every video packet as it arrives, before any skip. The Record button uses it. */
+  /** Every video and audio packet as it arrives, before any skip. The Record button uses it. */
   onPacket?: (packet: ReturnType<typeof videoPacket>) => void;
+  /** Every audio (Opus) packet. The speaker button plays them. */
+  onAudio?: (packet: ReturnType<typeof videoPacket>) => void;
 };
 
 /** The ticket route answers 409 with a distinct code once the phone row is no longer running. */
@@ -43,7 +45,7 @@ async function phoneStopped(response: Response) {
  */
 export function createPhoneVideoConnection(options: VideoConnectionOptions) {
   if (!("VideoDecoder" in window)) return createFallback(options);
-  const { id, quality, onState, onFrame, onStats, onSaver, onCapabilities, onClipboard, onOpen, onPacket } = options;
+  const { id, quality, onState, onFrame, onStats, onSaver, onCapabilities, onClipboard, onOpen, onPacket, onAudio } = options;
   let state: VideoConnectionState = "suspended";
   let socket: WebSocket | null = null;
   // The browser cannot decode this H.264 stream. Each retry starts a new scrcpy on the runner,
@@ -156,6 +158,8 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
       url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
       url.searchParams.set("ticket", ticket);
       url.searchParams.set("quality", quality);
+      // Always ask for audio: a recording keeps it even while the speaker is off. It costs 64 kbit/s.
+      url.searchParams.set("audio", "1");
       const ws = new WebSocket(url); socket = ws; ws.binaryType = "arraybuffer";
       let config = new Uint8Array(), needKey = true, lastMessage = Date.now(), lastVideo = lastMessage;
       let decoded = false, painted = false, opened = false;
@@ -229,8 +233,9 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
             return;
           }
           const packet = videoPacket(event.data);
-          lastVideo = Date.now();
           onPacket?.(packet);
+          if (packet.audio) { onAudio?.(packet); return; }
+          lastVideo = Date.now();
           if (packet.config) {
             config = new Uint8Array(packet.data);
             const decoderConfig = { codec: avcCodec(config), optimizeForLatency: true };

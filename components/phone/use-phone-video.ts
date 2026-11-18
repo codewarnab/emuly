@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPhoneVideoConnection } from "./phone-video-connection";
 import { createBrowserRecording } from "./phone-recording";
+import { audioSupported, createPhoneAudio } from "./phone-audio";
 
 export function usePhoneVideo(id: string, live: boolean, quality: string, canvas: RefObject<HTMLCanvasElement | null>) {
   const connection = useRef<ReturnType<typeof createPhoneVideoConnection> | null>(null);
@@ -19,6 +20,16 @@ export function usePhoneVideo(id: string, live: boolean, quality: string, canvas
   const [recordingSince, setRecordingSince] = useState<number | null>(null);
   const [recordingFull, setRecordingFull] = useState(false);
   const reportFallback = useRef<(() => void) | undefined>(undefined);
+  // The speaker. It starts off on every page load: a browser plays sound only after a click.
+  const audio = useRef<ReturnType<typeof createPhoneAudio> | null>(null);
+  const [soundOn, setSoundOn] = useState(false);
+  const [canPlaySound, setCanPlaySound] = useState(false);
+  useEffect(() => {
+    setCanPlaySound(audioSupported());
+    const player = createPhoneAudio();
+    audio.current = player;
+    return () => { player.stop(); audio.current = null; };
+  }, [id]);
   useEffect(() => {
     setSupported("VideoDecoder" in window);
     if (!live) { setActive(false); setStopped(false); setStarting(false); return; }
@@ -31,6 +42,7 @@ export function usePhoneVideo(id: string, live: boolean, quality: string, canvas
       onSaver: () => setSaver(true),
       onOpen: () => setStarting(true),
       onPacket(packet) { if (recording.current?.add(packet)) setRecordingFull(true); },
+      onAudio(packet) { audio.current?.push(packet); },
       onFrame(frame) {
         const element = canvas.current;
         if (!element) return false;
@@ -66,7 +78,14 @@ export function usePhoneVideo(id: string, live: boolean, quality: string, canvas
     recording.current = null; setRecordingSince(null); setRecordingFull(false);
     return blob;
   }
-  return { supported, active, stopped, painted, starting, stats, send, lastFrameAt, reportFallback, capabilities, clipboard,
+  /** Call from a click handler: browsers start sound only after a user gesture. */
+  function toggleSound() {
+    const player = audio.current;
+    if (!player) return;
+    if (soundOn) player.stop(); else player.start();
+    setSoundOn(!soundOn);
+  }
+  return { supported, active, soundOn, canPlaySound, toggleSound, stopped, painted, starting, stats, send, lastFrameAt, reportFallback, capabilities, clipboard,
     recordingSince, recordingFull, startRecording, stopRecording,
     clearClipboard: () => setClipboard(null) };
 }

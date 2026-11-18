@@ -11,6 +11,8 @@ import { controlMessage } from "./scrcpy-protocol.mjs";
 // - A slow viewer drops frames until the next keyframe, or is closed alone. It never stalls others.
 // - Each viewer has its own pointer ID range, and its touches and keys are released when it leaves.
 // - A clipboard reply goes only to the viewer that asked for it.
+// - Audio (Opus) goes only to viewers that ask for it. A late viewer gets the stored audio config
+//   first. A slow viewer skips audio packets; it never waits for audio.
 
 const LINGER_MS = 60_000;
 // After a quality change, the old quality's session has no viewers. Stop it sooner, so two
@@ -22,7 +24,7 @@ const DROP_BYTES = 4 * 1024 * 1024;
 const START_TIMEOUT_MS = 20_000;
 const CLIPBOARD_REPLY_MS = 2_000;
 const MAX_VIEWERS = 8;
-const CONFIG = 2, KEY = 1;
+const CONFIG = 2, KEY = 1, AUDIO = 4;
 const OPEN = 1;
 
 /**
@@ -49,7 +51,7 @@ export function createHub({ open, share = true, lingerMs = LINGER_MS, switchLing
     const key = share ? quality : `${quality}#${++serial}`;
     const live = entries.get(key);
     if (live && !live.ended) return live;
-    const entry = { key, quality, viewers: new Set(), session: null, config: null, ended: false,
+    const entry = { key, quality, viewers: new Set(), session: null, config: null, audioConfig: null, ended: false,
       linger: undefined, resetAt: -Infinity, clipboard: null };
     entries.set(key, entry);
     entry.ready = open(quality).then(session => {
@@ -73,6 +75,11 @@ export function createHub({ open, share = true, lingerMs = LINGER_MS, switchLing
 
   function fanOut(entry, packet) {
     const flags = packet[0];
+    if (flags & AUDIO) {
+      if (flags & CONFIG) entry.audioConfig = packet;
+      for (const viewer of [...entry.viewers]) viewer.audio(packet);
+      return;
+    }
     if (flags & CONFIG) entry.config = packet;
     for (const viewer of [...entry.viewers]) viewer.video(packet, flags);
   }
@@ -94,7 +101,8 @@ export function createHub({ open, share = true, lingerMs = LINGER_MS, switchLing
     entry.linger.unref?.();
   }
 
-  function attach(ws, quality) {
+  /** options.audio: also send Opus packets (flag AUDIO). */
+  function attach(ws, quality, { audio = false } = {}) {
     const entry = entryFor(quality);
     if (entry.viewers.size >= MAX_VIEWERS) { ws.close(); return; }
     clearTimeout(entry.linger);
@@ -116,6 +124,11 @@ export function createHub({ open, share = true, lingerMs = LINGER_MS, switchLing
         if (!config && ws.bufferedAmount > SLOW_BYTES) { waitKey = true; requestKeyframe(entry); return; }
         if (!config && !key && waitKey) return;
         if (key) waitKey = false;
+        ws.send(packet);
+      },
+      audio(packet) {
+        if (closed || !ready || !audio) return;
+        if (!(packet[0] & CONFIG) && ws.bufferedAmount > SLOW_BYTES) return;
         ws.send(packet);
       },
       close() {
@@ -172,6 +185,7 @@ export function createHub({ open, share = true, lingerMs = LINGER_MS, switchLing
       if (joined) console.log(`[scrcpy] join quality=${entry.quality} viewers=${entry.viewers.size}`);
       // A late viewer needs the config packet before any frame, then a fresh keyframe.
       if (entry.config) { ws.send(entry.config); requestKeyframe(entry); }
+      if (audio && entry.audioConfig) ws.send(entry.audioConfig);
       // Do not remove this wakeup "to save work". The emulator encoder often sends no frame while
       // the screen is static, so a new viewer saw no picture until a user touched the phone. A reset
       // alone has the same problem. KEYCODE_WAKEUP (224) makes Android redraw without changing any

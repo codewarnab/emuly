@@ -87,7 +87,7 @@ test("frames become length-prefixed samples with correct tables", () => {
   assert.deepEqual(boxes.stss, [1, 4]);
   assert.deepEqual(boxes.stts, [2, 3_000, 1, 45_000, 1, 90_000]); // 90 kHz ticks // last frame stays until stop
   assert.deepEqual(boxes.sizes, [[1080, 2400]]);
-  assert.deepEqual(boxes.co64, [HEAD_SIZE]);
+  assert.deepEqual(boxes.co64, [HEAD_SIZE, HEAD_SIZE + 44, HEAD_SIZE + 78, HEAD_SIZE + 102]); // one chunk per sample
   assert.deepEqual(boxes.mdat, [16 + 32, 116]);
   assert.equal(result.frames, 4);
   assert.equal(result.durationMs, 1567);
@@ -104,8 +104,8 @@ test("a size change (rotation) adds a sample entry and a new chunk", () => {
   ];
   const boxes = parse(build(packets, 200).file);
   assert.deepEqual(boxes.sizes, [[720, 1280], [1080, 2400]]);
-  assert.deepEqual(boxes.stsc, [1, 2, 1, 2, 1, 2, 3, 1, 1]);
-  assert.deepEqual(boxes.co64, [HEAD_SIZE, HEAD_SIZE + 88, HEAD_SIZE + 132]);
+  assert.deepEqual(boxes.stsc, [1, 1, 1, 3, 1, 2, 4, 1, 1]);
+  assert.deepEqual(boxes.co64, [HEAD_SIZE, HEAD_SIZE + 44, HEAD_SIZE + 88, HEAD_SIZE + 132]);
 });
 
 test("the journal rebuilds the same tables, up to the bytes on disk", () => {
@@ -145,11 +145,50 @@ test("finish without frames fails", () => {
   assert.throws(() => muxer.finish(), /No video frames/);
 });
 
+test("Opus packets become a second track that starts at its arrival time", () => {
+  // OpusHead: magic, version 1, 2 channels, pre-skip 312, 48000 Hz, gain 0, mapping family 0.
+  const head = Uint8Array.from([...Buffer.from("OpusHead"), 1, 2, 0x38, 0x01, 0x80, 0xbb, 0, 0, 0, 0, 0]);
+  const sound = (pts: number, at: number, size = 3) => ({ audio: true, config: false, pts, data: new Uint8Array(size).fill(9), at });
+  const packets = [
+    { audio: true, config: true, pts: 0, data: head, at: 0 },
+    sound(0, 0),                                                   // before the first video sample: dropped
+    { config: true, key: false, pts: 0, data: config(BASE), at: 0 },
+    { config: false, key: true, pts: 0, data: annexB(slice(true)), at: 100 },
+    sound(20_000, 150, 160), sound(40_000, 170, 150),
+    { config: false, key: false, pts: 100_000, data: annexB(slice(false)), at: 200 },
+  ];
+  const { file, result } = build(packets, 1100);
+  const boxes = parse(file);                                       // the audio trak comes last, so its tables win
+  assert.equal(result.audioSamples, 2);
+  assert.deepEqual(boxes.stsz, [160, 150]);
+  assert.deepEqual(boxes.stts, [2, 960]);
+  assert.deepEqual(boxes.co64, [HEAD_SIZE + 44, HEAD_SIZE + 44 + 160]);
+  const text = Buffer.from(file).toString("latin1");
+  assert.ok(text.includes("Opus") && text.includes("dOps") && text.includes("soun"));
+  // Empty edit of 50 ms (audio arrived 50 ms after the first video sample), then 40 ms of audio.
+  const elst = text.indexOf("elst");
+  const view = new DataView(file.buffer, file.byteOffset + elst + 8);
+  assert.deepEqual([view.getUint32(0), view.getUint32(4), view.getInt32(8), view.getUint32(16), view.getUint32(20)], [2, 50, -1, 40, 0]);
+
+  // A crash: the journal rebuilds both tracks, the same as a normal stop.
+  const lines: string[] = [];
+  const muxer = createMp4Muxer({ journal: (line: string) => lines.push(line) });
+  let data = 0;
+  for (const packet of packets) data += muxer.add(packet)?.length ?? 0;
+  const restored = restoreMp4Muxer(lines.join("\n") + "\n", data);
+  assert.equal(restored.audioSamples, 2);
+  assert.deepEqual(restored.finish(1100), muxer.finish(1100));
+  // The disk lost part of the last video frame (44 bytes), then also part of the audio before it.
+  const cut = (bytes: number) => { const m = restoreMp4Muxer(lines.join("\n") + "\n", bytes); return [m.frames, m.audioSamples]; };
+  assert.deepEqual(cut(data - 1), [1, 2]);
+  assert.deepEqual(cut(data - 45), [1, 1]);
+});
+
 test("readPacket reads the runner's 17-byte header", () => {
   const packet = Buffer.alloc(19);
   packet[0] = 3; packet.writeBigUInt64BE(BigInt(123_456), 1); packet.writeDoubleBE(99, 9); packet[17] = 7; packet[18] = 8;
   const read = readPacket(packet, 5);
-  assert.deepEqual({ ...read, data: Array.from(read.data) }, { config: true, key: true, pts: 123_456, data: [7, 8], at: 5 });
+  assert.deepEqual({ ...read, data: Array.from(read.data) }, { audio: false, config: true, key: true, pts: 123_456, data: [7, 8], at: 5 });
 });
 
 // ---- runner recorder through the real hub ----

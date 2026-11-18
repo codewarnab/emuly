@@ -10,13 +10,13 @@ import { createMp4Muxer, HEAD_SIZE, readPacket, restoreMp4Muxer } from "./mp4-mu
 // then GET /recording/file returns an MP4.
 //
 // The recorder joins the shared scrcpy session (scrcpy-hub.mjs) as one more viewer, so it
-// starts no second encoder: it only copies the H.264 packets that viewers already get into an
+// starts no second encoder: it only copies the H.264 and Opus packets that viewers already get into an
 // MP4 file (mp4-mux.mjs). A browser viewer at the same quality shares the same encoder.
 // One recording at a time per phone. A new start deletes the last file.
 //
 // Crash safety. The MP4 tables (moov) are written at stop. A runner that is killed first
 // (codespace stop, OOM kill) would leave a file that no player opens. So each recording also has:
-//   <id>.journal  one line per sample (size, time, keyframe), appended while it records
+//   <id>.journal  one line per video or audio sample (size, time, keyframe), appended while it records
 //   <id>.json     id, quality, start time and state
 // recover() runs when the runner starts: it rebuilds the tables of a recording that has a journal,
 // so GET /recording/file returns the video up to the last frame that reached the disk.
@@ -54,7 +54,7 @@ export function createRecorder({ attach, dir = tmpdir(), now = Date.now, maxByte
     const { id, state, quality, startedAt, endedAt, reason, result, muxer, error } = recording;
     return { id, state, quality, started_at: new Date(startedAt).toISOString(),
       duration_ms: result?.durationMs ?? (endedAt ?? now()) - startedAt,
-      frames: result?.frames ?? muxer?.frames ?? 0, bytes: result?.bytes ?? muxer?.bytes ?? 0,
+      frames: result?.frames ?? muxer?.frames ?? 0, audio_packets: result?.audioSamples ?? muxer?.audioSamples ?? 0, bytes: result?.bytes ?? muxer?.bytes ?? 0,
       ...(recording.firstFrameMs !== undefined ? { first_frame_ms: recording.firstFrameMs } : {}),
       ...(reason ? { stop_reason: reason } : {}), ...(error ? { error } : {}) };
   }
@@ -136,7 +136,7 @@ export function createRecorder({ attach, dir = tmpdir(), now = Date.now, maxByte
       // The tables are on disk: the journal is no longer needed.
       await rm(recording.journalPath, { force: true });
       await saveMeta(recording);
-      console.log(`[recording] done id=${recording.id} reason=${reason} frames=${recording.result.frames} bytes=${recording.result.bytes} ms=${recording.result.durationMs}`);
+      console.log(`[recording] done id=${recording.id} reason=${reason} frames=${recording.result.frames} audio=${recording.result.audioSamples} bytes=${recording.result.bytes} ms=${recording.result.durationMs}`);
     })().catch(error => fail(recording, reason, error));
     // Leave the hub after done is set: the hub's close calls back into finish().
     recording.socket?.close();

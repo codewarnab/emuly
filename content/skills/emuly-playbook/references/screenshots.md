@@ -33,7 +33,8 @@ repository. Use a clear name, for example `emuly-<phone id>-login.png`.
 ## Video: the recording route
 
 Use this for a video. It needs no install and works on every phone. The phone records the
-same video stream that the browser shows, so it adds almost no load. Send the same
+same video stream that the browser shows, so it adds almost no load. The MP4 has the phone's
+sound as an Opus track. Send the same
 `Authorization` header as for the other routes.
 
 1. `POST <base>/v1/phones/<id>/recording/start` before the steps. The JSON body is optional:
@@ -42,9 +43,13 @@ same video stream that the browser shows, so it adds almost no load. Send the sa
    The reply comes when the first frame is recorded (`first_frame_ms`), up to 20 s after a
    cold boot. If `first_frame_ms` is `null`, check that Android is ready before the steps.
 2. Do the steps.
-3. `POST <base>/v1/phones/<id>/recording/stop`. The reply gives `frames` and `duration_ms`.
+3. `POST <base>/v1/phones/<id>/recording/stop`. The reply gives `frames`, `audio_packets` and `duration_ms`.
 4. `GET <base>/v1/phones/<id>/recording/file` returns the MP4. Save it to the scratchpad, for
    example `emuly-<id>-task.mp4`, then show it as described below.
+
+`audio_packets` counts 20 ms Opus packets; 0 means the phone's runner or boot is older than audio
+support (a phone restart updates both). To check that an app plays a sound without a recording,
+run `["shell","dumpsys","audio"]` through the adb route and look for `state:started` players.
 
 `GET .../recording/status` shows the state. `POST .../recording/discard` deletes the file.
 One recording runs at a time: a second start gets **409** `recording_busy`. A recording stops

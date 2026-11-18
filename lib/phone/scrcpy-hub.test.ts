@@ -182,3 +182,25 @@ test("a failed start closes the waiting viewers", async () => {
   assert.equal(viewer.readyState, 3);
   assert.equal(hub.sessions(), 0);
 });
+
+test("audio goes only to viewers that ask for it, and a late one gets the audio config first", async () => {
+  const AUDIO = 4;
+  const { hub, sessions } = setup();
+  const silent = new FakeSocket(), listener = new FakeSocket();
+  hub.attach(silent, "auto"); hub.attach(listener, "auto", { audio: true }); await flush();
+  const session = sessions[0]!;
+  session.video(CONFIG, 1); session.video(AUDIO | CONFIG, 2); session.video(KEY, 3); session.video(AUDIO, 4);
+  assert.deepEqual(silent.ids(), [1, 3], "no audio for a viewer that did not ask");
+  assert.deepEqual(listener.ids(), [1, 2, 3, 4]);
+
+  const late = new FakeSocket();
+  hub.attach(late, "auto", { audio: true }); await flush();
+  assert.deepEqual(late.ids(), [1, 2], "video config, then audio config");
+  session.video(AUDIO, 5);
+  assert.deepEqual(late.ids(), [1, 2, 5], "audio does not wait for a keyframe");
+
+  listener.bufferedAmount = 2 * 1024 * 1024;
+  session.video(AUDIO, 6);
+  assert.deepEqual(listener.ids(), [1, 2, 3, 4, 5], "a slow viewer skips audio");
+  hub.closeAll();
+});
