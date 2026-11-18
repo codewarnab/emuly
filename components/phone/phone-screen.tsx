@@ -19,6 +19,8 @@ const controlIcons = {
   volumeDown: <><path d="M11 5 6 9H3v6h3l5 4zM16 12h5" /></>,
   desktop: <><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></>,
   screenshot: <><path d="m8 5 1-2h6l1 2h4v15H4V5z" /><circle cx="12" cy="12" r="4" /></>,
+  record: <><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="4" fill="currentColor" /></>,
+  stopRecord: <><circle cx="12" cy="12" r="8" /><rect x="9" y="9" width="6" height="6" fill="currentColor" /></>,
 };
 
 type DesktopOs = "windows" | "mac" | "linux";
@@ -398,6 +400,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto", aspect = 0.5 
           </div>
         </div>}
       </div>
+      <RecordButton id={id} video={video} />
       <button type="button" className={s.control} aria-label="Screenshot" title="Screenshot" disabled={!frame && !video.painted} onClick={async () => {
         const blob = video.painted && showCanvas ? await new Promise<Blob | null>(resolve => canvas.current!.toBlob(resolve, "image/png")) : null;
         const url = blob ? URL.createObjectURL(blob) : frame;
@@ -414,6 +417,39 @@ export function PhoneScreen({ id, live, resting, quality = "auto", aspect = 0.5 
     {error && live && !video.stopped && !video.active && <p className={s.error} role="status">{error}</p>}
   </div>;
 
+}
+
+/** Record the live view to an MP4 on this computer. See phone-recording.ts. */
+function RecordButton({ id, video }: { id: string; video: ReturnType<typeof usePhoneVideo> }) {
+  const [now, setNow] = useState(0);
+  const [empty, setEmpty] = useState(false);
+  const since = video.recordingSince;
+  useEffect(() => {
+    if (since === null) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [since]);
+  const stop = () => {
+    const blob = video.stopRecording();
+    if (!blob) { setEmpty(true); return; }
+    const url = URL.createObjectURL(blob);
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+    const link = document.createElement("a"); link.href = url; link.download = `${id}-${stamp}.mp4`; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
+  // The recording reached its size or time limit: save what it has.
+  const full = video.recordingFull;
+  useEffect(() => { if (full) stop(); });
+  const seconds = since === null ? 0 : Math.max(0, Math.floor((now - since) / 1000));
+  const label = since === null ? (empty ? "Record (no frames were captured, try again)" : "Record") : "Stop recording and save";
+  return <button type="button" className={s.control} aria-label={label} title={label} aria-pressed={since !== null}
+    disabled={since === null && !video.active}
+    onClick={() => { setEmpty(false); if (since === null) video.startRecording(); else stop(); }}>
+    <ControlIcon name={since === null ? "record" : "stopRecord"} />
+    {since !== null && <span className={s.recording} role="timer" aria-live="off">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}</span>}
+    <span className={s.tooltip}>{since === null ? "Record" : "Stop and save"}</span>
+  </button>;
 }
 
 /** Live count-up for the stage in progress, so a watcher can see the phone is still working. */

@@ -271,3 +271,52 @@ test("the phone list carries a skill update hint only when the skill is not curr
   assert.deepEqual(old.skill_update, { latest: "abcdefabcdef" });
   assert.equal(old.phones.length, 1);
 });
+
+test("recording routes check the method, pass only known options and stream the MP4", async () => {
+  const sent: unknown[] = [];
+  const { api } = fixture({
+    user: async () => ({ id: 7, authKind: "agent" }),
+    recording: async (_userId, _id, action, body) => {
+      sent.push([action, body]);
+      if (action === "file") return new Response(new Uint8Array([0, 0, 0, 24]), { headers: { "content-type": "video/mp4", "content-length": "4", "content-disposition": 'attachment; filename="a.mp4"' } });
+      if (action === "stop") return Response.json({ error: "No recording exists. Start one first.", errorCode: "no_recording" }, { status: 404 });
+      return Response.json({ state: "recording", id: "r1" });
+    },
+  });
+  const path = `/v1/phones/${stored.id}/recording`;
+  const started = await api.recording(post(`${path}/start`, { quality: "saver", max_s: 60, path: "/etc/passwd" }), stored.id, "start");
+  assert.equal(started.status, 200);
+  assert.deepEqual(sent[0], ["start", { quality: "saver", max_s: 60 }]);
+  assert.equal((await api.recording(post(`${path}/start`), stored.id, "start")).status, 200);
+  assert.deepEqual(sent[1], ["start", {}]);
+
+  const wrong = await api.recording(get(`${path}/start`), stored.id, "start");
+  assert.equal(wrong.status, 405);
+  assert.equal(wrong.headers.get("allow"), "POST");
+  assert.equal((await api.recording(get(`${path}/constructor`), stored.id, "constructor")).status, 404);
+
+  const missing = await api.recording(post(`${path}/stop`), stored.id, "stop");
+  assert.equal(missing.status, 404);
+  assert.equal((await missing.json()).error, "no_recording");
+
+  const file = await api.recording(get(`${path}/file`), stored.id, "file");
+  assert.equal(file.headers.get("content-type"), "video/mp4");
+  assert.equal(file.headers.get("content-disposition"), 'attachment; filename="a.mp4"');
+  assert.deepEqual(Array.from(new Uint8Array(await file.arrayBuffer())), [0, 0, 0, 24]);
+});
+
+test("recording asks for a runner update when the runner has no recording routes", async () => {
+  const { api } = fixture({ user: async () => ({ id: 7, authKind: "agent" }),
+    recording: async () => Response.json({ error: "not found" }, { status: 404 }) });
+  const response = await api.recording(get(`/v1/phones/${stored.id}/recording/status`), stored.id, "status");
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error, "runner_update_required");
+});
+
+test("recording start needs Android ready", async () => {
+  const { api } = fixture({ user: async () => ({ id: 7, authKind: "agent" }),
+    phone: async () => ({ ...stored, android_state: "booting" }), recording: async () => Response.json({}) });
+  const response = await api.recording(post(`/v1/phones/${stored.id}/recording/start`), stored.id, "start");
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).error, "phone_not_ready");
+});

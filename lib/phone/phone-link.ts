@@ -37,6 +37,7 @@ export type LinksPath = "/links" | "/links/remove" | "/net-check" | "/link-hints
 export type AppsPath = "/apps" | "/apps/open" | "/app-installs" | `/app-installs/${string}`;
 export type AppsRequest = { method: "GET" | "POST" | "PUT"; json?: Record<string, unknown>; bytes?: Uint8Array; offset?: number; digest?: string; signal?: AbortSignal };
 export type AdbRequest = { args: string[]; timeout_s: number; binary?: boolean; files?: { name: string; bytes: Uint8Array }[] };
+export type RecordingAction = "start" | "stop" | "status" | "file" | "discard";
 export type ProxyRequest = { method: string; headers: Headers; body?: ReadableStream<Uint8Array> | null; signal?: AbortSignal };
 
 /** One connection per owned phone. Only a read-only probe may fall back; never replay a mutation. */
@@ -325,6 +326,51 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
         }
         return new Response(bytes, { status: response.status, headers: { "content-type": "application/json" } });
       } finally { release(); }
+    },
+    /**
+     * Screen recording calls (phone/runner/recording.mjs). JSON replies keep the runner's status.
+     * "file" streams the MP4 through without buffering it, and holds the lease until the body ends,
+     * so the idle timer does not close the bridge during a long download.
+     */
+    async recording(phone: Owner, action: RecordingAction, body?: Record<string, unknown>): Promise<Response> {
+      const routes: Record<RecordingAction, [string, string]> = { start: ["POST", "/recording/start"], stop: ["POST", "/recording/stop"],
+        discard: ["POST", "/recording/discard"], status: ["GET", "/recording"], file: ["GET", "/recording/file"] };
+      const [method, path] = routes[action];
+      if (action === "start" || action === "stop") activity?.mark(phone);
+      const { entry, release } = acquire(phone);
+      let released = false;
+      const done = () => { if (!released) { released = true; release(); } };
+      try {
+        const connection = await entry.connection;
+        const headers = new Headers({ "content-type": "application/json" });
+        if (connection.forwarded) headers.set("X-Github-Token", await token(phone.userId));
+        const response = await request(`${connection.url}${path}`, { method, headers,
+          body: method === "POST" ? JSON.stringify(body ?? {}) : undefined, redirect: "manual", cache: "no-store",
+          // A 30-minute recording is up to ~1 GB; the download gets 10 minutes, every other call 40 s.
+          signal: AbortSignal.any([entry.abort.signal, AbortSignal.timeout(action === "file" ? 600_000 : 40_000)]) });
+        const type = response.headers.get("content-type") ?? "";
+        if (action === "file" && response.ok && type.startsWith("video/mp4") && response.body) {
+          const reader = response.body.getReader();
+          const stream = new ReadableStream<Uint8Array>({
+            async pull(controller) {
+              try {
+                const { done: end, value } = await reader.read();
+                if (end) { controller.close(); done(); } else controller.enqueue(value);
+              } catch (error) { controller.error(error); done(); }
+            },
+            cancel(reason) { done(); return reader.cancel(reason); },
+          });
+          const forwarded = new Headers({ "content-type": "video/mp4" });
+          for (const name of ["content-length", "content-disposition"]) { const value = response.headers.get(name); if (value) forwarded.set(name, value); }
+          return new Response(stream, { status: 200, headers: forwarded });
+        }
+        const bytes = await response.arrayBuffer();
+        done();
+        if (!type.includes("application/json")) {
+          return Response.json({ error: "Update the phone runner before recording.", errorCode: "runner_update_required" }, { status: 503 });
+        }
+        return new Response(bytes, { status: response.status, headers: { "content-type": "application/json" } });
+      } catch (error) { done(); throw error; }
     },
     /** The runner end of a relay websocket. The caller opens it and calls release() when it closes. */
     async relay(phone: Owner, ports: number[]) {

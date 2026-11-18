@@ -1,7 +1,8 @@
 /**
  * Screen presets for a new phone. Every preset uses the same Android 16 image; only the
  * screen changes. phone/scripts/boot.sh writes these values into the AVD config.ini before boot.
- * "generic" leaves the AVD as setup.sh made it.
+ * Every preset sets a size. avdmanager makes a 320x640 160 dpi AVD, too small to use, and a
+ * phone moved from another preset back to "generic" must not keep that preset's screen.
  */
 export type DevicePreset = {
   id: string;
@@ -16,7 +17,9 @@ export type DevicePreset = {
 };
 
 export const DEVICE_PRESETS: readonly DevicePreset[] = [
-  { id: "generic", label: "Generic phone", short: "Generic", device: null, width: null, height: null, density: null },
+  // 720x1440 keeps the 1:2 shape that the UI drew for this preset. It has 2.25x fewer pixels
+  // than Pixel 9, so SwiftShader and the encoder stay light on a 2-core codespace.
+  { id: "generic", label: "Generic phone", short: "Generic", device: null, width: 720, height: 1440, density: 320 },
   { id: "pixel_9", label: "Pixel 9", short: "Pixel 9", device: "pixel_9", width: 1080, height: 2424, density: 420 },
   { id: "pixel_9_pro", label: "Pixel 9 Pro", short: "Pixel 9 Pro", device: "pixel_9_pro", width: 1280, height: 2856, density: 495 },
   { id: "small_phone", label: "Small phone", short: "Small", device: "small_phone", width: 720, height: 1280, density: 320 },
@@ -49,7 +52,7 @@ export function isWide(id: unknown): boolean {
   return !!preset?.width && !!preset.height && preset.width > preset.height;
 }
 
-/** Screen width / height for the preset; 0.5 for the generic phone. */
+/** Screen width / height for the preset; 0.5 for an unknown id. */
 export function screenAspect(id: unknown): number {
   const preset = devicePreset(id);
   return preset?.width && preset.height ? preset.width / preset.height : 0.5;

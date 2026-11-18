@@ -30,7 +30,31 @@ taken too early shows only the wallpaper, and the user thinks the phone has no a
 Save every file to the agent scratchpad or a temporary folder. Never save it to the user's
 repository. Use a clear name, for example `emuly-<phone id>-login.png`.
 
-## Ways to take it
+## Video: the recording route
+
+Use this for a video. It needs no install and works on every phone. The phone records the
+same video stream that the browser shows, so it adds almost no load. Send the same
+`Authorization` header as for the other routes.
+
+1. `POST <base>/v1/phones/<id>/recording/start` before the steps. The JSON body is optional:
+   `{"max_s":600}` stops it after that many seconds (1 to 1800, default 600), and
+   `{"quality":"saver"}` makes a smaller file (`auto`, `sharp` or `saver`).
+   The reply comes when the first frame is recorded (`first_frame_ms`), up to 20 s after a
+   cold boot. If `first_frame_ms` is `null`, check that Android is ready before the steps.
+2. Do the steps.
+3. `POST <base>/v1/phones/<id>/recording/stop`. The reply gives `frames` and `duration_ms`.
+4. `GET <base>/v1/phones/<id>/recording/file` returns the MP4. Save it to the scratchpad, for
+   example `emuly-<id>-task.mp4`, then show it as described below.
+
+`GET .../recording/status` shows the state. `POST .../recording/discard` deletes the file.
+One recording runs at a time: a second start gets **409** `recording_busy`. A recording stops
+by itself at `max_s`, at 1 GB, or when the phone stops; `file` still returns what it has.
+If the codespace stopped during the recording, start the phone again: the runner then repairs
+the file (`stop_reason` `recovered`), and `file` returns the video up to the stop.
+A **503** `runner_update_required` means the phone runs an older runner: use agent-device
+`record`, or tell the user that a phone restart updates it.
+
+## Ways to take a screenshot
 
 Use the first way that you can.
 
@@ -41,7 +65,7 @@ Use the first way that you can.
    agent-device screenshot <scratchpad path>/emuly-<id>-result.png
    ```
 
-   For a short video, start recording before the steps and stop after them:
+   agent-device can also record, if the recording route is not available:
 
    ```sh
    agent-device record start <scratchpad path>/emuly-<id>-task.mp4
@@ -51,7 +75,7 @@ Use the first way that you can.
 2. **The HTTP adb route** (always works, no install). Send
    `{"args":["exec-out","screencap","-p"]}` to `POST /v1/phones/<id>/adb` and save the raw
    PNG bytes. The commands for your shell are in the OS file, for example
-   `references/os/windows.md`. The route has no video.
+   `references/os/windows.md`.
 
 3. **Native adb** (only when the user already uses it, see `references/native-adb.md`):
 

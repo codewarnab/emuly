@@ -3,6 +3,7 @@
 import ws from "./ws.cjs";
 import { openScrcpy } from "./scrcpy.mjs";
 import { createHub } from "./scrcpy-hub.mjs";
+import { createRecorder } from "./recording.mjs";
 import { qualities } from "./scrcpy-protocol.mjs";
 import { createApps, CHUNK_SIZE } from "./apps.mjs";
 import { startAgentDeviceProxy } from "./agent-device-proxy.mjs";
@@ -14,6 +15,7 @@ import { pasteText } from "./paste-text.mjs";
 import { RELAY_MAX_PAYLOAD } from "./links-protocol.mjs";
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
+import { createReadStream } from "node:fs";
 import { mkdtemp, open, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, dirname } from "node:path";
@@ -233,7 +235,8 @@ async function adbRoute(req) {
 }
 const apps = await createApps({ root: join(ROOT, "data", "app-installs"), sdk: SDK, run, adb, exclusive, booted });
 // The agent-device proxy runs only while this process does; its token never reaches a log.
-const agentDevice = startAgentDeviceProxy({ sdk: SDK });
+// The runner owns SIGTERM (see the recorder below); the proxy stops in its exit handler.
+const agentDevice = startAgentDeviceProxy({ sdk: SDK, signals: false });
 const links = createLinks({ adb, booted });
 // A new runner has no links, so any reverse rule on the phone is left from the last runner.
 void links.sweep().catch(() => {});
@@ -327,6 +330,12 @@ const routes = {
   "POST /net-check": body => links.netCheck(body),
   "GET /link-hints": async () => ({ logcat: await links.hints() }),
 
+  // Screen recording (recording.mjs): an MP4 made from the shared video stream, with no second encoder.
+  "POST /recording/start": body => recorder.start(body),
+  "POST /recording/stop": () => recorder.stop(),
+  "POST /recording/discard": () => recorder.discard(),
+  "GET /recording": () => recorder.status(),
+
 };
 
 const server = createServer(async (req, res) => {
@@ -370,6 +379,12 @@ const server = createServer(async (req, res) => {
       }
       return send(200, result);
     }
+    if (req.method === "GET" && path === "/recording/file") {
+      const { path: file, bytes, id } = await recorder.file();
+      res.writeHead(200, { "content-type": "video/mp4", "content-length": String(bytes), "cache-control": "no-store",
+        "content-disposition": `attachment; filename="emuly-recording-${id.slice(0, 8)}.mp4"` });
+      return createReadStream(file).on("error", () => res.destroy()).pipe(res);
+    }
     // Raw passthrough: streaming bodies, no JSON parsing, no buffering.
     if (path.startsWith("/agent-device/")) return agentDevice.forward(req, res);
     const handler = routes[`${req.method} ${path}`];
@@ -388,6 +403,17 @@ const server = createServer(async (req, res) => {
 // One shared scrcpy session per quality (scrcpy-hub.mjs). EMULY_SHARED_STREAM=0 gives each viewer its own.
 const scrcpy = createHub({ open: quality => openScrcpy({ adb, ADB, SERIAL, ROOT, quality }),
   share: process.env.EMULY_SHARED_STREAM !== "0" });
+// Recordings live next to the runner, not in /tmp, so a file survives a runner restart.
+const recorder = createRecorder({ attach: (socket, quality) => scrcpy.attach(socket, quality), qualities,
+  dir: join(ROOT, "recordings") });
+// Finish a recording that a killed runner left without MP4 tables (recording.mjs).
+void recorder.recover();
+// start-runner.sh and a codespace stop send SIGTERM: write the MP4 tables before exit.
+// The 5 s limit keeps a stuck disk from holding the process; recover() handles the rest later.
+for (const [signal, code] of [["SIGTERM", 143], ["SIGINT", 130]]) process.once(signal, () => {
+  setTimeout(() => process.exit(code), 5000).unref();
+  recorder.close().catch(() => {}).finally(() => process.exit(code));
+});
 const streams = new ws.WebSocketServer({ noServer: true, maxPayload: 16_384, perMessageDeflate: false });
 const relays = new ws.WebSocketServer({ noServer: true, maxPayload: RELAY_MAX_PAYLOAD, perMessageDeflate: false });
 server.on("upgrade", (req, socket, head) => {
