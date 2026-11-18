@@ -85,7 +85,7 @@ test("frames become length-prefixed samples with correct tables", () => {
   const boxes = parse(file);
   assert.deepEqual(boxes.stsz, [44, 34, 24, 14]);              // 4-byte length + NAL; the AUD is removed
   assert.deepEqual(boxes.stss, [1, 4]);
-  assert.deepEqual(boxes.stts, [2, 33_333, 1, 500_000, 1, 1_000_000]); // last frame stays until stop
+  assert.deepEqual(boxes.stts, [2, 3_000, 1, 45_000, 1, 90_000]); // 90 kHz ticks // last frame stays until stop
   assert.deepEqual(boxes.sizes, [[1080, 2400]]);
   assert.deepEqual(boxes.co64, [HEAD_SIZE]);
   assert.deepEqual(boxes.mdat, [16 + 32, 116]);
@@ -114,7 +114,7 @@ test("a pts jump after an encoder restart uses arrival time", () => {
     { config: false, key: true, pts: 5_000_000, data: annexB(slice(true)), at: 100 },
     { config: false, key: true, pts: 0, data: annexB(slice(true)), at: 350 },
   ];
-  assert.deepEqual(parse(build(packets, 400).file).stts, [1, 250_000, 1, 50_000]);
+  assert.deepEqual(parse(build(packets, 400).file).stts, [1, 22_500, 1, 4_500]);
 });
 
 test("finish without frames fails", () => {

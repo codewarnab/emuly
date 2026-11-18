@@ -12,10 +12,11 @@
 // after a download. For playback during a download (streaming), move it with ffmpeg -movflags faststart.
 
 export const HEAD_SIZE = 48;
-const TIMESCALE = 1_000_000; // media time in microseconds, the unit of scrcpy's pts
+// 90 kHz is the standard video time unit. With 1 MHz (scrcpy's microseconds), ffmpeg guessed a
+// 1,000,000 fps rate for this variable-rate phone video and warned about non-increasing dts.
+const TIMESCALE = 90_000;
+const ticks = us => Math.round(us * TIMESCALE / 1_000_000);
 const MOVIE_TIMESCALE = 1000;
-// u32 durations at 1 MHz end at 71 minutes. Callers stop far earlier (MAX_DURATION_MS in recording.mjs).
-export const MAX_MEDIA_US = 0xffff_ffff;
 const MAX_GAP_US = 10_000_000;
 const MIN_FRAME_US = 1_000;
 
@@ -128,16 +129,20 @@ export function createMp4Muxer() {
   /** endAt: the stop time (ms). The last frame stays on screen until then, as the phone showed it. */
   function finish(endAt = Date.now()) {
     if (!sizes.length) throw new Error("No video frames were recorded.");
+    // Convert each start time to 90 kHz ticks, then take differences, so rounding never adds up.
+    // u32 time at 90 kHz lasts 13 hours; recording.mjs stops at 30 minutes.
+    const lastUs = Math.min(MAX_GAP_US, Math.max(MIN_FRAME_US, (endAt - lastAt) * 1000));
+    const starts = times.map(ticks);
+    const end = Math.max(starts.at(-1) + 1, ticks(times.at(-1) + lastUs));
     const durations = new Uint32Array(sizes.length);
-    for (let i = 0; i + 1 < sizes.length; i++) durations[i] = Math.max(1, times[i + 1] - times[i]);
-    durations[sizes.length - 1] = Math.min(MAX_GAP_US, Math.max(MIN_FRAME_US, (endAt - lastAt) * 1000));
-    const total = Math.min(MAX_MEDIA_US, times.at(-1) + durations.at(-1));
+    for (let i = 0; i < sizes.length; i++) durations[i] = Math.max(1, (starts[i + 1] ?? end) - starts[i]);
+    const total = durations.reduce((sum, value) => sum + value, 0);
     const head = new Uint8Array(HEAD_SIZE);
     head.set(box("ftyp", ascii("isom"), u32(0x200), ascii("isomiso2avc1mp41")));
     const mdat = new DataView(head.buffer, 32);
     mdat.setUint32(0, 1); head.set(ascii("mdat"), 36); mdat.setBigUint64(8, BigInt(16 + bytes));
     const tail = moov({ configs, sizes, durations, syncs, runs, total });
-    return { head, tail, durationMs: Math.round(total / 1000), frames: sizes.length, bytes: HEAD_SIZE + bytes + tail.length };
+    return { head, tail, durationMs: Math.round(total * 1000 / TIMESCALE), frames: sizes.length, bytes: HEAD_SIZE + bytes + tail.length };
   }
 
   return { add, finish, get frames() { return sizes.length; }, get bytes() { return HEAD_SIZE + bytes; } };
