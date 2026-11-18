@@ -790,6 +790,13 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       try { await apply(userId, id, codespace, "reconciled"); }
       finally { busy.delete(id); }
     },
+    // Known gap (not built): sync reads only phones that have a database row. If a self-host user
+    // deletes the database (docker compose down -v), the codespaces stay in GitHub and still use
+    // hours, but Emuly no longer shows them (docs/SELF-HOST.md, "To start over").
+    // Possible fix: from `spaces` below, find codespaces whose display name starts with "phone-",
+    // whose repository is templateRepository(), and that have no row. Show them as "found" and let
+    // the user adopt or delete them. Do not adopt them silently: a codespace from another project
+    // can use the same name. Adopted phones lose their stored name, preset and idle timeout.
     async sync(userId: number) {
       void diagnostics.reconcile();
       void diagnostics.prune();
