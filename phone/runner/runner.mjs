@@ -1,7 +1,9 @@
 // emuly runner: a small HTTP API around adb and the emulator scripts.
 // Listens on 127.0.0.1:8790. The dashboard reaches it over `gh codespace ssh -L`.
 import ws from "./ws.cjs";
-import { startScrcpy } from "./scrcpy.mjs";
+import { openScrcpy } from "./scrcpy.mjs";
+import { createHub } from "./scrcpy-hub.mjs";
+import { qualities } from "./scrcpy-protocol.mjs";
 import { createApps, CHUNK_SIZE } from "./apps.mjs";
 import { startAgentDeviceProxy } from "./agent-device-proxy.mjs";
 import { ADB_DOWNLOAD_MAX_BYTES, ADB_FILES_MAX, ADB_OUTPUT_MAX_BYTES, ADB_UPLOAD_MAX_BYTES,
@@ -249,11 +251,13 @@ function screenshot() {
 }
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 14, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck"], avd: "t", api_level: 36, booted: await booted() }),
+  "GET /health": async () => ({ ok: true, version: 14, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream"], avd: "t", api_level: 36, booted: await booted() }),
 
   "POST /boot": ({ diagnosticOperation }) => {
     return boot ??= exclusive(async () => {
       const start = Date.now();
+      // A new emulator makes every open scrcpy session invalid.
+      scrcpy.closeAll();
       const operation = typeof diagnosticOperation === "string" && /^[a-f0-9]{32}$/.test(diagnosticOperation) ? diagnosticOperation : undefined;
       await run("bash", [join(ROOT, "scripts", "boot.sh")], { timeout: 600000,
         env: { ...process.env, EMULY_DIAGNOSTICS: operation ? "1" : "0", PH_OPERATION_ID: operation ?? "disabled" } });
@@ -269,6 +273,7 @@ const routes = {
   "POST /stop": async () => {
     stopping ??= (async () => { await apps.stop(); return exclusive(async () => {
       const start = Date.now();
+      scrcpy.closeAll();
       for (const client of streams.clients) client.close();
       links.clear();
       await script("stop.sh");
@@ -380,6 +385,9 @@ const server = createServer(async (req, res) => {
   }
 }).listen(PORT, "127.0.0.1", () => console.log(`runner listening on 127.0.0.1:${PORT}`));
 
+// One shared scrcpy session per quality (scrcpy-hub.mjs). EMULY_SHARED_STREAM=0 gives each viewer its own.
+const scrcpy = createHub({ open: quality => openScrcpy({ adb, ADB, SERIAL, ROOT, quality }),
+  share: process.env.EMULY_SHARED_STREAM !== "0" });
 const streams = new ws.WebSocketServer({ noServer: true, maxPayload: 16_384, perMessageDeflate: false });
 const relays = new ws.WebSocketServer({ noServer: true, maxPayload: RELAY_MAX_PAYLOAD, perMessageDeflate: false });
 server.on("upgrade", (req, socket, head) => {
@@ -391,6 +399,7 @@ server.on("upgrade", (req, socket, head) => {
   }
   if (url.pathname !== "/stream" || (SECRET && req.headers["x-phone-secret"] !== SECRET)) return socket.destroy();
   streams.handleUpgrade(req, socket, head, client => {
-    void startScrcpy(client, { adb, ADB, SERIAL, ROOT, quality: url.searchParams.get("quality") ?? "auto" });
+    const quality = url.searchParams.get("quality") ?? "auto";
+    scrcpy.attach(client, Object.hasOwn(qualities, quality) ? quality : "auto");
   });
 });

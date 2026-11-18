@@ -6,7 +6,9 @@ const keys = {
   Enter: 66, Backspace: 67, Delete: 112, Tab: 61, Escape: 4,
   ArrowUp: 19, ArrowDown: 20, ArrowLeft: 21, ArrowRight: 22, PageUp: 92, PageDown: 93,
   Home: 122, End: 123 };
-export function controlMessage(input) {
+// pointerBase moves a viewer's pointer IDs (0-31) into its own range, so viewers that share one
+// scrcpy session do not end each other's touches.
+export function controlMessage(input, { pointerBase = 0 } = {}) {
   const integer = (n, max) => Number.isInteger(n) && n >= 0 && n <= max;
   if (!input || typeof input !== "object") throw new Error("Invalid input");
   const { type } = input;
@@ -43,7 +45,7 @@ export function controlMessage(input) {
   if (type === "touch") {
     if (!["down", "up", "move", "cancel"].includes(input.action) || !integer(input.pointer, 31)) throw new Error("Invalid touch");
     b[1] = { down: 0, up: 1, move: 2, cancel: 3 }[input.action];
-    b.writeBigUInt64BE(BigInt(input.pointer), 2);
+    b.writeBigUInt64BE(BigInt(input.pointer + pointerBase), 2);
     b.writeUInt16BE(["up", "cancel"].includes(input.action) ? 0 : 65535, 22);
   } else {
     if (![input.dx, input.dy].every(n => Number.isFinite(n) && Math.abs(n) <= 16)) throw new Error("Invalid wheel");
