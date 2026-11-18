@@ -20,7 +20,7 @@ const DAY = 86_400_000;
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "emuly-retention-"));
   const filename = join(directory, "test.db");
-  let database = openDatabase(filename);
+  const database = openDatabase(filename);
   const asyncDatabase = createClient({ url: pathToFileURL(filename).href });
   let time = Date.parse("2026-11-07T00:00:00Z");
   const clock = () => time;
@@ -63,7 +63,11 @@ function fixture() {
     asyncDatabase, get database() { return database; }, get service() { return service; },
     clock, spaces, writes, outgoing, failures, makeTick,
     advance(ms: number) { time += ms; },
-    restart() { database.close(); database = openDatabase(filename); service = makeService(); },
+    // A restart is a new service: its in-memory guards are gone, the database stays.
+    // Do not reopen `database` here. node:sqlite and libsql are two SQLite builds in one process;
+    // on Linux, closing one connection drops the POSIX locks of the other, and the reopened
+    // node:sqlite connection then reads a stale snapshot (CI failure on Ubuntu, not on Windows).
+    restart() { service = makeService(); },
     add(id = "phone-aaaa", userId = 1, days = 3) {
       const name = `generated-${id}`;
       const expiry = new Date(time + days * DAY).toISOString();
