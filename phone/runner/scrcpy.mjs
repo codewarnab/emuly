@@ -45,9 +45,12 @@ export async function openScrcpy({ adb, ADB, SERIAL, ROOT, quality }) {
   try {
     await pushJar(adb, ROOT); mark("jar");
     port = Number((await adb(["forward", "tcp:0", `localabstract:${name}`])).trim());
+    // audio_source=playback captures app audio before the volume step. The default "output" source
+    // goes through remote_submix at volume 4 of 15: a film that peaks at -7.5 dB came out at -40 dB.
+    // Measured 2026-11-18 with playback: peak -3.4 dB. Android 13+; apps that refuse capture are silent.
     child = spawn(ADB, ["-s", SERIAL, "shell", "CLASSPATH=/data/local/tmp/emuly-scrcpy.jar",
       "app_process", "/", "com.genymobile.scrcpy.Server", "3.3.4", `scid=${scid.toString(16)}`,
-      "tunnel_forward=true", "audio=true", "audio_codec=opus", `audio_bit_rate=${AUDIO_BIT_RATE}`, "control=true", "video_codec=h264", `max_size=${size}`,
+      "tunnel_forward=true", "audio=true", "audio_source=playback", "audio_codec=opus", `audio_bit_rate=${AUDIO_BIT_RATE}`, "control=true", "video_codec=h264", `max_size=${size}`,
       `max_fps=${fps}`, `video_bit_rate=${bitrate}`, "send_dummy_byte=true", "send_device_meta=false", "send_codec_meta=false",
       "clipboard_autosync=false", "cleanup=true"], { stdio: "ignore" });
     child.on("error", close); child.on("exit", close);
