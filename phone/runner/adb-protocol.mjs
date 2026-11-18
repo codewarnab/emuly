@@ -25,6 +25,8 @@ const FILE_COMMANDS = new Set(["install", "install-multiple", "push"]);
 const ALLOWED_COMMANDS = new Set([
   "shell", "exec-out", "logcat", "get-state", "get-serialno", "get-devpath", "uninstall",
   "install", "install-multiple", "push", "pull", "bugreport", "emu", "wait-for-device",
+  // Not an adb command: the runner pastes Unicode text through scrcpy (paste-text.mjs).
+  "text",
 ]);
 const COMMAND_LIST = [...ALLOWED_COMMANDS].join(", ");
 const APPS_ENDPOINT = "POST /v1/phones/<id>/app-installs";
@@ -231,6 +233,9 @@ export function adbArguments(value, fileCount = 0) {
   if (command === "bugreport" && args.length !== 1) fail('adb bugreport takes no arguments; the runner writes and streams a temporary zip.');
   if (command === "wait-for-device" && args.length !== 1) fail("adb wait-for-device takes no arguments.");
   if (command === "emu") emuArguments(args);
+  if (command === "text" && args.length !== 2) {
+    fail('text takes one argument, the text to type: ["text","Grüße, नमस्ते 👋"]. Send each line separately and press Enter with ["shell","input","keyevent","KEYCODE_ENTER"].');
+  }
   if (!FILE_COMMANDS.has(command) && args.some(item => placeholder(item) !== null)) {
     fail("File placeholders are only supported for install, install-multiple and push.");
   }

@@ -6,7 +6,7 @@ single shell string: send one array item per argument.
 
 Only these first arguments are accepted: `shell`, `exec-out`, `logcat`, `get-state`,
 `get-serialno`, `get-devpath`, `uninstall`, `install`, `install-multiple`, `push`,
-`pull`, `bugreport`, `emu` and `wait-for-device`. Everything else is rejected with a
+`pull`, `bugreport`, `emu`, `wait-for-device` and `text`. Everything else is rejected with a
 message that names a replacement. The blocked list includes `sideload`, `backup`,
 `restore`, `sync`, `keygen`, `ppp`, `forward`, `reverse`, `root`, `unroot`, `reboot`,
 `connect`, `disconnect`, `kill-server`, `start-server`, `tcpip`, `usb`, and global
@@ -18,6 +18,7 @@ Example argument arrays:
 ```json
 ["shell","input","tap","540","1200"]
 ["shell","input","swipe","900","1800","120","600","300"]
+["text","hello world"]
 ["shell","input","text","hello%sworld"]
 ["shell","input","keyevent","KEYCODE_HOME"]
 ["shell","dumpsys","battery"]
@@ -34,8 +35,14 @@ Example argument arrays:
 ["emu","rotate"]
 ```
 
-In `input text`, use `%s` for spaces. Escape shell metacharacters in the text, or avoid
-them. `shell` commands run inside the user's emulator sandbox, so normal app and system
+**Type text:** use `["text","<text>"]`. It types any Unicode text, such as `"Grüße, नमस्ते 👋"`,
+into the focused field. Spaces and symbols need no escaping, because no shell reads the text.
+Tap the field first. The text replaces the phone's clipboard. Line breaks are rejected: type each
+line, then send `["shell","input","keyevent","KEYCODE_ENTER"]`. The limit is 8192 UTF-8 bytes.
+A runner older than this feature rejects `text`; then update the runner.
+
+`["shell","input","text",...]` still works, but it types ASCII only. In it, use `%s` for spaces,
+and escape shell metacharacters or avoid them. `shell` commands run inside the user's emulator sandbox, so normal app and system
 inspection commands work.
 
 Read logs with `["logcat","-d","-t","200"]`. The `-f`, `--file`, `-r`, `-n` and

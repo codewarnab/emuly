@@ -187,3 +187,11 @@ test("a line break in any adb argument cannot add an emulator console command", 
   }
   assert.deepEqual(adbArguments(["emu", "sms", "send", "5551234", "hello", "there"]), ["emu", "sms", "send", "5551234", "hello", "there"]);
 });
+
+test("text takes exactly one Unicode argument and no line breaks", () => {
+  assert.deepEqual(adbArguments(["text", "Grüße, नमस्ते 👋 & $(x)"]), ["text", "Grüße, नमस्ते 👋 & $(x)"]);
+  assert.throws(() => adbArguments(["text"]), /text takes one argument/);
+  assert.throws(() => adbArguments(["text", "a", "b"]), /text takes one argument/);
+  assert.throws(() => adbArguments(["text", "line one\nline two"]), /line break/);
+  assert.throws(() => adbArguments(["text", "@file0"], 1), /placeholders/);
+});

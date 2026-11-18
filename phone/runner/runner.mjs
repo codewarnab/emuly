@@ -8,6 +8,7 @@ import { ADB_DOWNLOAD_MAX_BYTES, ADB_FILES_MAX, ADB_OUTPUT_MAX_BYTES, ADB_UPLOAD
   adbArguments, adbTimeout, isDownload, isScreencap } from "./adb-protocol.mjs";
 import { AppError } from "./apk-download.mjs";
 import { createLinks } from "./links.mjs";
+import { pasteText } from "./paste-text.mjs";
 import { RELAY_MAX_PAYLOAD } from "./links-protocol.mjs";
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
@@ -186,6 +187,11 @@ async function adbRoute(req) {
     directory = request.directory;
     if (!directory && isDownload(request.args)) directory = await mkdtemp(join(tmpdir(), "emuly-adb-"));
     if (!(await booted())) throw new HttpError(409, "Android is not ready. Start the phone first.");
+    if (request.args[0] === "text") {
+      try { await pasteText({ adb, ADB, SERIAL, ROOT, text: request.args[1], timeoutMs: request.seconds * 1000 }); }
+      catch (error) { return { exit_code: 1, stdout: "", stderr: String(error?.message ?? error).slice(0, 300) }; }
+      return { exit_code: 0, stdout: "", stderr: "" };
+    }
     const args = request.args.map(item => {
       const file = placeholderIndex(item);
       return file === null ? item : request.paths[file] ?? item;
@@ -243,7 +249,7 @@ function screenshot() {
 }
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 14, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "links", "netCheck"], avd: "t", api_level: 36, booted: await booted() }),
+  "GET /health": async () => ({ ok: true, version: 14, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck"], avd: "t", api_level: 36, booted: await booted() }),
 
   "POST /boot": ({ diagnosticOperation }) => {
     return boot ??= exclusive(async () => {
