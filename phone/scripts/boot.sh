@@ -28,38 +28,6 @@ hide_anr_dialogs() {
   adb -s "emulator-$PORT" shell settings put global hide_error_dialogs 1 >/dev/null 2>&1 || true
 }
 
-# After a cold boot the Pixel launcher can show only the wallpaper, with no icons. Its window is
-# visible, but it draws nothing until another app opens and closes. A launcher restart does not
-# fix it. So open Settings, then go home, one time, only while home has the focus.
-# It runs in the background, so "ready" does not wait.
-# Before, the trick ran after every boot, so users saw Settings open and close ~20 s after "ready"
-# (speed report, fix 5). The blank launcher came mostly from the old 1-core boot (4 startup ANRs);
-# with 2 cores it is rare. So now the trick runs only when the launcher's UI tree has no app icons.
-# The result goes to /tmp/redraw-home.log, so we can see how often the blank launcher still happens.
-# If the log shows "skip" on every boot for some weeks, remove the trick.
-# Risk: if a blank launcher still lists its icons in the UI tree, this check skips the trick. Then
-# the log shows "skip" while a user sees no icons; check the log first if that is reported.
-launcher_icons() {
-  adb -s "emulator-$PORT" shell uiautomator dump /sdcard/emuly-ui.xml >/dev/null 2>&1 || { echo 0; return; }
-  # App icons are launcher nodes with a name (content-desc), for example "Chrome" or "Play Store".
-  adb -s "emulator-$PORT" shell cat /sdcard/emuly-ui.xml 2>/dev/null \
-    | grep -o 'package="[^"]*launcher[^"]*"[^>]*content-desc="[^"]\+"' | grep -c . || true
-}
-redraw_home() {
-  ( sleep 20
-    log=/tmp/redraw-home.log
-    # Skip it when a user or an agent already opened an app.
-    adb -s "emulator-$PORT" shell dumpsys window 2>/dev/null | grep mCurrentFocus | grep -qi launcher \
-      || { echo "$(date -u +%FT%TZ) skip reason=app_open" >> "$log"; exit 0; }
-    icons=$(launcher_icons)
-    if [ "${icons:-0}" -gt 0 ]; then echo "$(date -u +%FT%TZ) skip icons=$icons" >> "$log"; exit 0; fi
-    echo "$(date -u +%FT%TZ) redraw icons=0" >> "$log"
-    adb -s "emulator-$PORT" shell am start -W -a android.settings.SETTINGS >/dev/null 2>&1 || exit 0
-    sleep 2
-    adb -s "emulator-$PORT" shell input keyevent KEYCODE_HOME >/dev/null 2>&1 || true
-  ) </dev/null >/dev/null 2>&1 &
-}
-
 # KVM access re-fix (resets on every codespace stop/start)
 [ -e /dev/kvm ] || { echo "FATAL: /dev/kvm missing"; exit 1; }
 sudo chgrp "$(id -gn)" /dev/kvm 2>/dev/null || true
@@ -179,6 +147,5 @@ done
 ph_end
 
 hide_anr_dialogs
-redraw_home
 echo "BOOTED (cold): adb -s emulator-$PORT"
 adb -s "emulator-$PORT" shell getprop ro.build.version.release | sed 's/^/android=/'
