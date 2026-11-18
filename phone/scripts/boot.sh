@@ -9,6 +9,7 @@
 # `android emulator start --cold` still saved a 1.76 GB snapshot.
 # The first argument is accepted for compatibility and ignored.
 set -euo pipefail
+# shellcheck disable=SC2034 # progress.sh reads it
 PH_PRODUCER=boot
 source "$(dirname "$0")/progress.sh"
 
@@ -163,7 +164,7 @@ echo "emulator started pid=$EMU_PID avd=$AVD_NAME mode=cold port=$PORT"
 
 booted=0
 ph_begin boot_completed
-for i in $(seq 1 600); do
+for _ in $(seq 1 600); do
   sleep 1
   if [ "$(adb -s "emulator-$PORT" shell getprop sys.boot_completed 2>/dev/null | tr -d '[:space:]')" = "1" ]; then
     booted=1; break

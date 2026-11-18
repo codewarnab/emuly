@@ -148,7 +148,7 @@ port_open() {
   case "$c" in ''|0|0.0*|0,0*) [ "${c#0[.,]}" != "$c" ] && [ -n "$(echo "${c#0[.,]}" | tr -d 0)" ] ;; *) true ;; esac
 }
 
-WINDOW_PID=''; TUNNEL_PID=''; SERIAL=''; ADB=''; ERRLOG=''; SAVED_TOKEN="${GH_TOKEN:-}"
+WINDOW_PID=''; TUNNEL_PID=''; SERIAL=''; ADB=''; ERRLOG=''
 cleanup() {
   [ -n "$WINDOW_PID" ] && kill "$WINDOW_PID" 2>/dev/null
   [ -n "$SERIAL" ] && [ -n "$ADB" ] && "$ADB" disconnect "$SERIAL" >/dev/null 2>&1

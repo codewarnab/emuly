@@ -35,7 +35,7 @@ else
 fi
 
 # qemu must exit before the codespace stops, or Android loses buffered writes
-for i in $(seq 1 60); do
+for _ in $(seq 1 60); do
   pgrep -f "qemu-system-x86_6[4]" >/dev/null 2>&1 || break
   sleep 2
 done

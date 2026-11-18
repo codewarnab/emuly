@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Start the emuly runner on 127.0.0.1:8790 in the background.
 set -euo pipefail
+# shellcheck disable=SC2034 # progress.sh reads it
 PH_PRODUCER=runner
 source "$(dirname "$0")/progress.sh"
 source "$(dirname "$0")/node-path.sh"
