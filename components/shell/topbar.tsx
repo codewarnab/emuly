@@ -7,7 +7,7 @@ import { UserMenu } from "@/components/shell/user-menu";
 export function Brand() {
   return (
     <Link href="/" className={s.brand}>
-      <span className={s.dot} />
+      <svg className={s.dot} viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="var(--accent)" /><rect x="19" y="10" width="26" height="44" rx="7" fill="var(--on-accent)" /><path d="M32 20.5Q33.6 30.4 41.5 32Q33.6 33.6 32 43.5Q30.4 33.6 22.5 32Q30.4 30.4 32 20.5Z" fill="var(--accent)" /></svg>
       Emuly
     </Link>
   );

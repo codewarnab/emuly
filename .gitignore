@@ -52,3 +52,5 @@ next-env.d.ts
 /deploy/vm/endpoint
 /deploy/vm/secret
 __pycache__/
+design/brand/ref/
+design/brand/*.log

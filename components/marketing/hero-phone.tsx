@@ -26,7 +26,7 @@ export function HeroPhone() {
           <div className={`${s.field} ${s.email}`}><small>Email address</small><span className={s.typed}>qa@test.dev</span><span className={s.caret} /></div>
           <div className={`${s.field} ${s.password}`}><small>Password</small><span className={s.dots}>••••••••</span><span className={s.eye} /></div>
           <span className={s.forgot}>Forgot password?</span>
-          <span className={s.cta}>Sign in <span>→</span></span>
+          <span className={s.cta}><span className={s.ctaLabel}>Sign in <span>→</span></span><span className={s.spinner} /></span>
           <span className={s.secure}><i />Your workspace, securely connected</span>
         </div>
         <div className={`${s.view} ${s.done}`}>
