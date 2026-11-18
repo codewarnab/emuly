@@ -215,7 +215,8 @@ const controller = { start: startAgentDeviceProxy, stop, info, forward };
 let started = false;
 
 /** Starts the supervised proxy once; a second call returns the running controller. */
-export function startAgentDeviceProxy({ sdk = process.env.SDK_DIR ?? DEFAULT_SDK } = {}) {
+/** signals: false when the caller handles SIGTERM and SIGINT itself; the exit handler still stops the proxy. */
+export function startAgentDeviceProxy({ sdk = process.env.SDK_DIR ?? DEFAULT_SDK, signals = true } = {}) {
   if (started) return controller;
   started = true;
   state.sdk = sdk;
@@ -240,8 +241,10 @@ export function startAgentDeviceProxy({ sdk = process.env.SDK_DIR ?? DEFAULT_SDK
     return controller;
   }
   process.once("exit", stop);
-  process.once("SIGTERM", () => { stop(); process.exit(143); });
-  process.once("SIGINT", () => { stop(); process.exit(130); });
+  if (signals) {
+    process.once("SIGTERM", () => { stop(); process.exit(143); });
+    process.once("SIGINT", () => { stop(); process.exit(130); });
+  }
   launch();
   state.health = setInterval(probe, HEALTH_INTERVAL_MS);
   state.health.unref?.();

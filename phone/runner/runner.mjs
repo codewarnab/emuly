@@ -235,7 +235,8 @@ async function adbRoute(req) {
 }
 const apps = await createApps({ root: join(ROOT, "data", "app-installs"), sdk: SDK, run, adb, exclusive, booted });
 // The agent-device proxy runs only while this process does; its token never reaches a log.
-const agentDevice = startAgentDeviceProxy({ sdk: SDK });
+// The runner owns SIGTERM (see the recorder below); the proxy stops in its exit handler.
+const agentDevice = startAgentDeviceProxy({ sdk: SDK, signals: false });
 const links = createLinks({ adb, booted });
 // A new runner has no links, so any reverse rule on the phone is left from the last runner.
 void links.sweep().catch(() => {});
@@ -402,7 +403,17 @@ const server = createServer(async (req, res) => {
 // One shared scrcpy session per quality (scrcpy-hub.mjs). EMULY_SHARED_STREAM=0 gives each viewer its own.
 const scrcpy = createHub({ open: quality => openScrcpy({ adb, ADB, SERIAL, ROOT, quality }),
   share: process.env.EMULY_SHARED_STREAM !== "0" });
-const recorder = createRecorder({ attach: (socket, quality) => scrcpy.attach(socket, quality), qualities });
+// Recordings live next to the runner, not in /tmp, so a file survives a runner restart.
+const recorder = createRecorder({ attach: (socket, quality) => scrcpy.attach(socket, quality), qualities,
+  dir: join(ROOT, "recordings") });
+// Finish a recording that a killed runner left without MP4 tables (recording.mjs).
+void recorder.recover();
+// start-runner.sh and a codespace stop send SIGTERM: write the MP4 tables before exit.
+// The 5 s limit keeps a stuck disk from holding the process; recover() handles the rest later.
+for (const [signal, code] of [["SIGTERM", 143], ["SIGINT", 130]]) process.once(signal, () => {
+  setTimeout(() => process.exit(code), 5000).unref();
+  recorder.close().catch(() => {}).finally(() => process.exit(code));
+});
 const streams = new ws.WebSocketServer({ noServer: true, maxPayload: 16_384, perMessageDeflate: false });
 const relays = new ws.WebSocketServer({ noServer: true, maxPayload: RELAY_MAX_PAYLOAD, perMessageDeflate: false });
 server.on("upgrade", (req, socket, head) => {

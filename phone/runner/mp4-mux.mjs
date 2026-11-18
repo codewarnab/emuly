@@ -81,19 +81,31 @@ function parseConfig(data) {
   const units = nalUnits(data);
   const sps = units.filter(unit => (unit[0] & 31) === 7), pps = units.filter(unit => (unit[0] & 31) === 8);
   if (!sps.length || !pps.length || sps[0].length < 4) throw new Error("Config packet without SPS and PPS");
-  return { sps, pps, ...spsSize(sps[0]), key: Array.from(data).join(",") };
+  return { sps, pps, ...spsSize(sps[0]), key: Array.from(data).join(","), bytes: data.slice() };
 }
 
 /**
  * add() takes one scrcpy packet: { config, key, pts (µs), data (Annex B), at (arrival ms) }.
  * It returns the bytes to append to the file, or null for a packet that is not a sample
  * (a config packet, or a frame before the first keyframe).
+ *
+ * journal (optional) gets one short text line for each new config and each sample, after add()
+ * returns that sample. The tables live only in memory until finish(), so a killed process leaves
+ * an MP4 without a moov. restoreMp4Muxer() rebuilds the tables from the journal lines.
  */
-export function createMp4Muxer() {
+export function createMp4Muxer({ journal } = {}) {
   const configs = [];
   const sizes = [], times = [], syncs = [], runs = [];
   let pending = null, current = -1, waitKey = true;
   let bytes = 0, lastPts = 0, lastAt = 0, lastTime = 0;
+
+  // The one place that changes the tables. add() and restoreMp4Muxer() both come here.
+  function record(index, size, time, key, at) {
+    if (index !== current) { current = index; runs.push({ config: index, first: sizes.length, offset: HEAD_SIZE + bytes }); }
+    if (key) syncs.push(sizes.length + 1);
+    sizes.push(size); times.push(time);
+    bytes += size; lastAt = at; lastTime = time;
+  }
 
   /** @param {{ config: boolean, key?: boolean, pts: number, data: Uint8Array, at?: number }} packet */
   function add({ config, key, pts, data, at = Date.now() }) {
@@ -101,13 +113,13 @@ export function createMp4Muxer() {
     if (waitKey && !key) return null;
     const units = nalUnits(data).filter(unit => ![7, 8, 9].includes(unit[0] & 31));
     if (!units.length) return null;
+    let index = current;
     if (pending) {
-      const known = configs.findIndex(item => item.key === pending.key);
-      const index = known >= 0 ? known : configs.push(pending) - 1;
+      index = configs.findIndex(item => item.key === pending.key);
+      if (index < 0) { index = configs.push(pending) - 1; journal?.(`c ${toHex(pending.bytes)}`); }
       pending = null;
-      if (index !== current) { current = index; runs.push({ config: index, first: sizes.length, offset: HEAD_SIZE + bytes }); }
     }
-    if (current < 0) return null;
+    if (index < 0) return null;
     waitKey = false;
     const sample = new Uint8Array(units.reduce((sum, unit) => sum + 4 + unit.length, 0));
     const view = new DataView(sample.buffer);
@@ -119,10 +131,9 @@ export function createMp4Muxer() {
       const step = pts - lastPts;
       time = lastTime + (step > 0 && step < MAX_GAP_US ? step : Math.max(MIN_FRAME_US, (at - lastAt) * 1000));
     }
-    lastPts = pts; lastAt = at; lastTime = time;
-    if (key) syncs.push(sizes.length + 1);
-    sizes.push(sample.length); times.push(time);
-    bytes += sample.length;
+    lastPts = pts;
+    record(index, sample.length, time, key, at);
+    journal?.(`s ${index} ${sample.length} ${time} ${key ? 1 : 0} ${at}`);
     return sample;
   }
 
@@ -145,8 +156,39 @@ export function createMp4Muxer() {
     return { head, tail, durationMs: Math.round(total * 1000 / TIMESCALE), frames: sizes.length, bytes: HEAD_SIZE + bytes + tail.length };
   }
 
-  return { add, finish, get frames() { return sizes.length; }, get bytes() { return HEAD_SIZE + bytes; } };
+  /** Rebuild the tables from journal lines. Only for restoreMp4Muxer(). */
+  function replay(text, dataBytes) {
+    // Only whole lines: a line cut inside a number still has five numbers.
+    for (const line of text.split("\n").slice(0, -1)) {
+      const [kind, ...fields] = line.split(" ");
+      if (kind === "c" && fields.length === 1 && /^([0-9a-f]{2})+$/.test(fields[0])) {
+        try { configs.push(parseConfig(fromHex(fields[0]))); } catch { break; }
+        continue;
+      }
+      const [index, size, time, key, at] = fields.map(Number);
+      // A line cut by the crash, or a sample that did not reach the disk, ends the replay.
+      if (kind !== "s" || fields.length !== 5 || ![index, size, time, at].every(Number.isFinite)) break;
+      if (!configs[index] || size < 5 || time < lastTime || bytes + size > dataBytes) break;
+      record(index, size, time, key === 1, at);
+    }
+  }
+
+  return { add, finish, replay, get frames() { return sizes.length; }, get bytes() { return HEAD_SIZE + bytes; },
+    get lastAt() { return lastAt; } };
 }
+
+/**
+ * A muxer with the samples that a journal lists and that the file holds. dataBytes is the file
+ * size minus HEAD_SIZE. The caller truncates the file to muxer.bytes, then writes finish().
+ */
+export function restoreMp4Muxer(text, dataBytes) {
+  const muxer = createMp4Muxer();
+  muxer.replay(text, dataBytes);
+  return muxer;
+}
+
+const toHex = bytes => Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+const fromHex = hex => Uint8Array.from(hex.match(/../g) ?? [], pair => parseInt(pair, 16));
 
 // ---- ISO BMFF boxes ----
 const encoder = new TextEncoder();

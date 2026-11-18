@@ -39,6 +39,8 @@ same video stream that the browser shows, so it adds almost no load. Send the sa
 1. `POST <base>/v1/phones/<id>/recording/start` before the steps. The JSON body is optional:
    `{"max_s":600}` stops it after that many seconds (1 to 1800, default 600), and
    `{"quality":"saver"}` makes a smaller file (`auto`, `sharp` or `saver`).
+   The reply comes when the first frame is recorded (`first_frame_ms`), up to 20 s after a
+   cold boot. If `first_frame_ms` is `null`, check that Android is ready before the steps.
 2. Do the steps.
 3. `POST <base>/v1/phones/<id>/recording/stop`. The reply gives `frames` and `duration_ms`.
 4. `GET <base>/v1/phones/<id>/recording/file` returns the MP4. Save it to the scratchpad, for
@@ -47,6 +49,8 @@ same video stream that the browser shows, so it adds almost no load. Send the sa
 `GET .../recording/status` shows the state. `POST .../recording/discard` deletes the file.
 One recording runs at a time: a second start gets **409** `recording_busy`. A recording stops
 by itself at `max_s`, at 1 GB, or when the phone stops; `file` still returns what it has.
+If the codespace stopped during the recording, start the phone again: the runner then repairs
+the file (`stop_reason` `recovered`), and `file` returns the video up to the stop.
 A **503** `runner_update_required` means the phone runs an older runner: use agent-device
 `record`, or tell the user that a phone restart updates it.
 

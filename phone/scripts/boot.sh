@@ -104,20 +104,24 @@ if [ "${#stale_locks[@]}" -gt 0 ]; then
 fi
 
 # Screen preset from the server (lib/shared/device-presets.ts), written by setup as device.env.
-# Every boot is cold, so a config.ini edit here takes effect now. "generic" changes nothing.
+# Every boot is cold, so a config.ini edit here takes effect now. A missing device.env (a phone
+# set up by an old server) gets the generic 720x1440 screen, not the 320x640 avdmanager default.
 DEVICE_ENV="$HOME/emuly/device.env"
-if [ -f "$DEVICE_ENV" ]; then
-  # shellcheck disable=SC1090
-  source "$DEVICE_ENV"
-  cfg="$avd_dir/config.ini"
+# shellcheck disable=SC1090
+[ ! -f "$DEVICE_ENV" ] || source "$DEVICE_ENV"
+# An old server wrote empty sizes for "generic": those also get 720x1440.
+if [ -z "${EMULY_LCD_WIDTH:-}" ]; then
+  EMULY_PRESET=generic EMULY_DEVICE="" EMULY_LCD_WIDTH=720 EMULY_LCD_HEIGHT=1440 EMULY_LCD_DENSITY=320
+fi
+cfg="$avd_dir/config.ini"
+if [ -f "$cfg" ]; then
   set_cfg() { sed -i "/^$1[ ]*=/d" "$cfg"; echo "$1=$2" >> "$cfg"; }
-  if [ -n "${EMULY_LCD_WIDTH:-}" ] && [ -f "$cfg" ]; then
-    set_cfg hw.lcd.width "$EMULY_LCD_WIDTH"
-    set_cfg hw.lcd.height "$EMULY_LCD_HEIGHT"
-    set_cfg hw.lcd.density "$EMULY_LCD_DENSITY"
-    [ -z "${EMULY_DEVICE:-}" ] || set_cfg hw.device.name "$EMULY_DEVICE"
-    echo "preset: ${EMULY_PRESET} ${EMULY_LCD_WIDTH}x${EMULY_LCD_HEIGHT} ${EMULY_LCD_DENSITY}dpi"
-  fi
+  set_cfg hw.lcd.width "$EMULY_LCD_WIDTH"
+  set_cfg hw.lcd.height "$EMULY_LCD_HEIGHT"
+  set_cfg hw.lcd.density "$EMULY_LCD_DENSITY"
+  # A phone moved to a preset without a device id must not keep the old one.
+  if [ -n "${EMULY_DEVICE:-}" ]; then set_cfg hw.device.name "$EMULY_DEVICE"; else sed -i '/^hw.device.name[ ]*=/d' "$cfg"; fi
+  echo "preset: ${EMULY_PRESET:-generic} ${EMULY_LCD_WIDTH}x${EMULY_LCD_HEIGHT} ${EMULY_LCD_DENSITY}dpi"
 fi
 
 # 2 guest cores: cold boot 68 s -> 35 s and no startup ANRs (1 core before).
