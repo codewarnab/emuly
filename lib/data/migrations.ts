@@ -314,4 +314,14 @@ export const MIGRATIONS = [
     hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     phone_id TEXT NOT NULL REFERENCES phones(id) ON DELETE CASCADE, ports TEXT NOT NULL, expires_at INTEGER NOT NULL
   );`,
+  // One row per user for the GitHub state sync (lib/phone/sync-gate.ts). Pages render from the database
+  // and sync after the response; next_at keeps all server instances to one sync per interval.
+  // error is a SyncError as JSON, or NULL after a good sync.
+  `CREATE TABLE IF NOT EXISTS user_syncs (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    next_at INTEGER NOT NULL, synced_at INTEGER, error TEXT
+  );
+  CREATE TABLE IF NOT EXISTS scheduler_runs (
+    name TEXT PRIMARY KEY, started_at INTEGER NOT NULL, finished_at INTEGER, ok INTEGER NOT NULL DEFAULT 0
+  );`,
 ];

@@ -7,9 +7,10 @@ import type { Codespace } from "../github/github.ts";
 import { createPhoneService, PhoneInputError } from "./phone-mutations.ts";
 import { createPhoneSetup } from "./phone-setup.ts";
 import { runnerRequest, closeRunner } from "./phone-runner.ts";
-import { syncError, type SyncError } from "../shared/sync-error.ts";
-import { CoordinationBusyError } from "../data/coordination.ts";
+import type { SyncError } from "../shared/sync-error.ts";
 import { SELF_HOST } from "../selfhost.ts";
+import { after } from "next/server";
+import { createSyncGate } from "./sync-gate.ts";
 
 // Share mutation guards across requests and development hot reloads.
 // Hot reload keeps globalThis but runs this module again, so a service built by older code
@@ -32,14 +33,22 @@ export function phoneControl() {
 global.__latestPhoneControl = phoneControl;
 export const latestPhoneControl = () => (global.__latestPhoneControl ?? phoneControl)();
 
-export async function syncPhoneState(userId: number): Promise<SyncError | null> {
-  try { await phoneControl().sync(userId); return null; }
-  catch (error) {
-    // Another request (a start, the scheduler, a second tab) holds the phone lock and is
-    // updating the same state now. The stored state is current, so this is not an error.
-    if (error instanceof CoordinationBusyError) return null;
-    return syncError(error);
-  }
+/** The one gate for GitHub state syncs from pages and the scheduler. */
+export function phoneSyncGate() {
+  return createSyncGate({ database: asyncDb(), sync: userId => latestPhoneControl().sync(userId) });
+}
+
+/** Pages render from the database and call this; the sync runs after the response is sent. */
+export function syncPhoneStateLater(userId: number) {
+  after(async () => {
+    try { await phoneSyncGate().run(userId, "due"); }
+    catch { console.warn("Phone state sync could not start."); }
+  });
+}
+
+/** The result of the last finished sync, or null. A database failure must not break the page. */
+export async function lastSyncError(userId: number): Promise<SyncError | null> {
+  try { return await phoneSyncGate().lastError(userId); } catch { return null; }
 }
 
 // The stream proxy checks the provider only after a WebSocket upgrade failed. A 5 s ceiling keeps

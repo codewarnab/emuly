@@ -7,7 +7,7 @@ import s from "../../../components/console.module.css";
 import { PhoneCollection } from "@/components/phone/phone-collection";
 import { QuotaStrip } from "@/components/shell/quota-strip";
 import { NewPhone, PhoneRefresh, StopAll } from "@/components/phone/phone-mutations";
-import { syncPhoneState } from "../../../lib/phone/phone-control";
+import { lastSyncError, syncPhoneStateLater } from "../../../lib/phone/phone-control";
 import { SyncNotice } from "@/components/shell/sync-notice";
 import { Topbar, Avatar } from "@/components/shell/topbar";
 import { asyncDb } from "../../../lib/data/async-db";
@@ -30,7 +30,9 @@ export default function DashboardPage() {
 async function Dashboard({ clock = Date.now }: { clock?: () => number }) {
   const user = await requireUser();
   if (!(await chosenPlan(asyncDb(), user.id))) redirect("/app/welcome");
-  const syncError = await syncPhoneState(user.id);
+  // Render the stored state now. GitHub syncs after the response; SSE refreshes the page on a change.
+  syncPhoneStateLater(user.id);
+  const syncError = await lastSyncError(user.id);
   const phones = (await listPhones(user.id));
   const usage = await readAccountUsage(user, clock);
   const settings = await userSettings(asyncDb(), user.id);

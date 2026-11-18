@@ -2,6 +2,7 @@ import { getSession } from "../../../../lib/auth/session";
 import { asyncDb } from "../../../../lib/data/async-db";
 import { eventStream } from "../../../../lib/shared/event-stream";
 import { listPhones } from "../../../../lib/phone/phones";
+import { readSyncError } from "../../../../lib/phone/sync-gate";
 
 export const maxDuration = 300;
 export async function GET(request: Request) {
@@ -14,6 +15,8 @@ export async function GET(request: Request) {
     if (!valid) return undefined;
     const phones = await listPhones(session.userId);
     const events = (await database.execute({ sql: "SELECT max(id) AS id FROM events WHERE user_id = ?", args: [session.userId] })).rows;
-    return { phones, events };
+    // A sync that sets or clears an error changes no phone row, so the stream watches the error too.
+    const syncError = await readSyncError(database, session.userId);
+    return { phones, events, syncError };
   });
 }
