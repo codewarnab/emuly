@@ -2,10 +2,11 @@
 export function videoPacket(bytes: ArrayBuffer) {
   if (bytes.byteLength <= 17 || bytes.byteLength > 8 * 1024 * 1024 + 17) throw new Error("Invalid video packet");
   const view = new DataView(bytes);
-  if (view.getUint8(0) > 3) throw new Error("Invalid flags");
+  // Flags: KEY = 1, CONFIG = 2, AUDIO = 4 (an Opus packet; sent only when the page asks with ?audio=1).
+  if (view.getUint8(0) > 7) throw new Error("Invalid flags");
   const pts = Number(view.getBigUint64(1));
   if (!Number.isFinite(view.getFloat64(9)) || !Number.isSafeInteger(pts)) throw new Error("Invalid timestamp");
-  return { key: !!(view.getUint8(0) & 1), config: !!(view.getUint8(0) & 2), pts,
+  return { key: !!(view.getUint8(0) & 1), config: !!(view.getUint8(0) & 2), audio: !!(view.getUint8(0) & 4), pts,
     sent: view.getFloat64(9), data: new Uint8Array(bytes, 17) };
 }
 export function avcCodec(data: Uint8Array) {

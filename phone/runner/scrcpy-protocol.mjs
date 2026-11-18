@@ -1,4 +1,9 @@
 ﻿// scrcpy 3.3.4 protocol. All integers are big endian.
+// Browser packet flag bits: KEY = 1, CONFIG = 2, AUDIO = 4. AUDIO marks an Opus packet from the
+// audio socket. Only viewers that ask for audio (?audio=1) get them: older pages reject flags > 3.
+export const AUDIO = 4;
+// 64 kbit/s Opus: clear speech and music, about 2% of the "auto" video bit rate.
+export const AUDIO_BIT_RATE = 64_000;
 export const qualities = { auto: [1080, 30, 4_000_000], sharp: [1080, 30, 8_000_000], saver: [720, 15, 1_500_000] };
 const keys = {
   ...Object.fromEntries(Array.from({ length: 26 }, (_, i) => ["Key" + String.fromCharCode(65 + i), 29 + i])),

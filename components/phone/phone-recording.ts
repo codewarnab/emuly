@@ -4,11 +4,12 @@ import { createMp4Muxer, HEAD_SIZE } from "../../phone/runner/mp4-mux.mjs";
 // A recording keeps a copy of each packet as an MP4 sample (phone/runner/mp4-mux.mjs): no second
 // encoder, no upload, and the same quality as the live view. The file stays on this computer.
 // Packets are kept even when the live view skips old frames, so the file has every frame it received.
+// Audio packets become a second track, also while the speaker is off.
 
 export const RECORDING_MAX_BYTES = 512 * 1024 * 1024;
 export const RECORDING_MAX_MS = 30 * 60_000;
 
-type Packet = { config: boolean; key: boolean; pts: number; data: Uint8Array };
+type Packet = { audio?: boolean; config: boolean; key: boolean; pts: number; data: Uint8Array };
 
 export function createBrowserRecording(now = Date.now) {
   const muxer = createMp4Muxer();

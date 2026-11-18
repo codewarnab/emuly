@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { connect } from "node:net";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
-import { DeviceMessages, qualities, ScrcpyPackets } from "./scrcpy-protocol.mjs";
+import { AUDIO, AUDIO_BIT_RATE, DeviceMessages, qualities, ScrcpyPackets } from "./scrcpy-protocol.mjs";
 
 // Copy the jar for every scrcpy server start. Do not cache it per boot "to save time": the scrcpy
 // server deletes its own jar when it starts (cleanup=true). A per-boot cache made every server after
@@ -23,7 +23,7 @@ export async function openScrcpy({ adb, ADB, SERIAL, ROOT, quality }) {
   const name = `scrcpy_${scid.toString(16).padStart(8, "0")}`;
   const [size, fps, bitrate] = qualities[quality] ?? qualities.auto;
   const session = new EventEmitter();
-  let child, video, control, port, closed = false;
+  let child, video, audio, control, port, closed = false;
   const close = () => {
     if (closed) return;
     closed = true;
@@ -31,7 +31,7 @@ export async function openScrcpy({ adb, ADB, SERIAL, ROOT, quality }) {
       control.end();
       const cleanup = setTimeout(() => control.destroy(), 500); cleanup.unref();
     } else control?.destroy();
-    video?.destroy(); child?.kill();
+    video?.destroy(); audio?.destroy(); child?.kill();
     if (port) void adb(["forward", "--remove", `tcp:${port}`]).catch(() => {});
     session.emit("close");
   };
@@ -45,9 +45,12 @@ export async function openScrcpy({ adb, ADB, SERIAL, ROOT, quality }) {
   try {
     await pushJar(adb, ROOT); mark("jar");
     port = Number((await adb(["forward", "tcp:0", `localabstract:${name}`])).trim());
+    // audio_source=playback captures app audio before the volume step. The default "output" source
+    // goes through remote_submix at volume 4 of 15: a film that peaks at -7.5 dB came out at -40 dB.
+    // Measured 2026-11-18 with playback: peak -3.4 dB. Android 13+; apps that refuse capture are silent.
     child = spawn(ADB, ["-s", SERIAL, "shell", "CLASSPATH=/data/local/tmp/emuly-scrcpy.jar",
       "app_process", "/", "com.genymobile.scrcpy.Server", "3.3.4", `scid=${scid.toString(16)}`,
-      "tunnel_forward=true", "audio=false", "control=true", "video_codec=h264", `max_size=${size}`,
+      "tunnel_forward=true", "audio=true", "audio_source=playback", "audio_codec=opus", `audio_bit_rate=${AUDIO_BIT_RATE}`, "control=true", "video_codec=h264", `max_size=${size}`,
       `max_fps=${fps}`, `video_bit_rate=${bitrate}`, "send_dummy_byte=true", "send_device_meta=false", "send_codec_meta=false",
       "clipboard_autosync=false", "cleanup=true"], { stdio: "ignore" });
     child.on("error", close); child.on("exit", close);
@@ -72,6 +75,17 @@ export async function openScrcpy({ adb, ADB, SERIAL, ROOT, quality }) {
     if (closed) throw new Error("scrcpy closed");
     mark("scrcpy");
     video.on("error", close); video.on("close", close);
+    // With audio=true scrcpy accepts three sockets in this order: video, audio, control.
+    // Audio is optional: a failed audio socket closes only itself, never the video.
+    // If Android cannot capture audio, scrcpy sends a 4-byte "disabled" code and no packets.
+    audio = connect({ host: "127.0.0.1", port });
+    audio.pause();
+    audio.on("error", () => audio.destroy());
+    const audioParser = new ScrcpyPackets();
+    audio.on("data", chunk => {
+      try { for (const packet of audioParser.push(chunk)) { packet[0] |= AUDIO; if (!closed) session.emit("packet", packet); } }
+      catch { audio.destroy(); }
+    });
     control = connect({ host: "127.0.0.1", port });
     control.on("error", close); control.on("close", close);
     const devices = new DeviceMessages();
@@ -91,7 +105,7 @@ export async function openScrcpy({ adb, ADB, SERIAL, ROOT, quality }) {
     });
     // The caller calls start() after it adds its listeners. A resume here could emit the config
     // packet before anyone listens, and a decoder cannot start without it.
-    session.start = () => { if (!closed) video.resume(); };
+    session.start = () => { if (!closed) { video.resume(); audio.resume(); } };
     return session;
   } catch (error) {
     console.log(`[scrcpy] start_failed error=${String(error?.message ?? error).slice(0, 120).replace(/\s+/g, "_")} ${stepText()}`);

@@ -17,6 +17,8 @@ const controlIcons = {
   clipboard: <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></>,
   volumeUp: <><path d="M11 5 6 9H3v6h3l5 4zM15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14" /></>,
   volumeDown: <><path d="M11 5 6 9H3v6h3l5 4zM16 12h5" /></>,
+  soundOn: <><path d="M11 5 6 9H3v6h3l5 4zM15 9.5a3.5 3.5 0 0 1 0 5M17.5 7a7 7 0 0 1 0 10" /></>,
+  soundOff: <><path d="M11 5 6 9H3v6h3l5 4zM16 9.5l5 5M21 9.5l-5 5" /></>,
   desktop: <><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></>,
   screenshot: <><path d="m8 5 1-2h6l1 2h4v15H4V5z" /><circle cx="12" cy="12" r="4" /></>,
   record: <><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="4" fill="currentColor" /></>,
@@ -344,6 +346,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto", aspect = 0.5 
     </div>
     <div className={s.tools} role="group" aria-label="Device tools">
       {control("volumeUp", "Volume up")}{control("volumeDown", "Volume down")}
+      <SoundButton video={video} />
       <span className={s.divider} />
       <div className={s.clipboardAnchor}>
         <button type="button" className={s.control} aria-label="Copy from phone"
@@ -417,6 +420,16 @@ export function PhoneScreen({ id, live, resting, quality = "auto", aspect = 0.5 
     {error && live && !video.stopped && !video.active && <p className={s.error} role="status">{error}</p>}
   </div>;
 
+}
+
+/** Plays the phone's sound in this browser. Off on each page load: a browser needs a click first. */
+function SoundButton({ video }: { video: ReturnType<typeof usePhoneVideo> }) {
+  const label = !video.canPlaySound ? "Sound needs a newer browser" : video.soundOn ? "Turn phone sound off" : "Play phone sound";
+  return <button type="button" className={s.control} aria-label={label} title={label} aria-pressed={video.soundOn}
+    disabled={!video.canPlaySound || (!video.soundOn && !video.active)} onClick={video.toggleSound}>
+    <ControlIcon name={video.soundOn ? "soundOn" : "soundOff"} />
+    <span className={s.tooltip}>{video.soundOn ? "Sound off" : "Sound on"}</span>
+  </button>;
 }
 
 /** Record the live view to an MP4 on this computer. See phone-recording.ts. */

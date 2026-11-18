@@ -115,7 +115,10 @@ adb start-server >/dev/null 2>&1 || true
 ph_end
 
 # --- Raw emulator with verified headless flags (suite must stay explicit) ---
-flags=(-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-metrics
+# No -no-audio: scrcpy captures Android's audio output inside the guest, so the phone needs an
+# audio device. The host has no sound card; the emulator logs "Could not init 'pa' audio driver"
+# and boots normally (2026-11-18: cold boot 51.5 s). With -no-audio, scrcpy sends only silence.
+flags=(-no-window -no-boot-anim -gpu swiftshader_indirect -no-metrics
        -feature -Vulkan -camera-back none -camera-front none -port "$PORT"
        -no-snapshot)
 # -no-snapshot skips the load AND stops the save on exit. The save is the 2.5 GB

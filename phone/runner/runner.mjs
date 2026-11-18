@@ -404,7 +404,7 @@ const server = createServer(async (req, res) => {
 const scrcpy = createHub({ open: quality => openScrcpy({ adb, ADB, SERIAL, ROOT, quality }),
   share: process.env.EMULY_SHARED_STREAM !== "0" });
 // Recordings live next to the runner, not in /tmp, so a file survives a runner restart.
-const recorder = createRecorder({ attach: (socket, quality) => scrcpy.attach(socket, quality), qualities,
+const recorder = createRecorder({ attach: (socket, quality) => scrcpy.attach(socket, quality, { audio: true }), qualities,
   dir: join(ROOT, "recordings") });
 // Finish a recording that a killed runner left without MP4 tables (recording.mjs).
 void recorder.recover();
@@ -426,6 +426,6 @@ server.on("upgrade", (req, socket, head) => {
   if (url.pathname !== "/stream" || (SECRET && req.headers["x-phone-secret"] !== SECRET)) return socket.destroy();
   streams.handleUpgrade(req, socket, head, client => {
     const quality = url.searchParams.get("quality") ?? "auto";
-    scrcpy.attach(client, Object.hasOwn(qualities, quality) ? quality : "auto");
+    scrcpy.attach(client, Object.hasOwn(qualities, quality) ? quality : "auto", { audio: url.searchParams.get("audio") === "1" });
   });
 });
