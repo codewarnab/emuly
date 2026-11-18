@@ -2,7 +2,7 @@ import "server-only";
 import { asyncDb } from "../data/async-db.ts";
 import { getAccessToken } from "../github/github-token.ts";
 import { codespaceExec, openCodespacePort } from "../github/codespace-tunnel.ts";
-import { createEmulyLinks, type RunnerPath, type AppsPath, type LinksPath, type AppsRequest, type AdbRequest, type ProxyRequest } from "./phone-link.ts";
+import { createEmulyLinks, type RunnerPath, type AppsPath, type LinksPath, type AppsRequest, type AdbRequest, type ProxyRequest, type RecordingAction } from "./phone-link.ts";
 import { agentDeviceInfo, agentDeviceTokenHash, agentDeviceTokenMatches } from "./agent-device.ts";
 import { phoneObservations } from "./phone-observation.ts";
 import { createActivity, androidIdleMs, ANDROID_IDLE_COMMAND } from "./last-activity.ts";
@@ -40,6 +40,15 @@ export async function runnerAdb(userId: number, id: string, input: AdbRequest) {
   if (!row) throw new Error("Phone is not available");
   activity().mark({ userId, id });
   return links().adb({ userId, id, codespaceName: row.codespace_name }, input);
+}
+
+/** Screen recording calls. Recording needs Android ready; status, file and discard work while the phone runs. */
+export async function runnerRecording(userId: number, id: string, action: RecordingAction, body?: Record<string, unknown>) {
+  const ready = action === "start" ? "AND android_state = 'ready'" : "";
+  const row = (await asyncDb().execute({ sql: `SELECT codespace_name FROM phones WHERE user_id = ? AND id = ? AND state = 'running' ${ready}
+    AND EXISTS(SELECT 1 FROM users WHERE id = ? AND blocked = 0)`, args: [userId, id, userId] })).rows[0] as unknown as { codespace_name: string } | undefined;
+  if (!row) throw new Error("Phone is not available");
+  return links().recording({ userId, id, codespaceName: row.codespace_name }, action, body);
 }
 
 /** Ms since the last touch or key in Android. It is not an action, so it does not mark activity. Null when unknown. */

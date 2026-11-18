@@ -9,6 +9,7 @@ import {
 import { PhoneInputError, redact, type createPhoneService } from "./phone-mutations.ts";
 import { agentDeviceBaseUrl, agentDeviceInfo, agentDeviceSession, agentDeviceUnavailable } from "./agent-device.ts";
 import type { Phone } from "./phones.ts";
+import type { RecordingAction } from "./phone-link.ts";
 
 type Identity = { id: number; authKind?: "session" | "agent"; agentKeyId?: number };
 type PhoneView = Pick<Phone, "id" | "name" | "state" | "android_state" | "idle_timeout_min"> & { device_preset?: string };
@@ -95,7 +96,7 @@ async function readAdbMultipart(request: Request): Promise<{ args: unknown; time
 }
 
 /** The agent-facing phone routes: list/read plus lifecycle and adb. Both auth kinds may use them. */
-export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDevice, baseUrl, log, update, skillUpdate, waitStepMs = 1_000 }: {
+export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDevice, recording, baseUrl, log, update, skillUpdate, waitStepMs = 1_000 }: {
   user: () => Promise<Identity | null>;
   phones: (userId: number) => Promise<PhoneView[]>;
   phone: (userId: number, id: string) => Promise<PhoneView | undefined>;
@@ -103,6 +104,8 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDe
   adb: (userId: number, id: string, input: { args: string[]; timeout_s: number; binary?: boolean;
     files?: { name: string; bytes: Uint8Array }[] }) => Promise<Response>;
   agentDevice: (userId: number, id: string) => Promise<unknown>;
+  /** Screen recording on the runner. Optional so tests and older wiring need not supply it. */
+  recording?: (userId: number, id: string, action: RecordingAction, body?: Record<string, unknown>) => Promise<Response>;
   baseUrl: () => string;
   log?: (call: AdbCall) => void | Promise<void>;
   /** Self-host only: a once-per-version "newer Emuly on GitHub" hint for the agent. */
@@ -203,6 +206,59 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDe
         return Response.json({ base_url: agentDeviceBaseUrl(baseUrl(), id), token: info.token, version: info.version,
           session: agentDeviceSession(id) }, { headers: { "Cache-Control": "no-store" } });
       } catch { return agentDeviceUnavailable(); }
+    },
+    /**
+     * Screen recording: POST start ({quality?, max_s?}), POST stop, GET status, GET file (MP4), POST discard.
+     * The runner muxes the H.264 stream the viewers already get, so a recording starts no second encoder.
+     */
+    async recording(request: Request, id: string, action: string) {
+      const identity = await user();
+      if (!identity) return json({ error: "unauthorized" }, 401);
+      if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden" }, 403);
+      const methods: Record<string, { method: string; action: RecordingAction }> = {
+        start: { method: "POST", action: "start" }, stop: { method: "POST", action: "stop" },
+        discard: { method: "POST", action: "discard" }, status: { method: "GET", action: "status" },
+        file: { method: "GET", action: "file" } };
+      const route = Object.hasOwn(methods, action) ? methods[action] : undefined;
+      if (!route) return json({ error: "not_found", message: "Use recording/start, recording/stop, recording/status, recording/file or recording/discard." }, 404);
+      if (route.method !== request.method) return json({ error: "method_not_allowed", message: `Use ${route.method} for recording/${action}.` }, 405, { Allow: route.method });
+      if (!recording) return json({ error: "not_available", message: "Recording is not available on this server." }, 503);
+      try {
+        const stored = await phone(identity.id, id);
+        if (!stored) return json({ error: "not_found", message: "Phone not found." }, 404);
+        if (stored.state !== "running" || (action === "start" && stored.android_state !== "ready")) {
+          return json({ error: "phone_not_ready",
+            message: `The phone is ${stored.state} with Android ${stored.android_state}. Start it with POST /v1/phones/${id}/start, then retry when GET /v1/phones/${id} shows running and ready.` }, 409);
+        }
+        let body: Record<string, unknown> | undefined;
+        if (route.action === "start") {
+          const raw = request.headers.get("content-length") === "0" || !request.body ? {} : await readJson(request, 4 * 1024);
+          body = {};
+          if (raw.quality !== undefined) body.quality = raw.quality;
+          if (raw.max_s !== undefined) body.max_s = raw.max_s;
+        }
+        const response = await recording(identity.id, id, route.action, body);
+        if (response.headers.get("content-type")?.startsWith("video/mp4")) {
+          const headers = new Headers({ "Content-Type": "video/mp4", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" });
+          for (const name of ["content-length", "content-disposition"]) { const value = response.headers.get(name); if (value) headers.set(name, value); }
+          return new Response(response.body, { headers });
+        }
+        let value: Record<string, unknown> = {};
+        try { value = await response.json() as Record<string, unknown>; } catch {}
+        // A runner without the recording routes answers its generic 404 with no errorCode.
+        if (response.status === 404 && typeof value.errorCode !== "string") {
+          return json({ error: "runner_update_required", message: "Update the phone runner before recording." }, 503);
+        }
+        if (!response.ok) {
+          const code = typeof value.errorCode === "string" ? value.errorCode : "recording_failed";
+          const message = typeof value.error === "string" ? value.error : "The recording request failed. Retry.";
+          return json({ error: code, message }, [400, 404, 409, 503].includes(response.status) ? response.status : 502);
+        }
+        return json(value);
+      } catch (error) {
+        if (error instanceof InputError) return json({ error: "invalid_input", message: error.message }, error.status);
+        return fail(error, "The recording request could not be confirmed. Retry.");
+      }
     },
     async adb(request: Request, id: string) {
       const identity = await user();
