@@ -31,7 +31,7 @@ test("migrate applies a migration added after the connection was opened", () => 
       DROP TABLE IF EXISTS agent_device_codes; ALTER TABLE user_settings DROP COLUMN agent_delete_phones;
       ALTER TABLE phones DROP COLUMN agent_device_token_hash;
       ALTER TABLE phones ADD COLUMN runner_secret BLOB; ALTER TABLE phones DROP COLUMN last_activity_at;
-      ALTER TABLE phones DROP COLUMN device_preset;
+      ALTER TABLE phones DROP COLUMN device_preset; DROP TABLE IF EXISTS user_network;
       PRAGMA user_version = 11`);
     migrate(database);
     assert.equal((database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, latest);

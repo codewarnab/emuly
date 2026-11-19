@@ -2,6 +2,7 @@ import "server-only";
 import { RateLimitError } from "../data/rate-limit.ts";
 import { GitHubError } from "../github/github.ts";
 import { phoneControl } from "./phone-control.ts";
+import { revokeDirect } from "./phone-runner.ts";
 import { PhoneInputError, redact } from "./phone-mutations.ts";
 
 export type PhoneRemovalResult =
@@ -11,6 +12,8 @@ export type PhoneRemovalResult =
 /** The one deletion path for the session route and an approved request. */
 export async function removePhone(userId: number, id: string): Promise<PhoneRemovalResult> {
   try {
+    // Close direct streams first. The codespace delete ends them too, but it can take minutes.
+    await revokeDirect(userId, id).catch(() => {});
     await phoneControl().remove(userId, id);
     return { ok: true };
   } catch (error) {

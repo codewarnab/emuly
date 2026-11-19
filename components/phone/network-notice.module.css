@@ -1,0 +1,13 @@
+.peek { position: fixed; right: 0; bottom: 96px; z-index: 50; display: flex; align-items: center; border: 1px solid var(--line); border-right: 0; border-radius: 10px 0 0 10px; background: var(--panel2); box-shadow: 0 8px 24px var(--shadow); font-size: 13px; transform: translateX(6px); transition: transform .15s ease; }
+.peek:hover, .peek:focus-within { transform: none; }
+.open { padding: 8px 6px 8px 12px; border: 0; background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+.open span { color: #f5b041; }
+.hide { padding: 8px 12px 8px 4px; border: 0; background: transparent; color: var(--dim); font-size: 16px; line-height: 1; cursor: pointer; }
+.hide:hover { color: var(--text); }
+.summary { margin: 0 0 12px; font-size: 15px; line-height: 1.5; }
+.steps { margin: 0 0 20px; padding-left: 20px; display: grid; gap: 6px; font-size: 14px; }
+.copy { margin-bottom: 16px; }
+.sources { font-size: 12px; color: var(--dim); }
+.sources summary { cursor: pointer; }
+.sources ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.sources a { color: inherit; text-decoration: underline; }

@@ -8,6 +8,7 @@ import { screenPoint, phoneKeys } from "@/lib/phone/phone-video";
 import { copyText, useToast } from "@/components/ui/ui-provider";
 import { Button } from "@/components/ui/button";
 import s from "@/components/phone/phone-screen.module.css";
+import { NetworkNotice } from "@/components/phone/network-notice";
 import type { StreamQuality } from "@/lib/shared/display-settings";
 
 const controlIcons = {
@@ -418,6 +419,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto", aspect = 0.5 
       <span role="status">{video.active ? `${video.stats.fps} fps · ${video.stats.delay} ms` : video.stopped ? "Phone stopped" : live && video.supported ? "Reconnecting…" : ""}</span>
     </footer>
     {error && live && !video.stopped && !video.active && <p className={s.error} role="status">{error}</p>}
+    {video.directBlocked && <NetworkNotice />}
   </div>;
 
 }

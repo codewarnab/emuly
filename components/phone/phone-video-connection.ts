@@ -10,6 +10,44 @@ const STALE_FRAME_MS = 1_000;
 const STALE_LIMIT_MS = 5_000;
 // Browser -> Vercel -> GitHub port forward -> runner can take several seconds to open.
 const CONNECT_WAIT_MS = 20_000;
+// The direct path (browser -> codespace port 8791) must open in this time, or the browser uses Vercel.
+const DIRECT_OPEN_MS = 3_000;
+const directKey = (id: string) => `emuly-direct-failed:${id}`;
+// A direct socket that fails before this time never reached a server: DNS refused the name or the
+// network refused the connection. A slower failure is a timeout, which can be a passing problem.
+const DIRECT_BLOCKED_MS = 1_500;
+export type DirectResult = "ok" | "blocked" | "slow";
+// A timeout is often a phone that is still booting, so a "slow" note expires after a minute.
+// A fast refusal is the network, so a "blocked" note lasts longer. A network change clears both.
+const DIRECT_RETRY_MS = { slow: 60_000, blocked: 10 * 60_000 } as const;
+/** A failed direct path is remembered as "<result>:<time>", so reconnects go to Vercel at once until it expires. */
+function directFailed(id: string): DirectResult | undefined {
+  try {
+    const value = sessionStorage.getItem(directKey(id));
+    if (!value) return undefined;
+    const [result, at] = value.split(":");
+    if ((result === "slow" || result === "blocked") && Date.now() - Number(at) < DIRECT_RETRY_MS[result]) return result;
+    sessionStorage.removeItem(directKey(id));
+    return undefined;
+  } catch { return undefined; }
+}
+function markDirectFailed(id: string, result: "blocked" | "slow") {
+  try { sessionStorage.setItem(directKey(id), `${result}:${Date.now()}`); } catch { /* private mode: retry direct next time */ }
+}
+function forgetDirectFailed(id: string) {
+  try { sessionStorage.removeItem(directKey(id)); } catch { /* nothing saved */ }
+}
+/** Tells the server once per tab, so the agent API can pass the hint to the user's agent. */
+function reportDirect(id: string, result: DirectResult) {
+  if (result === "slow") return;
+  const key = `emuly-direct-reported:${id}`;
+  try { if (sessionStorage.getItem(key) === result) return; sessionStorage.setItem(key, result); } catch { /* report anyway */ }
+  void fetch(`/app/phones/${encodeURIComponent(id)}/direct-result`, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ blocked: result === "blocked" }), keepalive: true }).catch(() => {});
+}
+
+type NetworkInformation = { addEventListener?: (type: "change", listener: () => void) => void; removeEventListener?: (type: "change", listener: () => void) => void };
+const networkInfo = () => (globalThis.navigator as { connection?: NetworkInformation } | undefined)?.connection;
 
 export type VideoConnectionState = "connecting" | "streaming" | "retrying" | "suspended" | "fallback" | "stopped" | "disposed";
 type VideoConnectionOptions = {
@@ -21,6 +59,8 @@ type VideoConnectionOptions = {
   onStats: (stats: { fps: number; delay: number }) => void;
   onSaver: () => void;
   onCapabilities?: (capabilities: string[]) => void;
+  /** The direct path opened ("ok"), the network seems to block it ("blocked"), or it timed out ("slow"). */
+  onDirect?: (result: DirectResult) => void;
   onClipboard?: (clipboard: { text: string; at: number }) => void;
   /** The socket opened; video has not painted yet. */
   onOpen?: () => void;
@@ -56,7 +96,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
   // Stale-frame skip; see the age check in onmessage.
   let staleSince = 0, keyAskedAt = -Infinity;
   const DECODE_LIMIT = 2;
-  let retry = 0, timer: ReturnType<typeof setTimeout> | undefined, decoder: VideoDecoder | undefined;
+  let retry = 0, skippedDirect = false, timer: ReturnType<typeof setTimeout> | undefined, decoder: VideoDecoder | undefined;
   const transition = (next: VideoConnectionState) => {
     if (state === "disposed" || state === next) return;
     state = next; onState(next);
@@ -76,7 +116,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
   // True once the current socket painted a frame. `frames` resets every second, so it cannot say this.
   let socketPainted = false;
   let request: AbortController | undefined, frames = 0, tick = performance.now(), offset = 0, delay = 0;
-  const sent = new Map<number, { sent: number; receivedAt: number }>();
+  const sent = new Map<number, { sent: number; receivedAt: number; replay?: boolean }>();
   const stop = () => {
     request?.abort(); clearTimeout(timer); clearInterval(watchdog); clearTimeout(firstFrame); clearTimeout(resumeTimer);
     clearInterval(presence);
@@ -110,6 +150,14 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
     report = undefined;
     document.removeEventListener("visibilitychange", visibility);
     window.removeEventListener("focus", resume);
+    window.removeEventListener("online", networkChanged);
+    networkInfo()?.removeEventListener?.("change", networkChanged);
+  }
+  /** The user changed network: the old note may be wrong now, so forget it and try direct again. */
+  function networkChanged() {
+    forgetDirectFailed(id);
+    if (state === "disposed" || document.hidden || !skippedDirect) return;
+    retry = 0; void connect();
   }
   async function connect() {
     if (state === "disposed" || document.hidden) return;
@@ -119,7 +167,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
     const attempt = request;
     const attemptStart = performance.now();
     try {
-      const response = await fetch(`/app/phones/${encodeURIComponent(id)}/stream-ticket`, { method: "POST", signal: AbortSignal.any([request.signal, AbortSignal.timeout(90_000)]) });
+      const response = await fetch(`/app/phones/${encodeURIComponent(id)}/stream-ticket?quality=${encodeURIComponent(quality)}`, { method: "POST", signal: AbortSignal.any([request.signal, AbortSignal.timeout(90_000)]) });
       if (!response.ok) {
         // GitHub answers 401 on the forwarded port while a codespace shuts down. Retrying or switching
         // to the tunnel cannot work then, so we tell the page the phone stopped. Do not remove this check.
@@ -134,7 +182,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
         }
         throw new Error("Stream unavailable");
       }
-      const { ticket, attemptId } = await readPhoneResponse(response, parseStreamTicket);
+      const { ticket, attemptId, direct } = await readPhoneResponse(response, parseStreamTicket);
       if (disposed() || document.hidden || attempt !== request || attempt.signal.aborted) return;
       report = phoneTiming(id, attemptId, attemptStart);
       report("presence");
@@ -154,15 +202,24 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
             report("presence");
           }).catch(() => {}).finally(() => { renewing = false; });
       }, 30000);
-      const url = new URL(`/app/phones/${encodeURIComponent(id)}/stream`, location.href);
-      url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
-      url.searchParams.set("ticket", ticket);
+      const earlier = direct ? directFailed(id) : undefined;
+      if (earlier) options.onDirect?.(earlier);
+      const viaDirect = Boolean(direct) && !earlier;
+      skippedDirect = Boolean(direct) && !viaDirect;
+      const directStarted = performance.now();
+      const url = viaDirect ? new URL(`${direct!.url}/stream`) : new URL(`/app/phones/${encodeURIComponent(id)}/stream`, location.href);
+      if (!viaDirect) url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+      // The direct ticket carries the quality in its signed part.
+      url.searchParams.set("ticket", viaDirect ? direct!.ticket : ticket);
       url.searchParams.set("quality", quality);
       // Always ask for audio: a recording keeps it even while the speaker is off. It costs 64 kbit/s.
       url.searchParams.set("audio", "1");
       const ws = new WebSocket(url); socket = ws; ws.binaryType = "arraybuffer";
       let config = new Uint8Array(), needKey = true, lastMessage = Date.now(), lastVideo = lastMessage;
       let decoded = false, painted = false, opened = false;
+      // A late viewer first gets a replay of the recent video, so its screen matches the phone at once.
+      // Those frames are old on purpose: skip the age checks, and draw only the last one.
+      let replayIncoming = 0, replayPaint = 0;
       socketPainted = false;
       // Do not remove or merge this check into the pong-based watchdog "for efficiency".
       // Pongs prove only that the socket is open, not that video works. When pongs counted as
@@ -173,7 +230,16 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
       // a slow open then always failed, and the page showed "Reconnecting" again and again.
       // After the first paint, a static screen may send no frames. That is normal, so do not close then.
       const stale = () => { report?.("reconnect", "stale"); ws.close(); };
-      firstFrame = setTimeout(() => { if (current(ws, attempt) && !opened) stale(); }, CONNECT_WAIT_MS);
+      // The direct path did not open: remember it and use Vercel at once, with no retry delay.
+      const directFallback = () => {
+        const result = performance.now() - directStarted < DIRECT_BLOCKED_MS ? "blocked" : "slow";
+        markDirectFailed(id, result); options.onDirect?.(result); reportDirect(id, result);
+        report?.("reconnect", "socket_closed"); stop(); void connect();
+      };
+      firstFrame = setTimeout(() => {
+        if (!current(ws, attempt) || opened) return;
+        if (viaDirect) directFallback(); else stale();
+      }, viaDirect ? DIRECT_OPEN_MS : CONNECT_WAIT_MS);
       watchdog = setInterval(() => {
         if (!current(ws, attempt) || !opened) return;
         if (!painted && Date.now() - lastVideo >= FIRST_FRAME_WAIT_MS) { stale(); return; }
@@ -189,6 +255,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
             if (!decoded) { decoded = true; report?.("first_decoded"); }
             sent.delete(frame.timestamp);
             if (document.hidden || !timing || timing.receivedAt < acceptFramesAfter) return;
+            if (timing.replay && --replayPaint > 0) return;
             if (!onFrame(frame)) return;
             if (!painted) {
               painted = true; socketPainted = true; clearTimeout(firstFrame);
@@ -197,7 +264,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
                 if (current(ws, attempt) && !document.hidden) report?.("first_painted");
               }));
             }
-            delay = calibrated ? Math.max(0, Date.now() + offset - timing.sent) : 0;
+            if (!timing.replay) delay = calibrated ? Math.max(0, Date.now() + offset - timing.sent) : 0;
             clearTimeout(resumeTimer);
             transition("streaming"); retry = 0; decodeFailures = 0; frames++;
             const now = performance.now();
@@ -213,6 +280,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
       ws.onopen = () => {
         if (!current(ws, attempt)) return;
         opened = true; lastMessage = lastVideo = Date.now();
+        if (viaDirect) { options.onDirect?.("ok"); reportDirect(id, "ok"); }
         onOpen?.();
         clearTimeout(firstFrame);
         firstFrame = setTimeout(() => { if (current(ws, attempt) && !painted) stale(); }, FIRST_FRAME_WAIT_MS);
@@ -229,6 +297,9 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
               if (Array.isArray(message.capabilities)) onCapabilities?.(message.capabilities.filter((name: unknown): name is string => typeof name === "string"));
               return;
             }
+            if (message.type === "replay" && Number.isSafeInteger(message.frames) && message.frames > 0) {
+              replayIncoming = replayPaint = Math.min(message.frames, 120); return;
+            }
             if (message.type === "clipboard" && typeof message.text === "string") onClipboard?.({ text: message.text, at: Date.now() });
             return;
           }
@@ -236,6 +307,11 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
           onPacket?.(packet);
           if (packet.audio) { onAudio?.(packet); return; }
           lastVideo = Date.now();
+          // Ack each video packet on arrival. The runner then sees the real delay, including network
+          // buffers it cannot see, and holds frames before they pile up.
+          if (!packet.config && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ack", pts: packet.pts }));
+          const replay = !packet.config && replayIncoming > 0;
+          if (replay) replayIncoming--;
           if (packet.config) {
             config = new Uint8Array(packet.data);
             const decoderConfig = { codec: avcCodec(config), optimizeForLatency: true };
@@ -256,7 +332,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
           // the old video. If the frames stay old for STALE_LIMIT_MS, the network is slower than the
           // video: reconnect, with saver quality on "auto".
           const age = calibrated ? Date.now() + offset - packet.sent : 0;
-          if (age > STALE_FRAME_MS) {
+          if (!replay && age > STALE_FRAME_MS) {
             needKey = true; staleSince ||= Date.now();
             if (Date.now() - staleSince > STALE_LIMIT_MS) {
               report?.("reconnect", "stale"); if (quality === "auto") onSaver(); ws.close(); return;
@@ -266,7 +342,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
           }
           staleSince = 0;
           if (decoder!.state !== "configured" || (needKey && !packet.key)) return;
-          if (decoder!.decodeQueueSize > 5) {
+          if (!replay && decoder!.decodeQueueSize > 5) {
             // The decoder is behind. Before, this closed the socket at once, so the viewer saw a
             // reconnect for a short slow moment. Now drop frames until the next keyframe (delta
             // frames need the frames before them) and ask the runner for one. Only when it falls
@@ -281,7 +357,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
           }
           let data = packet.data;
           if (packet.key) { data = new Uint8Array(config.length + packet.data.length); data.set(config); data.set(packet.data, config.length); }
-          needKey = false; sent.set(packet.pts, { sent: packet.sent, receivedAt: performance.now() });
+          needKey = false; sent.set(packet.pts, { sent: packet.sent, receivedAt: performance.now(), replay });
           if (sent.size > 120) { ws.close(); return; }
           decoder!.decode(new EncodedVideoChunk({ type: packet.key ? "key" : "delta", timestamp: packet.pts, data }));
         } catch { ws.close(); }
@@ -293,6 +369,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
         // GitHub answers 401 on the forwarded port while a codespace shuts down; retrying or using
         // the tunnel cannot work then, so do not schedule a retry. Do not remove this check.
         if (event?.code === 4001) { report?.("reconnect", "phone_stopped"); stop(); transition("stopped"); return; }
+        if (viaDirect && !opened) { directFallback(); return; }
         report?.("reconnect", "socket_closed"); stop();
         scheduleRetry();
       };
@@ -339,6 +416,8 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
   onState(state);
   document.addEventListener("visibilitychange", visibility); void connect();
   window.addEventListener("focus", resume);
+  window.addEventListener("online", networkChanged);
+  networkInfo()?.addEventListener?.("change", networkChanged);
   return { send, reportFallback: () => report?.("screenshot_fallback"), dispose };
 }
 

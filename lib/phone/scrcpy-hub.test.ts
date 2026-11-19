@@ -35,22 +35,99 @@ function setup(options: { share?: boolean; lingerMs?: number; switchLingerMs?: n
   return { hub, sessions };
 }
 
-test("a late viewer gets the stored config first, then no delta frames until a keyframe", async () => {
+test("a late viewer gets the config, then a replay of the last keyframe and the frames after it", async () => {
   const { hub, sessions } = setup();
   const first = new FakeSocket();
   hub.attach(first, "auto"); await flush();
   const session = sessions[0]!;
-  session.video(CONFIG, 1); session.video(KEY, 2); session.video(DELTA, 3);
+  session.video(CONFIG, 1); session.video(DELTA, 9); session.video(KEY, 2); session.video(DELTA, 3);
   assert.deepEqual(first.ids(), [1, 2, 3]);
 
   const late = new FakeSocket();
   hub.attach(late, "auto"); await flush();
   assert.equal(sessions.length, 1, "the late viewer joins the running session");
-  assert.deepEqual(late.ids(), [1], "config packet first");
+  assert.deepEqual(late.sent.filter(data => typeof data === "string").map(data => JSON.parse(data as string)), [{ type: "replay", frames: 2 }]);
+  assert.deepEqual(late.ids(), [1, 2, 3], "config, then the keyframe and the delta after it");
+  assert.equal(session.resets(), 0, "a replay needs no fresh keyframe");
+  session.video(DELTA, 4);
+  assert.deepEqual(late.ids(), [1, 2, 3, 4], "live frames continue after the replay");
+  hub.closeAll();
+});
+
+test("with no saved keyframe, a late viewer gets the config, then no delta frames until a keyframe", async () => {
+  const { hub, sessions } = setup();
+  hub.attach(new FakeSocket(), "auto"); await flush();
+  const session = sessions[0]!;
+  session.video(CONFIG, 1); session.video(DELTA, 2);
+  const late = new FakeSocket();
+  hub.attach(late, "auto"); await flush();
+  assert.deepEqual(late.ids(), [1]);
   assert.equal(session.resets(), 1, "the join asks for a fresh keyframe");
-  session.video(DELTA, 4); session.video(KEY, 5); session.video(DELTA, 6);
-  assert.deepEqual(late.ids(), [1, 5, 6]);
-  assert.deepEqual(first.ids(), [1, 2, 3, 4, 5, 6]);
+  session.video(DELTA, 3); session.video(KEY, 4);
+  assert.deepEqual(late.ids(), [1, 4]);
+  hub.closeAll();
+});
+
+test("a replay that grows too big starts again from a fresh keyframe", async () => {
+  const { hub, sessions } = setup();
+  hub.attach(new FakeSocket(), "auto"); await flush();
+  const session = sessions[0]!;
+  session.video(CONFIG, 1); session.video(KEY, 2);
+  for (let i = 0; i < 95; i++) session.video(DELTA, 3);
+  assert.equal(session.resets(), 1);
+  const late = new FakeSocket();
+  hub.attach(late, "auto"); await flush();
+  assert.deepEqual(late.ids(), [1], "no partial replay");
+  hub.closeAll();
+});
+
+// Flow control needs real packet headers: flags, pts (8 bytes), send time (8 bytes).
+const framed = (flags: number, pts: number) => { const bytes = Buffer.alloc(17); bytes[0] = flags; bytes.writeBigUInt64BE(BigInt(pts), 1); return bytes; };
+const ptsOf = (socket: FakeSocket) => socket.sent.filter(Buffer.isBuffer).filter(data => !(data[0] & CONFIG)).map(data => Number(data.readBigUInt64BE(1)));
+
+test("flow control: a viewer that acks gets frames held while it lags, then a fresh keyframe", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1000 });
+  const sessions: FakeSession[] = [];
+  const hub = createHub({ now: Date.now, open: async () => { const session = new FakeSession(); sessions.push(session); return session; } });
+  const viewer = new FakeSocket();
+  hub.attach(viewer, "auto"); await flush();
+  const session = sessions[0]!;
+  const send = (flags: number, pts: number) => session.emit("packet", framed(flags, pts));
+  send(CONFIG, 0); send(KEY, 1);
+  viewer.input({ type: "ack", pts: 1 });
+  send(DELTA, 2);
+  t.mock.timers.tick(600);
+  send(DELTA, 3);
+  assert.deepEqual(ptsOf(viewer), [1, 2], "frame 2 is unacked for 600 ms, so frame 3 is held");
+  viewer.input({ type: "ack", pts: 2 });
+  assert.equal(session.resets(), 1, "the window opened again, so the hub asks for a keyframe");
+  send(DELTA, 4); send(KEY, 5); send(DELTA, 6);
+  assert.deepEqual(ptsOf(viewer), [1, 2, 5, 6], "deltas wait for the fresh keyframe");
+  hub.closeAll();
+});
+
+test("flow control: a viewer that never acks keeps the old behaviour", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1000 });
+  const sessions: FakeSession[] = [];
+  const hub = createHub({ now: Date.now, open: async () => { const session = new FakeSession(); sessions.push(session); return session; } });
+  const viewer = new FakeSocket();
+  hub.attach(viewer, "auto"); await flush();
+  const session = sessions[0]!;
+  session.emit("packet", framed(CONFIG, 0)); session.emit("packet", framed(KEY, 1));
+  t.mock.timers.tick(20_000);
+  session.emit("packet", framed(DELTA, 2));
+  assert.deepEqual(ptsOf(viewer), [1, 2]);
+  assert.equal(viewer.readyState, 1);
+  hub.closeAll();
+});
+
+test("flow control: acks do not count toward the input rate limit", async () => {
+  const { hub, sessions } = setup();
+  const viewer = new FakeSocket();
+  hub.attach(viewer, "auto"); await flush();
+  sessions[0]!.video(CONFIG, 1);
+  for (let pts = 0; pts < 400; pts++) viewer.input({ type: "ack", pts });
+  assert.equal(viewer.readyState, 1);
   hub.closeAll();
 });
 
@@ -195,9 +272,9 @@ test("audio goes only to viewers that ask for it, and a late one gets the audio 
 
   const late = new FakeSocket();
   hub.attach(late, "auto", { audio: true }); await flush();
-  assert.deepEqual(late.ids(), [1, 2], "video config, then audio config");
+  assert.deepEqual(late.ids(), [1, 3, 2], "video config and the replayed keyframe, then audio config");
   session.video(AUDIO, 5);
-  assert.deepEqual(late.ids(), [1, 2, 5], "audio does not wait for a keyframe");
+  assert.deepEqual(late.ids(), [1, 3, 2, 5], "audio does not wait for a keyframe");
 
   listener.bufferedAmount = 2 * 1024 * 1024;
   session.video(AUDIO, 6);

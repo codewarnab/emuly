@@ -1,4 +1,5 @@
 import "server-only";
+import { DIRECT_BLOCKED_HINT, directBlocked } from "./phone/network-hint";
 import { getUser } from "./auth/auth";
 import { asyncDb } from "./data/async-db";
 import { env } from "./env";
@@ -30,7 +31,8 @@ export function agentPhoneApi() {
   return createPhoneAgentApi({ user: getUser, phones: listPhones, phone: findPhone, service: phoneControl(),
     adb: runnerAdb, agentDevice: runnerAgentDevice, recording: runnerRecording, baseUrl: () => env.baseUrl, log: recordPhoneAdb,
     update: () => updateCheck().hint(env.baseUrl),
-    skillUpdate: request => skillUpdate(request, skillVersion(), env.baseUrl, SKILL_NAME) });
+    skillUpdate: request => skillUpdate(request, skillVersion(), env.baseUrl, SKILL_NAME),
+    networkHint: async userId => await directBlocked(asyncDb(), userId) ? DIRECT_BLOCKED_HINT : null });
 }
 
 /** Links and net-check. Agent keys and the console use the same routes. */

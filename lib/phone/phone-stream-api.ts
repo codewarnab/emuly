@@ -1,11 +1,16 @@
-﻿import "server-only";
+import "server-only";
 import { issueStreamTicket } from "./phone-stream-ticket.ts";
 
 type Identity = { id: number; sessionId: string };
+type Direct = (input: { userId: number; phoneId: string; codespaceName: string; sessionId: string; quality: string; origin: string }) =>
+  Promise<{ url: string; ticket: string } | undefined>;
+const QUALITIES = new Set(["auto", "sharp", "saver"]);
 type Lease = Awaited<ReturnType<Parameters<typeof issueStreamTicket>[0]["open"]>>;
-export function createPhoneStreamApi({ user, phone, open, observation, issue }: {
+type StoredPhone = { state: string; android_state: string; codespace_name?: string | null };
+export function createPhoneStreamApi({ user, phone, open, observation, issue, direct }: {
   user: () => Promise<Identity | null>;
-  phone: (userId: number, id: string) => { state: string; android_state: string } | undefined | Promise<{ state: string; android_state: string } | undefined>;
+  phone: (userId: number, id: string) => StoredPhone | undefined | Promise<StoredPhone | undefined>;
+  direct?: Direct;
   open: (userId: number, id: string, sessionId: string) => Promise<Lease>;
   issue?: (ticket: { userId: number; phoneId: string; sessionId: string; origin: string; cookie: string }) => Promise<string>;
   observation?: (userId: number, id: string) => string | undefined | Promise<string | undefined>;
@@ -26,7 +31,13 @@ export function createPhoneStreamApi({ user, phone, open, observation, issue }: 
       const ticket = issue ? await issue({ userId: identity.id, phoneId: id, sessionId: identity.sessionId, origin, cookie: request.headers.get("cookie") ?? "" }) : issueStreamTicket({ userId: identity.id, phoneId: id, origin, cookie: request.headers.get("cookie") ?? "",
         open: () => open(identity.id, id, identity.sessionId) });
       const attemptId = await observation?.(identity.id, id);
-      return Response.json({ ticket, ...(attemptId ? { attemptId } : {}) }, { headers: { "Cache-Control": "private, no-store" } });
+      // Phase 4: a direct ticket for port 8791. The browser tries it first and falls back to `ticket`.
+      const asked = new URL(request.url).searchParams.get("quality") ?? "auto";
+      const quality = QUALITIES.has(asked) ? asked : "auto";
+      const directStream = direct && stored.codespace_name
+        ? await direct({ userId: identity.id, phoneId: id, codespaceName: stored.codespace_name, sessionId: identity.sessionId, quality, origin }).catch(() => undefined)
+        : undefined;
+      return Response.json({ ticket, ...(attemptId ? { attemptId } : {}), ...(directStream ? { direct: directStream } : {}) }, { headers: { "Cache-Control": "private, no-store" } });
     } catch { return new Response(null, { status: 503 }); }
   };
 }

@@ -6,8 +6,14 @@ import { controlMessage } from "./scrcpy-protocol.mjs";
 // A session stays for LINGER_MS after its last viewer leaves, so a reload joins it at once.
 //
 // Rules that keep a shared stream correct:
-// - A late viewer gets the stored config packet first, then nothing until a keyframe.
-//   A join asks the encoder for a new keyframe (scrcpy reset video), at most once per RESET_GAP_MS.
+// - A late viewer gets the stored config packet, then a replay of the last keyframe and the delta
+//   frames after it, so its screen matches the phone at once. A {type:"replay", frames} message comes
+//   first, so the browser decodes the burst and draws only its last frame. With no saved keyframe,
+//   the join asks the encoder for one (scrcpy reset video), at most once per RESET_GAP_MS.
+// - Flow control: the browser acks each video packet it receives ({type:"ack", pts}). Once a viewer
+//   acks, the hub knows its real delay, including network buffers it cannot see. When the oldest
+//   unacked frame is older than LAG_MS, or too many bytes are unacked, the hub drops live frames
+//   for that viewer before it sends them, and waits for a fresh keyframe.
 // - A slow viewer drops frames until the next keyframe, or is closed alone. It never stalls others.
 // - Each viewer has its own pointer ID range, and its touches and keys are released when it leaves.
 // - A clipboard reply goes only to the viewer that asked for it.
@@ -24,6 +30,15 @@ const DROP_BYTES = 4 * 1024 * 1024;
 const START_TIMEOUT_MS = 20_000;
 const CLIPBOARD_REPLY_MS = 2_000;
 const MAX_VIEWERS = 8;
+// Replay: the saved keyframe and delta frames for a late viewer. Past this size, start again from a new keyframe.
+// The frame cap keeps the burst small enough for the browser's decode limits.
+const REPLAY_BYTES = 2 * 1024 * 1024, REPLAY_FRAMES = 90;
+// Flow control limits for a viewer that acks.
+const LAG_MS = 500;
+const UNACKED_BYTES = 3 * 1024 * 1024;
+// No ack for this long: the browser is gone or stuck. Close it; the page reconnects.
+const ACK_DEAD_MS = 15_000;
+const ptsOf = packet => packet.length >= 9 ? Number(packet.readBigUInt64BE(1)) : NaN;
 const CONFIG = 2, KEY = 1, AUDIO = 4;
 const OPEN = 1;
 
@@ -51,7 +66,7 @@ export function createHub({ open, share = true, lingerMs = LINGER_MS, switchLing
     const key = share ? quality : `${quality}#${++serial}`;
     const live = entries.get(key);
     if (live && !live.ended) return live;
-    const entry = { key, quality, viewers: new Set(), session: null, config: null, audioConfig: null, ended: false,
+    const entry = { key, quality, viewers: new Set(), session: null, config: null, audioConfig: null, replay: [], replayBytes: 0, ended: false,
       linger: undefined, resetAt: -Infinity, clipboard: null };
     entries.set(key, entry);
     entry.ready = open(quality).then(session => {
@@ -80,7 +95,12 @@ export function createHub({ open, share = true, lingerMs = LINGER_MS, switchLing
       for (const viewer of [...entry.viewers]) viewer.audio(packet);
       return;
     }
-    if (flags & CONFIG) entry.config = packet;
+    if (flags & CONFIG) { entry.config = packet; entry.replay = []; entry.replayBytes = 0; }
+    else if (flags & KEY) { entry.replay = [packet]; entry.replayBytes = packet.length; }
+    else if (entry.replay.length) {
+      entry.replay.push(packet); entry.replayBytes += packet.length;
+      if (entry.replayBytes > REPLAY_BYTES || entry.replay.length > REPLAY_FRAMES) { entry.replay = []; entry.replayBytes = 0; requestKeyframe(entry); }
+    }
     for (const viewer of [...entry.viewers]) viewer.video(packet, flags);
   }
 
@@ -112,6 +132,23 @@ export function createHub({ open, share = true, lingerMs = LINGER_MS, switchLing
     const pointerBase = slot * 32;
     const touches = new Map(), keys = new Set();
     let closed = false, ready = false, waitKey = true, inputAccepted = false, count = 0, window = now();
+    // Flow control state. acking turns on with the first ack, so an older page keeps the old behaviour.
+    let acking = false, unackedBytes = 0, held = false;
+    const inFlight = [];
+    const track = packet => {
+      const pts = ptsOf(packet);
+      if (!Number.isFinite(pts)) return;
+      inFlight.push({ pts, at: now(), bytes: packet.length }); unackedBytes += packet.length;
+    };
+    const lagging = () => acking && inFlight.length > 0 && (now() - inFlight[0].at > LAG_MS || unackedBytes > UNACKED_BYTES);
+    const ack = pts => {
+      if (!Number.isFinite(pts)) return;
+      acking = true;
+      while (inFlight.length && inFlight[0].pts <= pts) unackedBytes -= inFlight.shift().bytes;
+      // The window opened again after a hold: a fresh keyframe restarts the picture.
+      if (held && !lagging()) { held = false; requestKeyframe(entry); }
+    };
+    const sendVideo = packet => { ws.send(packet); if (!(packet[0] & CONFIG)) track(packet); };
     const joined = Boolean(entry.session);
 
     const viewer = {
@@ -122,9 +159,11 @@ export function createHub({ open, share = true, lingerMs = LINGER_MS, switchLing
         if (ws.bufferedAmount > DROP_BYTES) return viewer.close();
         const config = Boolean(flags & CONFIG), key = Boolean(flags & KEY);
         if (!config && ws.bufferedAmount > SLOW_BYTES) { waitKey = true; requestKeyframe(entry); return; }
+        if (!config && acking && inFlight.length && now() - inFlight[0].at > ACK_DEAD_MS) return viewer.close();
+        if (!config && lagging()) { waitKey = true; held = true; return; }
         if (!config && !key && waitKey) return;
         if (key) waitKey = false;
-        ws.send(packet);
+        sendVideo(packet);
       },
       audio(packet) {
         if (closed || !ready || !audio) return;
@@ -154,6 +193,11 @@ export function createHub({ open, share = true, lingerMs = LINGER_MS, switchLing
     ws.on("message", (data, binary) => {
       if (closed || !ready) return;
       try {
+        // Acks come with every frame, so they do not count toward the input rate limit.
+        if (!binary && data.length < 64) {
+          const text = data.toString();
+          if (text.startsWith('{"type":"ack"')) { ack(Number(JSON.parse(text).pts)); return; }
+        }
         if (now() - window >= 1000) { count = 0; window = now(); }
         if (binary || data.length > 16_384 || ++count > 240 || entry.session.writableLength > 65_536) return viewer.close();
         const input = JSON.parse(data.toString());
@@ -183,8 +227,17 @@ export function createHub({ open, share = true, lingerMs = LINGER_MS, switchLing
       clearTimeout(timer);
       ready = true;
       if (joined) console.log(`[scrcpy] join quality=${entry.quality} viewers=${entry.viewers.size}`);
-      // A late viewer needs the config packet before any frame, then a fresh keyframe.
-      if (entry.config) { ws.send(entry.config); requestKeyframe(entry); }
+      // A late viewer needs the config packet before any frame. Then it gets the replay (the saved
+      // keyframe and the delta frames after it) and continues with live frames, or, with no replay,
+      // a fresh keyframe.
+      if (entry.config) {
+        ws.send(entry.config);
+        if (entry.replay.length) {
+          viewer.json({ type: "replay", frames: entry.replay.length });
+          for (const packet of entry.replay) sendVideo(packet);
+          waitKey = false;
+        } else requestKeyframe(entry);
+      }
       if (audio && entry.audioConfig) ws.send(entry.audioConfig);
       // Do not remove this wakeup "to save work". The emulator encoder often sends no frame while
       // the screen is static, so a new viewer saw no picture until a user touched the phone. A reset

@@ -14,6 +14,7 @@ export function usePhoneVideo(id: string, live: boolean, quality: string, canvas
   const [stats, setStats] = useState({ fps: 0, delay: 0 });
   const [saver, setSaver] = useState(false);
   const [capabilities, setCapabilities] = useState<string[]>([]);
+  const [directBlocked, setDirectBlocked] = useState(false);
   const [clipboard, setClipboard] = useState<{ text: string; at: number } | null>(null);
   const lastFrameAt = useRef(0);
   const recording = useRef<ReturnType<typeof createBrowserRecording> | null>(null);
@@ -38,6 +39,7 @@ export function usePhoneVideo(id: string, live: boolean, quality: string, canvas
       onState: state => { setStarting(false); if (state === "fallback") setSupported(false); setActive(state === "streaming"); setStopped(state === "stopped"); },
       onStats: setStats,
       onCapabilities: setCapabilities,
+      onDirect: result => setDirectBlocked(result === "blocked"),
       onClipboard: setClipboard,
       onSaver: () => setSaver(true),
       onOpen: () => setStarting(true),
@@ -85,7 +87,7 @@ export function usePhoneVideo(id: string, live: boolean, quality: string, canvas
     if (soundOn) player.stop(); else player.start();
     setSoundOn(!soundOn);
   }
-  return { supported, active, soundOn, canPlaySound, toggleSound, stopped, painted, starting, stats, send, lastFrameAt, reportFallback, capabilities, clipboard,
+  return { supported, active, soundOn, canPlaySound, toggleSound, stopped, painted, starting, stats, send, lastFrameAt, reportFallback, capabilities, clipboard, directBlocked,
     recordingSince, recordingFull, startRecording, stopRecording,
     clearClipboard: () => setClipboard(null) };
 }

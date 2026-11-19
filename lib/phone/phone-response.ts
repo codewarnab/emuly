@@ -72,11 +72,17 @@ export function parseRunnerUpdate(value: unknown): { status: "ready" | "working"
   return result as { status: "ready" | "working" };
 }
 
-export function parseStreamTicket(value: unknown): { ticket: string; attemptId?: string } {
+export type DirectStreamTicket = { url: string; ticket: string };
+export function parseStreamTicket(value: unknown): { ticket: string; attemptId?: string; direct?: DirectStreamTicket } {
   const result = object(value);
   requireField(text(result.ticket, 256) && /^[A-Za-z0-9_-]+$/.test(result.ticket));
   requireField(result.attemptId === undefined || text(result.attemptId, 128));
-  return result as { ticket: string; attemptId?: string };
+  // A bad direct part is dropped, not an error: the Vercel ticket still works.
+  const direct = result.direct as { url?: unknown; ticket?: unknown } | undefined;
+  const valid = direct && typeof direct === "object" && typeof direct.url === "string" && /^wss:\/\/[\w-]{1,100}-8791\.app\.github\.dev$/.test(direct.url)
+    && typeof direct.ticket === "string" && direct.ticket.length <= 2048 && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(direct.ticket);
+  return { ticket: result.ticket as string, ...(result.attemptId !== undefined ? { attemptId: result.attemptId as string } : {}),
+    ...(valid ? { direct: { url: direct.url as string, ticket: direct.ticket as string } } : {}) };
 }
 
 /** Decode JSON as unknown, then validate it before returning application data. */

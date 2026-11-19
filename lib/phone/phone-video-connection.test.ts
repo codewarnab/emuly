@@ -72,8 +72,9 @@ function browser(t: TestContext, supported = true) {
   });
   const states: VideoConnectionState[] = [];
   let frames = 0, saver = 0;
+  const direct: string[] = [];
   const start = () => {
-    const connection = createPhoneVideoConnection({ id: "phone/a", quality: "auto",
+    const connection = createPhoneVideoConnection({ id: "phone/a", quality: "auto", onDirect: result => direct.push(result),
       onState: state => states.push(state), onFrame: () => { frames++; return true; },
       onStats: () => {}, onSaver: () => { saver++; } });
     sessions.push(connection);
@@ -85,7 +86,7 @@ function browser(t: TestContext, supported = true) {
     new Uint8Array(bytes, 17).set([0, 0, 0, 1, 0x67, 0x42, 0x80, 0x1f, 0, 0, 1, 0x68]);
     socket.onmessage?.({ data: bytes });
   }
-  return { start, states, sockets, decoders, requests, document, window, animations, packet,
+  return { start, direct, states, sockets, decoders, requests, document, window, animations, packet,
     frames: () => frames, saver: () => saver, ticket: (next: typeof ticket) => { ticket = next; },
     fail: (status: number, body: unknown) => { failure = { status, body }; } };
 }
@@ -328,4 +329,158 @@ test("old frames are skipped up to a fresh keyframe, and video that stays old re
   t.mock.timers.tick(5001);
   b.packet(ws, 0, 106, Date.now() - 3000);
   assert.equal(b.saver(), 1); assert.equal(ws.readyState, 3);
+});
+
+test("each video packet gets an ack with its pts, so the runner sees the real delay", async t => {
+  const b = browser(t), session = b.start(); await setImmediate();
+  const ws = b.sockets[0];
+  ws.onopen?.(); b.packet(ws, 2, 0); b.packet(ws, 1, 101); b.packet(ws, 0, 102);
+  const acks = ws.messages.map(message => JSON.parse(message)).filter(message => message.type === "ack");
+  assert.deepEqual(acks, [{ type: "ack", pts: 101 }, { type: "ack", pts: 102 }], "no ack for the config packet");
+  session.dispose();
+});
+
+test("a replay burst is decoded in full but only its last frame is drawn, and its age does not count as delay", async t => {
+  const b = browser(t), session = b.start(); await setImmediate();
+  const ws = b.sockets[0];
+  ws.onopen?.();
+  ws.onmessage?.({ data: JSON.stringify({ type: "pong", time: Date.now(), server: Date.now() }) });
+  b.packet(ws, 2, 0);
+  ws.onmessage?.({ data: JSON.stringify({ type: "replay", frames: 3 }) });
+  const old = Date.now() - 60_000;
+  b.packet(ws, 1, 201, old); b.packet(ws, 0, 202, old); b.packet(ws, 0, 203, old);
+  assert.equal(b.frames(), 1, "only the last replay frame is drawn");
+  assert.equal(ws.messages.some(message => JSON.parse(message).type === "keyframe"), false, "old replay frames are not stale");
+  assert.equal(b.states.at(-1), "streaming");
+  b.packet(ws, 0, 204);
+  assert.equal(b.frames(), 2, "live frames draw as before");
+  session.dispose();
+});
+
+function storage(t: TestContext) {
+  const items = new Map<string, string>();
+  Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: {
+    getItem: (key: string) => items.get(key) ?? null, setItem: (key: string, value: string) => { items.set(key, value); },
+    removeItem: (key: string) => { items.delete(key); } } });
+  t.after(() => { Reflect.deleteProperty(globalThis, "sessionStorage"); });
+  return items;
+}
+const DIRECT = { url: "wss://phone-a-8791.app.github.dev", ticket: "part.sig" };
+
+test("direct: a direct ticket opens the codespace port, and the quality goes to the ticket route", async t => {
+  const b = browser(t); storage(t);
+  b.ticket(async () => ({ ticket: "vercel", attemptId: "attempt", direct: DIRECT }));
+  const session = b.start(); await setImmediate();
+  assert.match(b.requests[0].url, /stream-ticket\?quality=auto$/);
+  const ws = b.sockets[0];
+  assert.equal(`${ws.url.origin}${ws.url.pathname}`, "wss://phone-a-8791.app.github.dev/stream");
+  assert.equal(ws.url.searchParams.get("ticket"), "part.sig");
+  ws.onopen?.(); b.packet(ws, 2); b.packet(ws, 1);
+  assert.equal(b.states.at(-1), "streaming");
+  session.dispose();
+});
+
+test("direct: a direct socket that does not open in 3 s falls back to Vercel at once, and tries direct again after a minute", async t => {
+  const b = browser(t); const items = storage(t);
+  b.ticket(async () => ({ ticket: "vercel", attemptId: "attempt", direct: DIRECT }));
+  const session = b.start(); await setImmediate();
+  t.mock.timers.tick(2999); await setImmediate();
+  assert.equal(b.sockets.length, 1);
+  t.mock.timers.tick(1); await setImmediate();
+  assert.equal(b.sockets.length, 2, "the fallback starts within 3.5 s");
+  assert.equal(b.sockets[1].url.host, "phone.invalid");
+  assert.equal(b.sockets[1].url.searchParams.get("ticket"), "vercel");
+  assert.match(items.get("emuly-direct-failed:phone/a") ?? "", /^slow:\d+$/);
+  // A timeout can be a passing problem, so it is not reported as a blocked network.
+  assert.equal(b.direct[0], "slow");
+  assert.equal(b.requests.some(r => r.url.includes("direct-result")), false);
+  // A reconnect within a minute stays on Vercel.
+  b.sockets[1].close(); t.mock.timers.tick(1000); await setImmediate();
+  assert.equal(b.sockets.at(-1)!.url.host, "phone.invalid");
+  // A timeout is often a phone that is still booting, so a reconnect after a minute tries direct again.
+  t.mock.timers.tick(60_000); b.sockets.at(-1)!.close(); t.mock.timers.tick(30_000); await setImmediate();
+  assert.equal(b.sockets.at(-1)!.url.host, "phone-a-8791.app.github.dev");
+  assert.equal(items.has("emuly-direct-failed:phone/a"), false);
+  session.dispose();
+});
+
+test("direct: a direct socket that closes before it opens falls back to Vercel with no retry delay", async t => {
+  const b = browser(t); storage(t);
+  b.ticket(async () => ({ ticket: "vercel", attemptId: "attempt", direct: DIRECT }));
+  const session = b.start(); await setImmediate();
+  b.sockets[0].close(1006); await setImmediate();
+  assert.equal(b.sockets.length, 2);
+  assert.equal(b.sockets[1].url.host, "phone.invalid");
+  session.dispose();
+});
+
+test("direct: a fast failure is a blocked network: the UI hears it, the server hears it once, and a reload still shows it", async t => {
+  const b = browser(t); const items = storage(t);
+  b.ticket(async () => ({ ticket: "vercel", attemptId: "attempt", direct: DIRECT }));
+  const first = b.start(); await setImmediate();
+  t.mock.timers.tick(200); b.sockets[0].close(1006); await setImmediate();
+  assert.equal(b.direct[0], "blocked");
+  assert.match(items.get("emuly-direct-failed:phone/a") ?? "", /^blocked:\d+$/);
+  const reports = () => b.requests.filter(r => r.url === "/app/phones/phone%2Fa/direct-result");
+  assert.equal(reports().length, 1);
+  first.dispose();
+  // A new page in the same tab goes to Vercel at once, shows the notice again, and does not report again.
+  b.start(); await setImmediate();
+  assert.equal(b.sockets.at(-1)!.url.host, "phone.invalid");
+  assert.equal(b.direct.at(-1), "blocked");
+  assert.equal(reports().length, 1);
+});
+
+test("direct: a network change forgets a blocked note and tries direct again, and the tag clears", async t => {
+  const b = browser(t); const items = storage(t);
+  b.ticket(async () => ({ ticket: "vercel", attemptId: "attempt", direct: DIRECT }));
+  b.start(); await setImmediate();
+  t.mock.timers.tick(200); b.sockets[0].close(1006); await setImmediate();
+  assert.equal(b.sockets.at(-1)!.url.host, "phone.invalid");
+  assert.equal(b.direct.at(-1), "blocked");
+  // The user moves to a network that does not block the direct port.
+  b.window.dispatchEvent(new Event("online")); await setImmediate();
+  assert.equal(items.has("emuly-direct-failed:phone/a"), false);
+  const direct = b.sockets.at(-1)!;
+  assert.equal(direct.url.host, "phone-a-8791.app.github.dev");
+  direct.onopen?.();
+  assert.equal(b.direct.at(-1), "ok");
+});
+
+test("direct: a blocked note expires after 10 minutes", async t => {
+  const b = browser(t); const items = storage(t);
+  items.set("emuly-direct-failed:phone/a", `blocked:${Date.now() - 10 * 60_000}`);
+  b.ticket(async () => ({ ticket: "vercel", attemptId: "attempt", direct: DIRECT }));
+  b.start(); await setImmediate();
+  assert.equal(b.sockets[0].url.host, "phone-a-8791.app.github.dev");
+  assert.equal(items.has("emuly-direct-failed:phone/a"), false);
+});
+
+test("direct: a direct socket that opens clears the blocked report", async t => {
+  const b = browser(t); storage(t);
+  b.ticket(async () => ({ ticket: "vercel", attemptId: "attempt", direct: DIRECT }));
+  b.start(); await setImmediate();
+  b.sockets[0].onopen?.();
+  assert.deepEqual(b.direct, ["ok"]);
+  assert.equal(b.requests.filter(r => r.url.endsWith("/direct-result")).length, 1);
+});
+
+test("direct: a direct socket that closes mid-stream reconnects to direct", async t => {
+  const b = browser(t); const items = storage(t);
+  b.ticket(async () => ({ ticket: "vercel", attemptId: "attempt", direct: DIRECT }));
+  const session = b.start(); await setImmediate();
+  const ws = b.sockets[0];
+  ws.onopen?.(); b.packet(ws, 2); b.packet(ws, 1);
+  ws.close(1006); t.mock.timers.tick(1000); await setImmediate();
+  assert.equal(b.sockets.length, 2);
+  assert.equal(b.sockets[1].url.host, "phone-a-8791.app.github.dev");
+  assert.equal(items.has("emuly-direct-failed:phone/a"), false);
+  session.dispose();
+});
+
+test("direct: no direct ticket uses Vercel as before", async t => {
+  const b = browser(t); storage(t);
+  const session = b.start(); await setImmediate();
+  assert.equal(b.sockets[0].url.host, "phone.invalid");
+  session.dispose();
 });

@@ -22,6 +22,19 @@ export async function runnerRequest(userId: number, id: string, path: RunnerPath
   if (!row) throw new Error("Phone is not available");
   return links().request({ userId, id, codespaceName: row.codespace_name }, path, body);
 }
+/**
+ * Closes a user's direct (port 8791) streams on every running phone. Best effort: a phone that
+ * can't be reached keeps no ticket longer than 30 s. Off when the direct path is off.
+ */
+export async function revokeDirect(userId: number, phoneId?: string) {
+  if (!process.env.EMULY_DIRECT_SECRET) return;
+  const rows = (await asyncDb().execute({ sql: `SELECT id, codespace_name FROM phones WHERE user_id = ? AND state = 'running'${phoneId ? " AND id = ?" : ""}`,
+    args: phoneId ? [userId, phoneId] : [userId] })).rows as unknown as { id: string; codespace_name: string }[];
+  // At most 3 s, so a phone that does not answer can't slow down delete or logout.
+  const limit = new Promise(resolve => setTimeout(resolve, 3_000).unref?.());
+  await Promise.race([limit, Promise.allSettled(rows.map(row => links().request({ userId, id: row.id, codespaceName: row.codespace_name }, "/direct/revoke", { userId })
+    .then(response => response.body?.cancel())))]);
+}
 export function closeRunner(userId: number, id: string, codespaceName: string, reason?: string) {
   links().close({ userId, id, codespaceName }, reason);
 }
