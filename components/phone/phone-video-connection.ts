@@ -17,13 +17,21 @@ const directKey = (id: string) => `emuly-direct-failed:${id}`;
 // network refused the connection. A slower failure is a timeout, which can be a passing problem.
 const DIRECT_BLOCKED_MS = 1_500;
 export type DirectResult = "ok" | "blocked" | "slow";
-/** A failed direct path is remembered for this browser tab, so later reconnects go to Vercel at once. */
+// A timeout is often a phone that is still booting, so a "slow" note expires and a later reconnect tries direct again.
+const DIRECT_SLOW_RETRY_MS = 60_000;
+/** A failed direct path is remembered, so reconnects go to Vercel at once: "blocked" for the tab, "slow" for a minute. */
 function directFailed(id: string): DirectResult | undefined {
-  try { const value = sessionStorage.getItem(directKey(id)); return value === "blocked" || value === "slow" ? value : value ? "slow" : undefined; }
-  catch { return undefined; }
+  try {
+    const value = sessionStorage.getItem(directKey(id));
+    if (value === "blocked") return value;
+    const at = value?.startsWith("slow:") ? Number(value.slice(5)) : NaN;
+    if (Date.now() - at < DIRECT_SLOW_RETRY_MS) return "slow";
+    if (value) sessionStorage.removeItem(directKey(id));
+    return undefined;
+  } catch { return undefined; }
 }
 function markDirectFailed(id: string, result: "blocked" | "slow") {
-  try { sessionStorage.setItem(directKey(id), result); } catch { /* private mode: retry direct next time */ }
+  try { sessionStorage.setItem(directKey(id), result === "slow" ? `slow:${Date.now()}` : result); } catch { /* private mode: retry direct next time */ }
 }
 /** Tells the server once per tab, so the agent API can pass the hint to the user's agent. */
 function reportDirect(id: string, result: DirectResult) {

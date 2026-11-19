@@ -334,7 +334,8 @@ test("old frames are skipped up to a fresh keyframe, and video that stays old re
 function storage(t: TestContext) {
   const items = new Map<string, string>();
   Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: {
-    getItem: (key: string) => items.get(key) ?? null, setItem: (key: string, value: string) => { items.set(key, value); } } });
+    getItem: (key: string) => items.get(key) ?? null, setItem: (key: string, value: string) => { items.set(key, value); },
+    removeItem: (key: string) => { items.delete(key); } } });
   t.after(() => { Reflect.deleteProperty(globalThis, "sessionStorage"); });
   return items;
 }
@@ -353,7 +354,7 @@ test("direct: a direct ticket opens the codespace port, and the quality goes to 
   session.dispose();
 });
 
-test("direct: a direct socket that does not open in 3 s falls back to Vercel at once, and stays there", async t => {
+test("direct: a direct socket that does not open in 3 s falls back to Vercel at once, and tries direct again after a minute", async t => {
   const b = browser(t); const items = storage(t);
   b.ticket(async () => ({ ticket: "vercel", attemptId: "attempt", direct: DIRECT }));
   const session = b.start(); await setImmediate();
@@ -363,13 +364,17 @@ test("direct: a direct socket that does not open in 3 s falls back to Vercel at 
   assert.equal(b.sockets.length, 2, "the fallback starts within 3.5 s");
   assert.equal(b.sockets[1].url.host, "phone.invalid");
   assert.equal(b.sockets[1].url.searchParams.get("ticket"), "vercel");
-  assert.equal(items.get("emuly-direct-failed:phone/a"), "slow");
+  assert.match(items.get("emuly-direct-failed:phone/a") ?? "", /^slow:\d+$/);
   // A timeout can be a passing problem, so it is not reported as a blocked network.
   assert.equal(b.direct[0], "slow");
   assert.equal(b.requests.some(r => r.url.includes("direct-result")), false);
-  // A later reconnect does not try direct again in this tab.
-  b.sockets[1].close(); t.mock.timers.tick(60_000); await setImmediate();
+  // A reconnect within a minute stays on Vercel.
+  b.sockets[1].close(); t.mock.timers.tick(1000); await setImmediate();
   assert.equal(b.sockets.at(-1)!.url.host, "phone.invalid");
+  // A timeout is often a phone that is still booting, so a reconnect after a minute tries direct again.
+  t.mock.timers.tick(60_000); b.sockets.at(-1)!.close(); t.mock.timers.tick(30_000); await setImmediate();
+  assert.equal(b.sockets.at(-1)!.url.host, "phone-a-8791.app.github.dev");
+  assert.equal(items.has("emuly-direct-failed:phone/a"), false);
   session.dispose();
 });
 
