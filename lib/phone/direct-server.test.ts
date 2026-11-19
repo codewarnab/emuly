@@ -1,0 +1,139 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createRequire } from "node:module";
+import { request } from "node:http";
+import { directKeyFile, issueDirectTicket } from "./direct-ticket.ts";
+import { createDirectServer } from "../../phone/runner/direct-server.mjs";
+
+const require = createRequire(import.meta.url);
+const ws = require("next/dist/compiled/ws");
+const SECRET = "s".repeat(40);
+const ORIGIN = "https://emuly.vercel.app";
+const base = { codespaceName: "phone-a", phoneId: "ph_a", userId: 7, sessionId: "s", quality: "auto", origin: ORIGIN };
+
+async function start(options: { key?: boolean; maxViewers?: number; upgradesPerMinute?: number } = {}) {
+  const dir = await mkdtemp(join(tmpdir(), "emuly-direct-"));
+  const keyFile = join(dir, ".direct-key");
+  if (options.key !== false) await writeFile(keyFile, directKeyFile("phone-a", SECRET)!, { mode: 0o600 });
+  const attached: unknown[] = [];
+  const server = createDirectServer({ ws, keyFile, port: 0, keyPollMs: 50, maxViewers: options.maxViewers,
+    upgradesPerMinute: options.upgradesPerMinute, qualities: { auto: true, saver: true },
+    attach: (client: { send: (data: string) => void }, quality: string) => { attached.push(quality); client.send("hello"); } });
+  await server.start();
+  return { server, attached, keyFile, async done() { server.stop(); await rm(dir, { recursive: true, force: true }); } };
+}
+
+function open(port: number, path: string, origin = ORIGIN): Promise<{ ok: true; socket: InstanceType<typeof ws> } | { ok: false; status?: number }> {
+  return new Promise(resolve => {
+    const socket = new ws(`ws://127.0.0.1:${port}${path}`, { origin });
+    socket.once("message", () => resolve({ ok: true, socket }));
+    socket.once("unexpected-response", (_req: unknown, res: { statusCode: number }) => resolve({ ok: false, status: res.statusCode }));
+    socket.once("error", () => resolve({ ok: false }));
+  });
+}
+
+function httpStatus(port: number, method: string, path: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const req = request({ host: "127.0.0.1", port, method, path }, res => { res.resume(); resolve(res.statusCode!); });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+const ticket = (over = {}) => encodeURIComponent(issueDirectTicket({ ...base, ...over }, { secret: SECRET })!);
+
+test("with no key file, the direct port does not listen", async () => {
+  const t = await start({ key: false });
+  try {
+    assert.equal(t.server.listening, false);
+    // It starts once the private setup writes the key.
+    await writeFile(t.keyFile, directKeyFile("phone-a", SECRET)!);
+    await new Promise(r => setTimeout(r, 200));
+    assert.equal(t.server.listening, true);
+  } finally { await t.done(); }
+});
+
+test("an invalid key file keeps the port closed", async () => {
+  const t = await start({ key: false });
+  try {
+    await writeFile(t.keyFile, "not-a-key\nphone-a\n");
+    await new Promise(r => setTimeout(r, 200));
+    assert.equal(t.server.listening, false);
+  } finally { await t.done(); }
+});
+
+test("every path except a ticketed GET /stream returns 404", async () => {
+  const t = await start();
+  try {
+    const port = t.server.port;
+    for (const path of ["/", "/health", "/adb", "/links/relay", "/screenshot", "/agent-device/x", "/stream", "/recording/file"]) {
+      assert.equal(await httpStatus(port, "GET", path), 404, path);
+      assert.equal(await httpStatus(port, "POST", path), 404, path);
+    }
+    for (const path of ["/adb", "/links/relay", "/health", "/stream", `/streamx?ticket=${ticket()}`]) {
+      const result = await open(port, path);
+      assert.equal(result.ok, false, path);
+    }
+  } finally { await t.done(); }
+});
+
+test("a valid ticket opens the stream with the signed quality", async () => {
+  const t = await start();
+  try {
+    const result = await open(t.server.port, `/stream?ticket=${ticket({ quality: "saver" })}`);
+    assert.equal(result.ok, true);
+    assert.deepEqual(t.attached, ["saver"]);
+    if (result.ok) result.socket.close();
+  } finally { await t.done(); }
+});
+
+test("no ticket, an old ticket, another phone's ticket, a replayed ticket, and a wrong Origin all fail", async () => {
+  const t = await start();
+  try {
+    const port = t.server.port;
+    assert.equal((await open(port, "/stream")).ok, false);
+    const old = encodeURIComponent(issueDirectTicket(base, { secret: SECRET, now: Date.now() - 31_000 })!);
+    assert.equal((await open(port, `/stream?ticket=${old}`)).ok, false);
+    assert.equal((await open(port, `/stream?ticket=${ticket({ codespaceName: "phone-b" })}`)).ok, false);
+    const once = ticket();
+    const first = await open(port, `/stream?ticket=${once}`);
+    assert.equal(first.ok, true);
+    assert.equal((await open(port, `/stream?ticket=${once}`)).ok, false);
+    assert.equal((await open(port, `/stream?ticket=${ticket()}`, "https://evil.example")).ok, false);
+    if (first.ok) first.socket.close();
+  } finally { await t.done(); }
+});
+
+test("revoke closes the user's open socket within 1 second and refuses older tickets", async () => {
+  const t = await start();
+  try {
+    const result = await open(t.server.port, `/stream?ticket=${ticket()}`);
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    const started = Date.now();
+    const closed = new Promise(resolve => result.socket.once("close", resolve));
+    const before = ticket();
+    assert.equal(t.server.revoke(99), 0);
+    assert.equal(t.server.revoke(7), 1);
+    await closed;
+    assert.ok(Date.now() - started < 1000);
+    assert.equal((await open(t.server.port, `/stream?ticket=${before}`)).ok, false);
+  } finally { await t.done(); }
+});
+
+test("at most 8 viewers and 20 upgrade tries a minute", async () => {
+  const t = await start({ maxViewers: 2, upgradesPerMinute: 4 });
+  try {
+    const port = t.server.port;
+    const a = await open(port, `/stream?ticket=${ticket()}`);
+    const b = await open(port, `/stream?ticket=${ticket()}`);
+    assert.equal(a.ok && b.ok, true);
+    assert.deepEqual(await open(port, `/stream?ticket=${ticket()}`), { ok: false, status: 503 });
+    assert.deepEqual(await open(port, `/stream?ticket=${ticket()}`), { ok: false, status: 503 });
+    assert.deepEqual(await open(port, `/stream?ticket=${ticket()}`), { ok: false, status: 429 });
+    for (const r of [a, b]) if (r.ok) r.socket.close();
+  } finally { await t.done(); }
+});

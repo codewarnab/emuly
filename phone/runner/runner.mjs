@@ -12,6 +12,7 @@ import { ADB_DOWNLOAD_MAX_BYTES, ADB_FILES_MAX, ADB_OUTPUT_MAX_BYTES, ADB_UPLOAD
 import { AppError } from "./apk-download.mjs";
 import { createLinks } from "./links.mjs";
 import { pasteText } from "./paste-text.mjs";
+import { createDirectServer } from "./direct-server.mjs";
 import { RELAY_MAX_PAYLOAD } from "./links-protocol.mjs";
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
@@ -254,7 +255,7 @@ function screenshot() {
 }
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 14, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream"], avd: "t", api_level: 36, booted: await booted() }),
+  "GET /health": async () => ({ ok: true, version: 15, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream"], avd: "t", api_level: 36, booted: await booted() }),
 
   "POST /boot": ({ diagnosticOperation }) => {
     return boot ??= exclusive(async () => {
@@ -278,6 +279,7 @@ const routes = {
       const start = Date.now();
       scrcpy.closeAll();
       for (const client of streams.clients) client.close();
+      direct.revoke();
       links.clear();
       await script("stop.sh");
       return { stopped: true, seconds: Math.round((Date.now() - start) / 1000) };
@@ -335,6 +337,12 @@ const routes = {
   "POST /recording/stop": () => recorder.stop(),
   "POST /recording/discard": () => recorder.discard(),
   "GET /recording": () => recorder.status(),
+
+  // Private: closes direct (port 8791) sockets. Emuly calls it on logout, stop, and delete.
+  "POST /direct/revoke": ({ userId }) => {
+    if (userId !== undefined && !Number.isSafeInteger(userId)) throw new HttpError(400, "bad user");
+    return { closed: direct.revoke(userId) };
+  },
 
 };
 
@@ -414,6 +422,11 @@ for (const [signal, code] of [["SIGTERM", 143], ["SIGINT", 130]]) process.once(s
   setTimeout(() => process.exit(code), 5000).unref();
   recorder.close().catch(() => {}).finally(() => process.exit(code));
 });
+// The public direct port (direct-server.mjs). The key file is written by the server's private setup.
+const direct = createDirectServer({ ws, keyFile: join(ROOT, ".direct-key"), port: Number(process.env.DIRECT_PORT ?? 8791),
+  qualities, log: message => console.log(message),
+  attach: (client, quality, options) => scrcpy.attach(client, quality, options) });
+void direct.start();
 const streams = new ws.WebSocketServer({ noServer: true, maxPayload: 16_384, perMessageDeflate: false });
 const relays = new ws.WebSocketServer({ noServer: true, maxPayload: RELAY_MAX_PAYLOAD, perMessageDeflate: false });
 server.on("upgrade", (req, socket, head) => {
