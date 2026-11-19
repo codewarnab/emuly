@@ -76,6 +76,79 @@ The agent runs on the user's laptop, so it is near the user, and after Phase 2 a
 - With an empty secret the runner skips every auth check, including `adb` passthrough.
 - This is safe today only because port 8790 is private. It blocks any public port.
 
+## Phase 0 results (2026-11-19)
+
+Test setup: throwaway codespaces from `github/codespaces-blank` (`basicLinux32gb`) in EastUs and WestEurope, plus the CentralIndia phone `phone-gentle-wombat`. Each ran `scripts/spike/echo-server.mjs` on a public port 8791 and acted as a client too. Scripts are in `scripts/spike/`. All test codespaces were deleted afterwards.
+
+### 0.1 Region choice: `client_ip` does not work, `geo` does
+
+| Request | Result |
+|---|---|
+| `client_ip` = 54.85.0.10 (AWS us-east-1) | `CentralIndia` |
+| `client_ip` = 18.194.0.10 (AWS eu-central-1) | `CentralIndia` |
+| `geo` = `UsEast` | `EastUs` |
+| `geo` = `EuropeWest` | `WestEurope` |
+
+GitHub ignored `client_ip` for our OAuth user token. So Emuly must pick the `geo` itself. Vercel already sends the user's location in each request (`x-vercel-ip-country`, `x-vercel-ip-latitude`, `x-vercel-ip-longitude`). Map it to the nearest of `UsEast`, `UsWest`, `EuropeWest`, `SoutheastAsia`. For India and nearby countries, send no `geo`: GitHub then uses the Vercel IP in Mumbai, which gives `CentralIndia`.
+
+Also: one account can run only **2 codespaces at a time** ("You have too many codespaces running").
+
+### 0.2 Public port: works
+
+- `gh codespace ports visibility 8791:public` works only after the port is registered on the tunnel. Before that it returns 404. A phone must list 8791 in `forwardPorts` in `.devcontainer/phone/devcontainer.json`.
+- After that, `https://<codespace>-8791.app.github.dev/health` answered 200 with no GitHub sign-in.
+- Port 8791 turned public while the other ports stayed private.
+- Not done yet: the same call from Node through the Dev Tunnels API (Phase 4 step 1).
+
+### 0.3 Browser WebSocket to a public port: works, with two notes
+
+- Headless Chrome on a page at `https://emuly.vercel.app/` opened `wss://<codespace>-8791.app.github.dev/` with no sign-in and no warning page. The server saw `Origin: https://emuly.vercel.app`, so the runner can check the origin.
+- **Note 1:** a normal page visit (`Accept: text/html`) to a public port gets a GitHub warning page, "Codespaces Access Port". So the direct path must use WebSocket or `fetch` from code, never a page visit or an `<img src>`.
+- **Note 2:** the DNS server on our office network refuses `*.app.github.dev` ("Query refused"), so the in-app browser could not open the port at all. Other users will be on networks like this. **The Vercel fallback is required, not optional.**
+
+### 0.4 Real latency by region
+
+WebSocket ping round trips, 40 pings each, median (p95):
+
+| Client \ Server | US East port | West Europe port |
+|---|---|---|
+| US East client | 7 ms (12) | 99 ms (118) |
+| West Europe client | 96 ms (108) | 9 ms (26) |
+| Central India client | 200 ms (208) | 134 ms (159) |
+
+Vercel function round trip (`/v1/phones`, kept-alive connection, 30 calls), median (p95):
+
+| Client | Route | Median |
+|---|---|---|
+| US East | `iad1::bom1` | 240 ms (265) |
+| West Europe | `fra1::bom1` | 163 ms (199) |
+
+What a user feels on the stream (network only, estimated from the tables above):
+
+| User | Today: India phone via Vercel | Region fix only: local phone via Vercel | Region fix + direct path |
+|---|---|---|---|
+| US East | ~210 ms | **~440 ms** (worse) | ~7 ms + user's own line |
+| West Europe | ~145 ms | **~300 ms** (worse) | ~9 ms + user's own line |
+| India | ~80 ms (measured) | ~80 ms | ~80 ms |
+
+**Key result:** moving the phone near the user *without* the direct path makes it worse, because every frame then goes to Mumbai and back. Phase 2 must not ship before Phase 4, or Phase 2 must be limited to agents and boots until then.
+
+### 0.5 The 18-second first connection: probable cause, not proven
+
+- The production logs keep no step timings, so I could not confirm the cause.
+- In `lib/phone/phone-link.ts` the server first probes `https://<codespace>-8790.app.github.dev/health` with a 5-second limit. If that fails, it opens the dev-tunnel relay over SSH (`lib/github/codespace-tunnel.ts`: metadata fetch, relay connect, SSH with a 30-second limit).
+- 18 s fits "probe fails at 5 s, then a cold tunnel setup takes about 13 s".
+- Phase 5 adds a `Server-Timing` header to `stream-ticket` so the next cold start shows each step.
+
+### 0.6 Agents: partly measured
+
+- Each `/v1` call from the US costs about 240 ms in Vercel before it reaches the phone. An agent step with 2 calls (screenshot + tap) costs about 480 ms of network alone from the US today, against about 15 ms with a local phone on the direct path.
+- Not measured yet: real agent-device steps and a 50 MB APK upload. That needs a phone with the runner in each region, which needs Phase 1 prebuilds first.
+
+### Decision
+
+The direct path passed Phase 0 (0.2 and 0.3). Continue with Phases 1, 3, and 4. Change the order so Phase 2 (region) ships **together with or after** Phase 4 (direct path).
+
 ## The plan
 
 Six phases. Each phase ships on its own and has its own tests. The order removes risk first.
@@ -108,18 +181,18 @@ Test:
 
 ### Phase 2: Create phones near the user (1 day)
 
-1. In the create action, read the user's IP with the existing `clientIp()` from `lib/auth/agent.ts`. It already rejects spoofed `x-forwarded-for` values.
-2. Send it as `client_ip` in the create request. Add `client_ip?: string` and `geo?: string` to `CreateCodespace`.
+1. In the create action, read the user's location from the Vercel headers `x-vercel-ip-latitude` and `x-vercel-ip-longitude` (Phase 0.1 showed that `client_ip` is ignored).
+2. Pick the nearest `geo`: `UsEast`, `UsWest`, `EuropeWest`, or `SoutheastAsia`. For India and nearby countries, send no `geo`. Add `geo?: string` to `CreateCodespace`. Agents that create a phone through `/v1` get the same rule from the agent's request.
 3. Store the region (`location` from the response) on the phone row. Show it on the phone page: "Region: US East".
 4. Add a setting: "Phone region: Automatic / US East / US West / Europe West / Southeast Asia". "Automatic" sends `client_ip`. The others send `geo`.
 5. Phones that exist now stay where they are. A phone page shows a hint when the phone region is far from the user, with a link to make a new phone.
 
-Privacy: the IP goes only to GitHub, in the create call, and is not stored.
+Privacy: the location is used once to pick the region and is not stored. Only the region name is stored.
 
 Tests:
-- Unit: the create request contains `client_ip` when the setting is Automatic, and `geo` otherwise. A local or unknown IP sends neither.
-- Unit: a spoofed `x-forwarded-for` doesn't reach `client_ip`.
-- Live: Phase 0.1 again, through the real Emuly create flow.
+- Unit: the location-to-`geo` map. New York → `UsEast`, San Francisco → `UsWest`, Berlin → `EuropeWest`, Singapore and Sydney → `SoutheastAsia`, Mumbai → none. Missing headers → none.
+- Unit: a user setting other than Automatic overrides the headers.
+- Live: create one phone through the real Emuly flow with each setting and read `location`.
 
 ### Phase 3: Secure the runner (2 days, required before Phase 4)
 
@@ -215,7 +288,7 @@ Test: cold first video under 3 seconds, measured 5 times in each region.
 |---|---|---|
 | 0. Spike | none | 1–2 days |
 | 1. Prebuilds | none (owner task) | half a day plus waiting |
-| 2. Region near the user | Phase 1 | 1 day |
+| 2. Region near the user | Phases 1 and 4 (ship together with 4) | 1 day |
 | 3. Secure runner | Phase 0 | 2 days |
 | 4. Direct stream | Phase 3 | 2–3 days |
 | 4B. Direct path for agents | Phase 3 | 3 days |
@@ -229,6 +302,6 @@ Phase 6 also runs the agent loop (20 steps) from each region, on both paths.
 ## Open questions
 
 1. Prebuild storage cost per region. Check the size on the prebuild settings page.
-2. Does a user's own "default region" setting on GitHub override `client_ip`? The docs don't say. Phase 0.1 checks it.
+2. Why does GitHub ignore `client_ip`? It may work only for GitHub Apps. It doesn't matter now, because `geo` works.
 3. The Dev Tunnels port API isn't a documented GitHub API. `gh` uses it, but GitHub can change it. The fallback to Vercel protects us if it breaks.
 4. `geo` has no India value. Indian users must use "Automatic".
