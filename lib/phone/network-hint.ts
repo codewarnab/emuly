@@ -22,6 +22,19 @@ export const DIRECT_BLOCKED_HINT = {
   ],
 } as const;
 
+/** Short text for the page. People skim, so each line is a few words. */
+export const DIRECT_BLOCKED_UI = {
+  peek: "Slow video? Fix it",
+  title: "Your network slows the video",
+  summary: "Your network blocks the fast video path. Video still works, but slower.",
+  fix: ["Set your DNS to 1.1.1.1 or 8.8.8.8.", "Or turn on Secure DNS in your browser.", "Or try another network."],
+  agentPrompt: "My network blocks DNS for *.app.github.dev, so Emuly's fast video path cannot open. "
+    + "Help me fix this on this computer. Set my DNS to 1.1.1.1 (Cloudflare) or 8.8.8.8 (Google), or turn on Secure DNS in my browser. "
+    + "Tell me each step and ask before you change a setting. "
+    + "Then run `nslookup app.github.dev` and check that it no longer says \"Query refused\". "
+    + "Guides: https://developers.cloudflare.com/1.1.1.1/setup/ and https://developers.google.com/speed/public-dns/docs/using",
+} as const;
+
 /** A report older than this is old news: the user may have changed network or DNS. */
 const HINT_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 
