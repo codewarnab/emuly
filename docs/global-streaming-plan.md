@@ -344,7 +344,7 @@ Live test: test phone `phone-quiet-bison` (CentralIndia), runner 15, `EMULY_DIRE
 | Browser on a network that refuses `*.app.github.dev` DNS | direct fails fast, falls back to the server path at once, about 60 ms delay |
 
 Not tested: direct video in a real browser (our network blocks the DNS name), audio, quality change.
-The 30-minute soak run printed no result, so it gives no evidence.
+30-minute direct soak (Node, India): 85,375 packets, 132 kbit/s, RTT median 70 ms, p95 203 ms. It ended with close 1006, at about the time we deleted the phone, so the exact cause is not known.
 Seen before this work too (flag off): `ECONNRESET` errors in local dev logs, and 6–16 s "Reconnecting" after Home or Recent apps on a static screen.
 
 ### Blocked DNS for `*.app.github.dev`
