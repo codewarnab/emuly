@@ -17,21 +17,25 @@ const directKey = (id: string) => `emuly-direct-failed:${id}`;
 // network refused the connection. A slower failure is a timeout, which can be a passing problem.
 const DIRECT_BLOCKED_MS = 1_500;
 export type DirectResult = "ok" | "blocked" | "slow";
-// A timeout is often a phone that is still booting, so a "slow" note expires and a later reconnect tries direct again.
-const DIRECT_SLOW_RETRY_MS = 60_000;
-/** A failed direct path is remembered, so reconnects go to Vercel at once: "blocked" for the tab, "slow" for a minute. */
+// A timeout is often a phone that is still booting, so a "slow" note expires after a minute.
+// A fast refusal is the network, so a "blocked" note lasts longer. A network change clears both.
+const DIRECT_RETRY_MS = { slow: 60_000, blocked: 10 * 60_000 } as const;
+/** A failed direct path is remembered as "<result>:<time>", so reconnects go to Vercel at once until it expires. */
 function directFailed(id: string): DirectResult | undefined {
   try {
     const value = sessionStorage.getItem(directKey(id));
-    if (value === "blocked") return value;
-    const at = value?.startsWith("slow:") ? Number(value.slice(5)) : NaN;
-    if (Date.now() - at < DIRECT_SLOW_RETRY_MS) return "slow";
-    if (value) sessionStorage.removeItem(directKey(id));
+    if (!value) return undefined;
+    const [result, at] = value.split(":");
+    if ((result === "slow" || result === "blocked") && Date.now() - Number(at) < DIRECT_RETRY_MS[result]) return result;
+    sessionStorage.removeItem(directKey(id));
     return undefined;
   } catch { return undefined; }
 }
 function markDirectFailed(id: string, result: "blocked" | "slow") {
-  try { sessionStorage.setItem(directKey(id), result === "slow" ? `slow:${Date.now()}` : result); } catch { /* private mode: retry direct next time */ }
+  try { sessionStorage.setItem(directKey(id), `${result}:${Date.now()}`); } catch { /* private mode: retry direct next time */ }
+}
+function forgetDirectFailed(id: string) {
+  try { sessionStorage.removeItem(directKey(id)); } catch { /* nothing saved */ }
 }
 /** Tells the server once per tab, so the agent API can pass the hint to the user's agent. */
 function reportDirect(id: string, result: DirectResult) {
@@ -41,6 +45,9 @@ function reportDirect(id: string, result: DirectResult) {
   void fetch(`/app/phones/${encodeURIComponent(id)}/direct-result`, { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ blocked: result === "blocked" }), keepalive: true }).catch(() => {});
 }
+
+type NetworkInformation = { addEventListener?: (type: "change", listener: () => void) => void; removeEventListener?: (type: "change", listener: () => void) => void };
+const networkInfo = () => (globalThis.navigator as { connection?: NetworkInformation } | undefined)?.connection;
 
 export type VideoConnectionState = "connecting" | "streaming" | "retrying" | "suspended" | "fallback" | "stopped" | "disposed";
 type VideoConnectionOptions = {
@@ -89,7 +96,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
   // Stale-frame skip; see the age check in onmessage.
   let staleSince = 0, keyAskedAt = -Infinity;
   const DECODE_LIMIT = 2;
-  let retry = 0, timer: ReturnType<typeof setTimeout> | undefined, decoder: VideoDecoder | undefined;
+  let retry = 0, skippedDirect = false, timer: ReturnType<typeof setTimeout> | undefined, decoder: VideoDecoder | undefined;
   const transition = (next: VideoConnectionState) => {
     if (state === "disposed" || state === next) return;
     state = next; onState(next);
@@ -143,6 +150,14 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
     report = undefined;
     document.removeEventListener("visibilitychange", visibility);
     window.removeEventListener("focus", resume);
+    window.removeEventListener("online", networkChanged);
+    networkInfo()?.removeEventListener?.("change", networkChanged);
+  }
+  /** The user changed network: the old note may be wrong now, so forget it and try direct again. */
+  function networkChanged() {
+    forgetDirectFailed(id);
+    if (state === "disposed" || document.hidden || !skippedDirect) return;
+    retry = 0; void connect();
   }
   async function connect() {
     if (state === "disposed" || document.hidden) return;
@@ -190,6 +205,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
       const earlier = direct ? directFailed(id) : undefined;
       if (earlier) options.onDirect?.(earlier);
       const viaDirect = Boolean(direct) && !earlier;
+      skippedDirect = Boolean(direct) && !viaDirect;
       const directStarted = performance.now();
       const url = viaDirect ? new URL(`${direct!.url}/stream`) : new URL(`/app/phones/${encodeURIComponent(id)}/stream`, location.href);
       if (!viaDirect) url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -388,6 +404,8 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
   onState(state);
   document.addEventListener("visibilitychange", visibility); void connect();
   window.addEventListener("focus", resume);
+  window.addEventListener("online", networkChanged);
+  networkInfo()?.addEventListener?.("change", networkChanged);
   return { send, reportFallback: () => report?.("screenshot_fallback"), dispose };
 }
 

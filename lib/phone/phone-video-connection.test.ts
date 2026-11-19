@@ -394,7 +394,7 @@ test("direct: a fast failure is a blocked network: the UI hears it, the server h
   const first = b.start(); await setImmediate();
   t.mock.timers.tick(200); b.sockets[0].close(1006); await setImmediate();
   assert.equal(b.direct[0], "blocked");
-  assert.equal(items.get("emuly-direct-failed:phone/a"), "blocked");
+  assert.match(items.get("emuly-direct-failed:phone/a") ?? "", /^blocked:\d+$/);
   const reports = () => b.requests.filter(r => r.url === "/app/phones/phone%2Fa/direct-result");
   assert.equal(reports().length, 1);
   first.dispose();
@@ -403,6 +403,31 @@ test("direct: a fast failure is a blocked network: the UI hears it, the server h
   assert.equal(b.sockets.at(-1)!.url.host, "phone.invalid");
   assert.equal(b.direct.at(-1), "blocked");
   assert.equal(reports().length, 1);
+});
+
+test("direct: a network change forgets a blocked note and tries direct again, and the tag clears", async t => {
+  const b = browser(t); const items = storage(t);
+  b.ticket(async () => ({ ticket: "vercel", attemptId: "attempt", direct: DIRECT }));
+  b.start(); await setImmediate();
+  t.mock.timers.tick(200); b.sockets[0].close(1006); await setImmediate();
+  assert.equal(b.sockets.at(-1)!.url.host, "phone.invalid");
+  assert.equal(b.direct.at(-1), "blocked");
+  // The user moves to a network that does not block the direct port.
+  b.window.dispatchEvent(new Event("online")); await setImmediate();
+  assert.equal(items.has("emuly-direct-failed:phone/a"), false);
+  const direct = b.sockets.at(-1)!;
+  assert.equal(direct.url.host, "phone-a-8791.app.github.dev");
+  direct.onopen?.();
+  assert.equal(b.direct.at(-1), "ok");
+});
+
+test("direct: a blocked note expires after 10 minutes", async t => {
+  const b = browser(t); const items = storage(t);
+  items.set("emuly-direct-failed:phone/a", `blocked:${Date.now() - 10 * 60_000}`);
+  b.ticket(async () => ({ ticket: "vercel", attemptId: "attempt", direct: DIRECT }));
+  b.start(); await setImmediate();
+  assert.equal(b.sockets[0].url.host, "phone-a-8791.app.github.dev");
+  assert.equal(items.has("emuly-direct-failed:phone/a"), false);
 });
 
 test("direct: a direct socket that opens clears the blocked report", async t => {
