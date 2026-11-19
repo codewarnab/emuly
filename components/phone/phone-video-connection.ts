@@ -116,7 +116,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
   // True once the current socket painted a frame. `frames` resets every second, so it cannot say this.
   let socketPainted = false;
   let request: AbortController | undefined, frames = 0, tick = performance.now(), offset = 0, delay = 0;
-  const sent = new Map<number, { sent: number; receivedAt: number }>();
+  const sent = new Map<number, { sent: number; receivedAt: number; replay?: boolean }>();
   const stop = () => {
     request?.abort(); clearTimeout(timer); clearInterval(watchdog); clearTimeout(firstFrame); clearTimeout(resumeTimer);
     clearInterval(presence);
@@ -217,6 +217,9 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
       const ws = new WebSocket(url); socket = ws; ws.binaryType = "arraybuffer";
       let config = new Uint8Array(), needKey = true, lastMessage = Date.now(), lastVideo = lastMessage;
       let decoded = false, painted = false, opened = false;
+      // A late viewer first gets a replay of the recent video, so its screen matches the phone at once.
+      // Those frames are old on purpose: skip the age checks, and draw only the last one.
+      let replayIncoming = 0, replayPaint = 0;
       socketPainted = false;
       // Do not remove or merge this check into the pong-based watchdog "for efficiency".
       // Pongs prove only that the socket is open, not that video works. When pongs counted as
@@ -252,6 +255,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
             if (!decoded) { decoded = true; report?.("first_decoded"); }
             sent.delete(frame.timestamp);
             if (document.hidden || !timing || timing.receivedAt < acceptFramesAfter) return;
+            if (timing.replay && --replayPaint > 0) return;
             if (!onFrame(frame)) return;
             if (!painted) {
               painted = true; socketPainted = true; clearTimeout(firstFrame);
@@ -260,7 +264,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
                 if (current(ws, attempt) && !document.hidden) report?.("first_painted");
               }));
             }
-            delay = calibrated ? Math.max(0, Date.now() + offset - timing.sent) : 0;
+            if (!timing.replay) delay = calibrated ? Math.max(0, Date.now() + offset - timing.sent) : 0;
             clearTimeout(resumeTimer);
             transition("streaming"); retry = 0; decodeFailures = 0; frames++;
             const now = performance.now();
@@ -293,6 +297,9 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
               if (Array.isArray(message.capabilities)) onCapabilities?.(message.capabilities.filter((name: unknown): name is string => typeof name === "string"));
               return;
             }
+            if (message.type === "replay" && Number.isSafeInteger(message.frames) && message.frames > 0) {
+              replayIncoming = replayPaint = Math.min(message.frames, 120); return;
+            }
             if (message.type === "clipboard" && typeof message.text === "string") onClipboard?.({ text: message.text, at: Date.now() });
             return;
           }
@@ -300,6 +307,11 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
           onPacket?.(packet);
           if (packet.audio) { onAudio?.(packet); return; }
           lastVideo = Date.now();
+          // Ack each video packet on arrival. The runner then sees the real delay, including network
+          // buffers it cannot see, and holds frames before they pile up.
+          if (!packet.config && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ack", pts: packet.pts }));
+          const replay = !packet.config && replayIncoming > 0;
+          if (replay) replayIncoming--;
           if (packet.config) {
             config = new Uint8Array(packet.data);
             const decoderConfig = { codec: avcCodec(config), optimizeForLatency: true };
@@ -320,7 +332,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
           // the old video. If the frames stay old for STALE_LIMIT_MS, the network is slower than the
           // video: reconnect, with saver quality on "auto".
           const age = calibrated ? Date.now() + offset - packet.sent : 0;
-          if (age > STALE_FRAME_MS) {
+          if (!replay && age > STALE_FRAME_MS) {
             needKey = true; staleSince ||= Date.now();
             if (Date.now() - staleSince > STALE_LIMIT_MS) {
               report?.("reconnect", "stale"); if (quality === "auto") onSaver(); ws.close(); return;
@@ -330,7 +342,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
           }
           staleSince = 0;
           if (decoder!.state !== "configured" || (needKey && !packet.key)) return;
-          if (decoder!.decodeQueueSize > 5) {
+          if (!replay && decoder!.decodeQueueSize > 5) {
             // The decoder is behind. Before, this closed the socket at once, so the viewer saw a
             // reconnect for a short slow moment. Now drop frames until the next keyframe (delta
             // frames need the frames before them) and ask the runner for one. Only when it falls
@@ -345,7 +357,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
           }
           let data = packet.data;
           if (packet.key) { data = new Uint8Array(config.length + packet.data.length); data.set(config); data.set(packet.data, config.length); }
-          needKey = false; sent.set(packet.pts, { sent: packet.sent, receivedAt: performance.now() });
+          needKey = false; sent.set(packet.pts, { sent: packet.sent, receivedAt: performance.now(), replay });
           if (sent.size > 120) { ws.close(); return; }
           decoder!.decode(new EncodedVideoChunk({ type: packet.key ? "key" : "delta", timestamp: packet.pts, data }));
         } catch { ws.close(); }

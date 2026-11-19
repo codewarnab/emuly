@@ -331,6 +331,32 @@ test("old frames are skipped up to a fresh keyframe, and video that stays old re
   assert.equal(b.saver(), 1); assert.equal(ws.readyState, 3);
 });
 
+test("each video packet gets an ack with its pts, so the runner sees the real delay", async t => {
+  const b = browser(t), session = b.start(); await setImmediate();
+  const ws = b.sockets[0];
+  ws.onopen?.(); b.packet(ws, 2, 0); b.packet(ws, 1, 101); b.packet(ws, 0, 102);
+  const acks = ws.messages.map(message => JSON.parse(message)).filter(message => message.type === "ack");
+  assert.deepEqual(acks, [{ type: "ack", pts: 101 }, { type: "ack", pts: 102 }], "no ack for the config packet");
+  session.dispose();
+});
+
+test("a replay burst is decoded in full but only its last frame is drawn, and its age does not count as delay", async t => {
+  const b = browser(t), session = b.start(); await setImmediate();
+  const ws = b.sockets[0];
+  ws.onopen?.();
+  ws.onmessage?.({ data: JSON.stringify({ type: "pong", time: Date.now(), server: Date.now() }) });
+  b.packet(ws, 2, 0);
+  ws.onmessage?.({ data: JSON.stringify({ type: "replay", frames: 3 }) });
+  const old = Date.now() - 60_000;
+  b.packet(ws, 1, 201, old); b.packet(ws, 0, 202, old); b.packet(ws, 0, 203, old);
+  assert.equal(b.frames(), 1, "only the last replay frame is drawn");
+  assert.equal(ws.messages.some(message => JSON.parse(message).type === "keyframe"), false, "old replay frames are not stale");
+  assert.equal(b.states.at(-1), "streaming");
+  b.packet(ws, 0, 204);
+  assert.equal(b.frames(), 2, "live frames draw as before");
+  session.dispose();
+});
+
 function storage(t: TestContext) {
   const items = new Map<string, string>();
   Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: {

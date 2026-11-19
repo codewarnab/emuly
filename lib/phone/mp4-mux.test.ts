@@ -258,6 +258,8 @@ test("recorder stops on max bytes and when the stream closes", async t => {
   assert.equal((await f.recorder.status() as Record<string, unknown>).stop_reason, "max_bytes");
   assert.ok((await readFile(path)).length > 0);
 
+  // A new config packet clears the saved replay, so the next recording joins with no frame to replay.
+  f.session.video(2, 0, config(BASE));
   await f.recorder.start({});
   await flush();
   f.session.close();
