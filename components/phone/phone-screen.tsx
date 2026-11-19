@@ -8,6 +8,7 @@ import { screenPoint, phoneKeys } from "@/lib/phone/phone-video";
 import { copyText, useToast } from "@/components/ui/ui-provider";
 import { Button } from "@/components/ui/button";
 import s from "@/components/phone/phone-screen.module.css";
+import { DIRECT_BLOCKED_HINT } from "@/lib/phone/network-hint";
 import type { StreamQuality } from "@/lib/shared/display-settings";
 
 const controlIcons = {
@@ -50,6 +51,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto", aspect = 0.5 
   const [clipboardPending, setClipboardPending] = useState(false);
   const [clipboardEmpty, setClipboardEmpty] = useState(false);
   const [desktopOpen, setDesktopOpen] = useState(false);
+  const [networkNoticeClosed, setNetworkNoticeClosed] = useState(false);
   const [desktopOs, setDesktopOs] = useState<DesktopOs>("windows");
   const [origin, setOrigin] = useState("https://emuly.vercel.app");
   useEffect(() => {
@@ -418,6 +420,17 @@ export function PhoneScreen({ id, live, resting, quality = "auto", aspect = 0.5 
       <span role="status">{video.active ? `${video.stats.fps} fps · ${video.stats.delay} ms` : video.stopped ? "Phone stopped" : live && video.supported ? "Reconnecting…" : ""}</span>
     </footer>
     {error && live && !video.stopped && !video.active && <p className={s.error} role="status">{error}</p>}
+    {video.directBlocked && !networkNoticeClosed && <section className={s.networkNotice} role="status" aria-label="Network notice">
+      <div className={s.clipboardHead}>
+        <span>Your network slows the video</span>
+        <button type="button" className={s.clipboardClose} aria-label="Close" onClick={() => setNetworkNoticeClosed(true)}>×</button>
+      </div>
+      <p>{DIRECT_BLOCKED_HINT.message}</p>
+      <p>To fix it:</p>
+      <ul>{DIRECT_BLOCKED_HINT.fix.map(step => <li key={step}>{step}</li>)}</ul>
+      <p className={s.networkSources}>Sources: {DIRECT_BLOCKED_HINT.sources.map((source, i) => <span key={source.url}>{i ? " · " : ""}
+        <a href={source.url} target="_blank" rel="noreferrer">{source.title}</a></span>)}</p>
+    </section>}
   </div>;
 
 }

@@ -69,6 +69,23 @@ GitHub and the user did not say no to it yet. Handle it like this:
    This stops the question in every chat until a newer version comes out.
 4. Never ask twice in one chat. Never update without a yes.
 
+### A slow network for video
+
+`GET /v1/phones` can include a `network_hint` field. It appears when the user's browser saw
+their network block the fast video path (`code: "direct_port_blocked"`). The phone still works.
+Finish the user's task first. Then tell the user once in a chat, in simple words:
+
+1. One line from `message`: what is wrong.
+2. The `fix` steps, as a short numbered list.
+3. One line "Sources:" with the `sources` links. Always give the links. Do not change them.
+
+Example:
+"Your network seems to block app.github.dev, so the phone video is a little slower.
+1. Set your DNS to 1.1.1.1 or 8.8.8.8. 2. Or turn on Secure DNS in your browser.
+Sources: [GitHub](https://docs.github.com/...) · [Cloudflare](https://developers.cloudflare.com/1.1.1.1/setup/)"
+
+Do not change the user's DNS or network settings yourself. Only tell the user.
+
 ## How to talk to the user
 
 - Keep every message short and easy to read. Never be verbose.

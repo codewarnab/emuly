@@ -96,7 +96,7 @@ async function readAdbMultipart(request: Request): Promise<{ args: unknown; time
 }
 
 /** The agent-facing phone routes: list/read plus lifecycle and adb. Both auth kinds may use them. */
-export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDevice, recording, baseUrl, log, update, skillUpdate, waitStepMs = 1_000 }: {
+export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDevice, recording, baseUrl, log, update, skillUpdate, networkHint, waitStepMs = 1_000 }: {
   user: () => Promise<Identity | null>;
   phones: (userId: number) => Promise<PhoneView[]>;
   phone: (userId: number, id: string) => Promise<PhoneView | undefined>;
@@ -112,6 +112,8 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDe
   update?: () => Promise<unknown>;
   /** Hosted and self-host: a "newer skill on this server" hint, from the request headers. Null when current. */
   skillUpdate?: (request?: Request) => unknown;
+  /** A hint when this user's browser saw its network refuse the direct video path. Null when none. */
+  networkHint?: (userId: number) => Promise<unknown>;
   /** The wait between reads of a `wait_for` request. Tests make it short. */
   waitStepMs?: number;
 }) {
@@ -155,9 +157,11 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDe
       const identity = await user();
       if (!identity) return json({ error: "unauthorized" }, 401);
       try {
-        const [list, hint] = await Promise.all([phones(identity.id), update?.().catch(() => null)]);
+        const [list, hint, network] = await Promise.all([phones(identity.id), update?.().catch(() => null),
+          networkHint?.(identity.id).catch(() => null)]);
         const skill = skillUpdate?.(request);
-        return json({ phones: list.map(view), ...(hint ? { update: hint } : {}), ...(skill ? { skill_update: skill } : {}) });
+        return json({ phones: list.map(view), ...(hint ? { update: hint } : {}), ...(skill ? { skill_update: skill } : {}),
+          ...(network ? { network_hint: network } : {}) });
       }
       catch { return json({ error: "request_failed", message: "The phone list could not be loaded." }, 502); }
     },

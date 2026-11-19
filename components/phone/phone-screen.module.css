@@ -132,3 +132,8 @@
   line-height: 14px;
   pointer-events: none;
 }
+.networkNotice { text-align: left; display: grid; gap: 6px; margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); font-size: 12px; line-height: 1.5; }
+.networkNotice p, .networkNotice ul { margin: 0; }
+.networkNotice ul { padding-left: 18px; }
+.networkSources { color: var(--muted, inherit); }
+.networkSources a { color: inherit; text-decoration: underline; }

@@ -324,4 +324,8 @@ export const MIGRATIONS = [
   CREATE TABLE IF NOT EXISTS scheduler_runs (
     name TEXT PRIMARY KEY, started_at INTEGER NOT NULL, finished_at INTEGER, ok INTEGER NOT NULL DEFAULT 0
   );`,
+  // When the user's browser last saw its network refuse *.app.github.dev (lib/phone/network-hint.ts).
+  `CREATE TABLE IF NOT EXISTS user_network (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, direct_blocked_at INTEGER NOT NULL
+  );`,
 ];

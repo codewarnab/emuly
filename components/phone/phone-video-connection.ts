@@ -13,12 +13,25 @@ const CONNECT_WAIT_MS = 20_000;
 // The direct path (browser -> codespace port 8791) must open in this time, or the browser uses Vercel.
 const DIRECT_OPEN_MS = 3_000;
 const directKey = (id: string) => `emuly-direct-failed:${id}`;
+// A direct socket that fails before this time never reached a server: DNS refused the name or the
+// network refused the connection. A slower failure is a timeout, which can be a passing problem.
+const DIRECT_BLOCKED_MS = 1_500;
+export type DirectResult = "ok" | "blocked" | "slow";
 /** A failed direct path is remembered for this browser tab, so later reconnects go to Vercel at once. */
-function directFailed(id: string) {
-  try { return sessionStorage.getItem(directKey(id)) === "1"; } catch { return false; }
+function directFailed(id: string): DirectResult | undefined {
+  try { const value = sessionStorage.getItem(directKey(id)); return value === "blocked" || value === "slow" ? value : value ? "slow" : undefined; }
+  catch { return undefined; }
 }
-function markDirectFailed(id: string) {
-  try { sessionStorage.setItem(directKey(id), "1"); } catch { /* private mode: retry direct next time */ }
+function markDirectFailed(id: string, result: "blocked" | "slow") {
+  try { sessionStorage.setItem(directKey(id), result); } catch { /* private mode: retry direct next time */ }
+}
+/** Tells the server once per tab, so the agent API can pass the hint to the user's agent. */
+function reportDirect(id: string, result: DirectResult) {
+  if (result === "slow") return;
+  const key = `emuly-direct-reported:${id}`;
+  try { if (sessionStorage.getItem(key) === result) return; sessionStorage.setItem(key, result); } catch { /* report anyway */ }
+  void fetch(`/app/phones/${encodeURIComponent(id)}/direct-result`, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ blocked: result === "blocked" }), keepalive: true }).catch(() => {});
 }
 
 export type VideoConnectionState = "connecting" | "streaming" | "retrying" | "suspended" | "fallback" | "stopped" | "disposed";
@@ -31,6 +44,8 @@ type VideoConnectionOptions = {
   onStats: (stats: { fps: number; delay: number }) => void;
   onSaver: () => void;
   onCapabilities?: (capabilities: string[]) => void;
+  /** The direct path opened ("ok"), the network seems to block it ("blocked"), or it timed out ("slow"). */
+  onDirect?: (result: DirectResult) => void;
   onClipboard?: (clipboard: { text: string; at: number }) => void;
   /** The socket opened; video has not painted yet. */
   onOpen?: () => void;
@@ -164,7 +179,10 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
             report("presence");
           }).catch(() => {}).finally(() => { renewing = false; });
       }, 30000);
-      const viaDirect = Boolean(direct) && !directFailed(id);
+      const earlier = direct ? directFailed(id) : undefined;
+      if (earlier) options.onDirect?.(earlier);
+      const viaDirect = Boolean(direct) && !earlier;
+      const directStarted = performance.now();
       const url = viaDirect ? new URL(`${direct!.url}/stream`) : new URL(`/app/phones/${encodeURIComponent(id)}/stream`, location.href);
       if (!viaDirect) url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
       // The direct ticket carries the quality in its signed part.
@@ -186,7 +204,11 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
       // After the first paint, a static screen may send no frames. That is normal, so do not close then.
       const stale = () => { report?.("reconnect", "stale"); ws.close(); };
       // The direct path did not open: remember it and use Vercel at once, with no retry delay.
-      const directFallback = () => { markDirectFailed(id); report?.("reconnect", "socket_closed"); stop(); void connect(); };
+      const directFallback = () => {
+        const result = performance.now() - directStarted < DIRECT_BLOCKED_MS ? "blocked" : "slow";
+        markDirectFailed(id, result); options.onDirect?.(result); reportDirect(id, result);
+        report?.("reconnect", "socket_closed"); stop(); void connect();
+      };
       firstFrame = setTimeout(() => {
         if (!current(ws, attempt) || opened) return;
         if (viaDirect) directFallback(); else stale();
@@ -230,6 +252,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
       ws.onopen = () => {
         if (!current(ws, attempt)) return;
         opened = true; lastMessage = lastVideo = Date.now();
+        if (viaDirect) { options.onDirect?.("ok"); reportDirect(id, "ok"); }
         onOpen?.();
         clearTimeout(firstFrame);
         firstFrame = setTimeout(() => { if (current(ws, attempt) && !painted) stale(); }, FIRST_FRAME_WAIT_MS);

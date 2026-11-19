@@ -272,6 +272,17 @@ test("the phone list carries a skill update hint only when the skill is not curr
   assert.equal(old.phones.length, 1);
 });
 
+test("the phone list carries the network hint only when the user's browser saw a blocked network", async () => {
+  const hint = { code: "direct_port_blocked", message: "m", fix: [], sources: [] };
+  const none = await (await fixture({ networkHint: async () => null }).api.list(new Request("https://emuly.test/v1/phones"))).json();
+  assert.equal(none.network_hint, undefined);
+  const blocked = await (await fixture({ networkHint: async () => hint }).api.list(new Request("https://emuly.test/v1/phones"))).json();
+  assert.deepEqual(blocked.network_hint, hint);
+  // A failed lookup never breaks the list.
+  const broken = await fixture({ networkHint: async () => { throw new Error("db"); } }).api.list(new Request("https://emuly.test/v1/phones"));
+  assert.equal(broken.status, 200);
+});
+
 test("recording routes check the method, pass only known options and stream the MP4", async () => {
   const sent: unknown[] = [];
   const { api } = fixture({

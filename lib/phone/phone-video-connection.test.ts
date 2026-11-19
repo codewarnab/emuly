@@ -72,8 +72,9 @@ function browser(t: TestContext, supported = true) {
   });
   const states: VideoConnectionState[] = [];
   let frames = 0, saver = 0;
+  const direct: string[] = [];
   const start = () => {
-    const connection = createPhoneVideoConnection({ id: "phone/a", quality: "auto",
+    const connection = createPhoneVideoConnection({ id: "phone/a", quality: "auto", onDirect: result => direct.push(result),
       onState: state => states.push(state), onFrame: () => { frames++; return true; },
       onStats: () => {}, onSaver: () => { saver++; } });
     sessions.push(connection);
@@ -85,7 +86,7 @@ function browser(t: TestContext, supported = true) {
     new Uint8Array(bytes, 17).set([0, 0, 0, 1, 0x67, 0x42, 0x80, 0x1f, 0, 0, 1, 0x68]);
     socket.onmessage?.({ data: bytes });
   }
-  return { start, states, sockets, decoders, requests, document, window, animations, packet,
+  return { start, direct, states, sockets, decoders, requests, document, window, animations, packet,
     frames: () => frames, saver: () => saver, ticket: (next: typeof ticket) => { ticket = next; },
     fail: (status: number, body: unknown) => { failure = { status, body }; } };
 }
@@ -362,7 +363,10 @@ test("direct: a direct socket that does not open in 3 s falls back to Vercel at 
   assert.equal(b.sockets.length, 2, "the fallback starts within 3.5 s");
   assert.equal(b.sockets[1].url.host, "phone.invalid");
   assert.equal(b.sockets[1].url.searchParams.get("ticket"), "vercel");
-  assert.equal(items.get("emuly-direct-failed:phone/a"), "1");
+  assert.equal(items.get("emuly-direct-failed:phone/a"), "slow");
+  // A timeout can be a passing problem, so it is not reported as a blocked network.
+  assert.equal(b.direct[0], "slow");
+  assert.equal(b.requests.some(r => r.url.includes("direct-result")), false);
   // A later reconnect does not try direct again in this tab.
   b.sockets[1].close(); t.mock.timers.tick(60_000); await setImmediate();
   assert.equal(b.sockets.at(-1)!.url.host, "phone.invalid");
@@ -379,6 +383,32 @@ test("direct: a direct socket that closes before it opens falls back to Vercel w
   session.dispose();
 });
 
+test("direct: a fast failure is a blocked network: the UI hears it, the server hears it once, and a reload still shows it", async t => {
+  const b = browser(t); const items = storage(t);
+  b.ticket(async () => ({ ticket: "vercel", attemptId: "attempt", direct: DIRECT }));
+  const first = b.start(); await setImmediate();
+  t.mock.timers.tick(200); b.sockets[0].close(1006); await setImmediate();
+  assert.equal(b.direct[0], "blocked");
+  assert.equal(items.get("emuly-direct-failed:phone/a"), "blocked");
+  const reports = () => b.requests.filter(r => r.url === "/app/phones/phone%2Fa/direct-result");
+  assert.equal(reports().length, 1);
+  first.dispose();
+  // A new page in the same tab goes to Vercel at once, shows the notice again, and does not report again.
+  b.start(); await setImmediate();
+  assert.equal(b.sockets.at(-1)!.url.host, "phone.invalid");
+  assert.equal(b.direct.at(-1), "blocked");
+  assert.equal(reports().length, 1);
+});
+
+test("direct: a direct socket that opens clears the blocked report", async t => {
+  const b = browser(t); storage(t);
+  b.ticket(async () => ({ ticket: "vercel", attemptId: "attempt", direct: DIRECT }));
+  b.start(); await setImmediate();
+  b.sockets[0].onopen?.();
+  assert.deepEqual(b.direct, ["ok"]);
+  assert.equal(b.requests.filter(r => r.url.endsWith("/direct-result")).length, 1);
+});
+
 test("direct: a direct socket that closes mid-stream reconnects to direct", async t => {
   const b = browser(t); const items = storage(t);
   b.ticket(async () => ({ ticket: "vercel", attemptId: "attempt", direct: DIRECT }));
@@ -388,7 +418,7 @@ test("direct: a direct socket that closes mid-stream reconnects to direct", asyn
   ws.close(1006); t.mock.timers.tick(1000); await setImmediate();
   assert.equal(b.sockets.length, 2);
   assert.equal(b.sockets[1].url.host, "phone-a-8791.app.github.dev");
-  assert.equal(items.size, 0);
+  assert.equal(items.has("emuly-direct-failed:phone/a"), false);
   session.dispose();
 });
 

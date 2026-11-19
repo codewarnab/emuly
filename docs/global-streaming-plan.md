@@ -331,3 +331,28 @@ Live security test (`scripts/spike/direct-security.mjs`), test codespace in Cent
 GitHub's port proxy replaces `X-Forwarded-For` and `X-Real-IP` with the real client IP. A client can't fake its address, so the per-IP limit is safe.
 
 Still open: logout and phone delete must call `POST /direct/revoke`.
+
+## Phase 4 results (2026-11-19)
+
+Live test: test phone `phone-quiet-bison` (CentralIndia), runner 15, `EMULY_DIRECT_STREAM=all`.
+
+| Check | Result |
+|---|---|
+| Key file | mode 0600; runner listens on 8791 only with a valid key |
+| Ports | 8791 public, 8790 still private (302) |
+| Direct video from Node | open 345 ms, first packet 1256 ms, RTT median 71 ms, p95 94 ms |
+| Browser on a network that refuses `*.app.github.dev` DNS | direct fails fast, falls back to the server path at once, about 60 ms delay |
+
+Not tested: direct video in a real browser (our network blocks the DNS name), audio, quality change.
+The 30-minute soak run printed no result, so it gives no evidence.
+Seen before this work too (flag off): `ECONNRESET` errors in local dev logs, and 6–16 s "Reconnecting" after Home or Recent apps on a static screen.
+
+### Blocked DNS for `*.app.github.dev`
+
+Some providers refuse this name in DNS (we saw "Query refused" from Reliance Jio; `github.com` resolves).
+Indian ISPs also blocked Supabase domains in DNS in 2026. Nobody published the reason for this block.
+- The browser calls a direct failure under 1.5 s "blocked" (no server answered). A slower failure is "slow" and shows nothing.
+- It shows a notice with fixes (DNS 1.1.1.1 or 8.8.8.8, Secure DNS, another network) and source links.
+- It reports once per tab to `POST /app/phones/[id]/direct-result`. Table `user_network` keeps it 3 days.
+- `GET /v1/phones` then has `network_hint`. The skill tells the agent to relay it once, in simple words, with the sources.
+Deploy note: run `npm run db:migrate` before this ships.
