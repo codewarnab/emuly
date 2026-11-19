@@ -32,7 +32,7 @@ function safeErrorText(error: unknown, secret = "") {
  * (or the "still booting" check) is saved. Android keeps booting; the next sync joins the boot.
  */
 const BOOT_REQUEST_MS = process.env.VERCEL ? 240_000 : 1_200_000;
-export type RunnerPath = "/health" | "/boot" | "/stop" | "/screenshot" | "/tap" | "/key" | "/agent-device-info";
+export type RunnerPath = "/health" | "/boot" | "/stop" | "/screenshot" | "/tap" | "/key" | "/agent-device-info" | "/direct/revoke";
 export type LinksPath = "/links" | "/links/remove" | "/net-check" | "/link-hints";
 export type AppsPath = "/apps" | "/apps/open" | "/app-installs" | `/app-installs/${string}`;
 export type AppsRequest = { method: "GET" | "POST" | "PUT"; json?: Record<string, unknown>; bytes?: Uint8Array; offset?: number; digest?: string; signal?: AbortSignal };
@@ -387,7 +387,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
     },
     async request(phone: Owner, path: RunnerPath, body?: Record<string, unknown>): Promise<Response> {
       if (!/^[\w-]{1,100}$/.test(phone.codespaceName)) throw new Error("Invalid codespace name");
-      if (!["/health", "/boot", "/stop", "/screenshot", "/tap", "/key", "/agent-device-info"].includes(path)) throw new Error("Invalid runner route");
+      if (!["/health", "/boot", "/stop", "/screenshot", "/tap", "/key", "/agent-device-info", "/direct/revoke"].includes(path)) throw new Error("Invalid runner route");
       const { entry, release } = acquire(phone);
       try {
         const connection = await entry.connection;
