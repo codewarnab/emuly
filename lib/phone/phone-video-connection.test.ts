@@ -329,3 +329,72 @@ test("old frames are skipped up to a fresh keyframe, and video that stays old re
   b.packet(ws, 0, 106, Date.now() - 3000);
   assert.equal(b.saver(), 1); assert.equal(ws.readyState, 3);
 });
+
+function storage(t: TestContext) {
+  const items = new Map<string, string>();
+  Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: {
+    getItem: (key: string) => items.get(key) ?? null, setItem: (key: string, value: string) => { items.set(key, value); } } });
+  t.after(() => { Reflect.deleteProperty(globalThis, "sessionStorage"); });
+  return items;
+}
+const DIRECT = { url: "wss://phone-a-8791.app.github.dev", ticket: "part.sig" };
+
+test("direct: a direct ticket opens the codespace port, and the quality goes to the ticket route", async t => {
+  const b = browser(t); storage(t);
+  b.ticket(async () => ({ ticket: "vercel", attemptId: "attempt", direct: DIRECT }));
+  const session = b.start(); await setImmediate();
+  assert.match(b.requests[0].url, /stream-ticket\?quality=auto$/);
+  const ws = b.sockets[0];
+  assert.equal(`${ws.url.origin}${ws.url.pathname}`, "wss://phone-a-8791.app.github.dev/stream");
+  assert.equal(ws.url.searchParams.get("ticket"), "part.sig");
+  ws.onopen?.(); b.packet(ws, 2); b.packet(ws, 1);
+  assert.equal(b.states.at(-1), "streaming");
+  session.dispose();
+});
+
+test("direct: a direct socket that does not open in 3 s falls back to Vercel at once, and stays there", async t => {
+  const b = browser(t); const items = storage(t);
+  b.ticket(async () => ({ ticket: "vercel", attemptId: "attempt", direct: DIRECT }));
+  const session = b.start(); await setImmediate();
+  t.mock.timers.tick(2999); await setImmediate();
+  assert.equal(b.sockets.length, 1);
+  t.mock.timers.tick(1); await setImmediate();
+  assert.equal(b.sockets.length, 2, "the fallback starts within 3.5 s");
+  assert.equal(b.sockets[1].url.host, "phone.invalid");
+  assert.equal(b.sockets[1].url.searchParams.get("ticket"), "vercel");
+  assert.equal(items.get("emuly-direct-failed:phone/a"), "1");
+  // A later reconnect does not try direct again in this tab.
+  b.sockets[1].close(); t.mock.timers.tick(60_000); await setImmediate();
+  assert.equal(b.sockets.at(-1)!.url.host, "phone.invalid");
+  session.dispose();
+});
+
+test("direct: a direct socket that closes before it opens falls back to Vercel with no retry delay", async t => {
+  const b = browser(t); storage(t);
+  b.ticket(async () => ({ ticket: "vercel", attemptId: "attempt", direct: DIRECT }));
+  const session = b.start(); await setImmediate();
+  b.sockets[0].close(1006); await setImmediate();
+  assert.equal(b.sockets.length, 2);
+  assert.equal(b.sockets[1].url.host, "phone.invalid");
+  session.dispose();
+});
+
+test("direct: a direct socket that closes mid-stream reconnects to direct", async t => {
+  const b = browser(t); const items = storage(t);
+  b.ticket(async () => ({ ticket: "vercel", attemptId: "attempt", direct: DIRECT }));
+  const session = b.start(); await setImmediate();
+  const ws = b.sockets[0];
+  ws.onopen?.(); b.packet(ws, 2); b.packet(ws, 1);
+  ws.close(1006); t.mock.timers.tick(1000); await setImmediate();
+  assert.equal(b.sockets.length, 2);
+  assert.equal(b.sockets[1].url.host, "phone-a-8791.app.github.dev");
+  assert.equal(items.size, 0);
+  session.dispose();
+});
+
+test("direct: no direct ticket uses Vercel as before", async t => {
+  const b = browser(t); storage(t);
+  const session = b.start(); await setImmediate();
+  assert.equal(b.sockets[0].url.host, "phone.invalid");
+  session.dispose();
+});

@@ -219,3 +219,27 @@ function varint(n: number) {
   bytes.push(n);
   return Buffer.from(bytes);
 }
+
+/**
+ * Makes port 8791 (the runner's ticket-only stream port) public, as `gh codespace ports visibility`
+ * does. Port 8790 stays private. False when the account or org does not allow public ports.
+ */
+export async function makeDirectPortPublic(token: string, codespaceName: string, signal?: AbortSignal) {
+  if (!/^[\w-]{1,100}$/.test(codespaceName)) throw new CodespaceTunnelError("Invalid codespace name");
+  const res = await fetch(`https://api.github.com/user/codespaces/${codespaceName}?internal=true&refresh=true`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "emuly" }, signal,
+  });
+  if (!res.ok) throw new CodespaceTunnelError(`GitHub returned ${res.status} for the codespace connection.`);
+  const body = await res.json() as { runtime_constraints?: { allowed_port_privacy_settings?: string[] };
+    connection?: { tunnelProperties?: TunnelProperties } };
+  const allowed = body.runtime_constraints?.allowed_port_privacy_settings;
+  if (allowed && !allowed.includes("public")) return false;
+  const tp = body.connection?.tunnelProperties;
+  if (!tp) throw new CodespaceTunnelError("The codespace has no connection yet.");
+  const manager = new TunnelManagementHttpClient("emuly", API_VERSION, undefined, tp.serviceUri);
+  const accessTokens = { connect: tp.connectAccessToken, "manage:ports": tp.managePortsAccessToken };
+  const tunnel = { ...tp, accessTokens } as Tunnel;
+  await manager.createOrUpdateTunnelPort(tunnel, { portNumber: 8791, protocol: "http", labels: ["UserForwardedPort"],
+    accessControl: { entries: [{ type: "Anonymous" as never, subjects: [], scopes: ["connect"] }] } }, {});
+  return true;
+}

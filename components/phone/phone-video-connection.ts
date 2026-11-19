@@ -10,6 +10,16 @@ const STALE_FRAME_MS = 1_000;
 const STALE_LIMIT_MS = 5_000;
 // Browser -> Vercel -> GitHub port forward -> runner can take several seconds to open.
 const CONNECT_WAIT_MS = 20_000;
+// The direct path (browser -> codespace port 8791) must open in this time, or the browser uses Vercel.
+const DIRECT_OPEN_MS = 3_000;
+const directKey = (id: string) => `emuly-direct-failed:${id}`;
+/** A failed direct path is remembered for this browser tab, so later reconnects go to Vercel at once. */
+function directFailed(id: string) {
+  try { return sessionStorage.getItem(directKey(id)) === "1"; } catch { return false; }
+}
+function markDirectFailed(id: string) {
+  try { sessionStorage.setItem(directKey(id), "1"); } catch { /* private mode: retry direct next time */ }
+}
 
 export type VideoConnectionState = "connecting" | "streaming" | "retrying" | "suspended" | "fallback" | "stopped" | "disposed";
 type VideoConnectionOptions = {
@@ -119,7 +129,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
     const attempt = request;
     const attemptStart = performance.now();
     try {
-      const response = await fetch(`/app/phones/${encodeURIComponent(id)}/stream-ticket`, { method: "POST", signal: AbortSignal.any([request.signal, AbortSignal.timeout(90_000)]) });
+      const response = await fetch(`/app/phones/${encodeURIComponent(id)}/stream-ticket?quality=${encodeURIComponent(quality)}`, { method: "POST", signal: AbortSignal.any([request.signal, AbortSignal.timeout(90_000)]) });
       if (!response.ok) {
         // GitHub answers 401 on the forwarded port while a codespace shuts down. Retrying or switching
         // to the tunnel cannot work then, so we tell the page the phone stopped. Do not remove this check.
@@ -134,7 +144,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
         }
         throw new Error("Stream unavailable");
       }
-      const { ticket, attemptId } = await readPhoneResponse(response, parseStreamTicket);
+      const { ticket, attemptId, direct } = await readPhoneResponse(response, parseStreamTicket);
       if (disposed() || document.hidden || attempt !== request || attempt.signal.aborted) return;
       report = phoneTiming(id, attemptId, attemptStart);
       report("presence");
@@ -154,9 +164,11 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
             report("presence");
           }).catch(() => {}).finally(() => { renewing = false; });
       }, 30000);
-      const url = new URL(`/app/phones/${encodeURIComponent(id)}/stream`, location.href);
-      url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
-      url.searchParams.set("ticket", ticket);
+      const viaDirect = Boolean(direct) && !directFailed(id);
+      const url = viaDirect ? new URL(`${direct!.url}/stream`) : new URL(`/app/phones/${encodeURIComponent(id)}/stream`, location.href);
+      if (!viaDirect) url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+      // The direct ticket carries the quality in its signed part.
+      url.searchParams.set("ticket", viaDirect ? direct!.ticket : ticket);
       url.searchParams.set("quality", quality);
       // Always ask for audio: a recording keeps it even while the speaker is off. It costs 64 kbit/s.
       url.searchParams.set("audio", "1");
@@ -173,7 +185,12 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
       // a slow open then always failed, and the page showed "Reconnecting" again and again.
       // After the first paint, a static screen may send no frames. That is normal, so do not close then.
       const stale = () => { report?.("reconnect", "stale"); ws.close(); };
-      firstFrame = setTimeout(() => { if (current(ws, attempt) && !opened) stale(); }, CONNECT_WAIT_MS);
+      // The direct path did not open: remember it and use Vercel at once, with no retry delay.
+      const directFallback = () => { markDirectFailed(id); report?.("reconnect", "socket_closed"); stop(); void connect(); };
+      firstFrame = setTimeout(() => {
+        if (!current(ws, attempt) || opened) return;
+        if (viaDirect) directFallback(); else stale();
+      }, viaDirect ? DIRECT_OPEN_MS : CONNECT_WAIT_MS);
       watchdog = setInterval(() => {
         if (!current(ws, attempt) || !opened) return;
         if (!painted && Date.now() - lastVideo >= FIRST_FRAME_WAIT_MS) { stale(); return; }
@@ -293,6 +310,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
         // GitHub answers 401 on the forwarded port while a codespace shuts down; retrying or using
         // the tunnel cannot work then, so do not schedule a retry. Do not remove this check.
         if (event?.code === 4001) { report?.("reconnect", "phone_stopped"); stop(); transition("stopped"); return; }
+        if (viaDirect && !opened) { directFallback(); return; }
         report?.("reconnect", "socket_closed"); stop();
         scheduleRetry();
       };
