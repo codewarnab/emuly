@@ -305,3 +305,29 @@ Phase 6 also runs the agent loop (20 steps) from each region, on both paths.
 2. Why does GitHub ignore `client_ip`? It may work only for GitHub Apps. It doesn't matter now, because `geo` works.
 3. The Dev Tunnels port API isn't a documented GitHub API. `gh` uses it, but GitHub can change it. The fallback to Vercel protects us if it breaks.
 4. `geo` has no India value. Indian users must use "Automatic".
+
+## Phase 3 results (2026-11-19)
+
+Code: `phone/runner/direct-ticket.mjs`, `phone/runner/direct-server.mjs`, `lib/phone/direct-ticket.ts`, runner version 15.
+Change from the plan: the phone key is HMAC(`EMULY_DIRECT_SECRET`, codespace name), not a stored random secret. No database change. The private SSH setup writes it to `~/emuly/.direct-key` (mode 0600).
+
+Unit and integration tests: 19 new tests pass (`direct-ticket.test.ts`, `direct-server.test.ts`).
+
+Live security test (`scripts/spike/direct-security.mjs`), test codespace in CentralIndia, port 8791 public:
+
+| Case | Result |
+|---|---|
+| Valid ticket | opens |
+| No ticket | 404 |
+| Old ticket (31 s) | 404 |
+| Ticket for another phone | 404 |
+| Ticket signed with another secret | 404 |
+| Replayed ticket (second use) | 404 |
+| Wrong Origin | 404 |
+| WebSocket `/adb`, `/links/relay` with a valid ticket | 404 |
+| HTTP `/health`, `/screenshot` | 404 |
+| 25 bad tries in 1 minute | 429 after 20 tries |
+
+GitHub's port proxy replaces `X-Forwarded-For` and `X-Real-IP` with the real client IP. A client can't fake its address, so the per-IP limit is safe.
+
+Still open: logout and phone delete must call `POST /direct/revoke`.
