@@ -10,6 +10,7 @@ import { findPhone, listPhones } from "./phone/phones";
 import { runnerAdb, runnerAgentDevice, runnerLinks, runnerRecording } from "./phone/phone-runner";
 import { createPhoneLinksApi } from "./phone/phone-links-api";
 import { issueLinkTicket } from "./phone/link-ticket";
+import { directUploadTicket } from "./phone/direct-upload";
 import { recordPhoneAdb } from "./phone/phone-activity";
 import { readUsage, userSettings } from "./data/usage";
 import { SELF_HOST } from "./selfhost";
@@ -29,7 +30,7 @@ export function phoneApi() {
 /** List/read/start/stop/adb share the agent-facing surface and the same origin rule. */
 export function agentPhoneApi() {
   return createPhoneAgentApi({ user: getUser, phones: listPhones, phone: findPhone, service: phoneControl(),
-    adb: runnerAdb, agentDevice: runnerAgentDevice, recording: runnerRecording, baseUrl: () => env.baseUrl, log: recordPhoneAdb,
+    adb: runnerAdb, uploadTicket: directUploadTicket, agentDevice: runnerAgentDevice, recording: runnerRecording, baseUrl: () => env.baseUrl, log: recordPhoneAdb,
     update: () => updateCheck().hint(env.baseUrl),
     skillUpdate: request => skillUpdate(request, skillVersion(), env.baseUrl, SKILL_NAME),
     networkHint: async userId => await directBlocked(asyncDb(), userId) ? DIRECT_BLOCKED_HINT : null });

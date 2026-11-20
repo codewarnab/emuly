@@ -1,6 +1,6 @@
 import "server-only";
 import { createHmac, randomBytes } from "node:crypto";
-import { signTicket, TICKET_TTL_MS } from "../../phone/runner/direct-ticket.mjs";
+import { signTicket, signUploadTicket, TICKET_TTL_MS, UPLOAD_TICKET_TTL_MS } from "../../phone/runner/direct-ticket.mjs";
 
 /**
  * The phone key for one codespace. It comes from EMULY_DIRECT_SECRET, so Emuly stores no
@@ -26,4 +26,18 @@ export function issueDirectTicket(input: DirectTicketInput, { secret, now = Date
   return signTicket(key, { codespace: input.codespaceName, phoneId: input.phoneId, userId: input.userId,
     sessionId: input.sessionId, quality: input.quality, origin: input.origin,
     nonce: randomBytes(18).toString("base64url"), exp: now + TICKET_TTL_MS }) as string;
+}
+
+export type UploadFile = { name: string; size: number; sha256: string };
+export type UploadTicketInput = { codespaceName: string; phoneId: string; userId: number; args: string[]; timeout_s: number; files: UploadFile[] };
+
+/** A one-time ticket for `PUT https://<codespace>-8791.app.github.dev/adb`. Valid for 60 s. It locks the args and each file's size and hash. */
+export function issueUploadTicket(input: UploadTicketInput, { secret, now = Date.now() }: { secret?: string; now?: number } = {}) {
+  const key = phoneDirectKey(input.codespaceName, secret);
+  if (!key) return undefined;
+  const exp = now + UPLOAD_TICKET_TTL_MS;
+  const ticket = signUploadTicket(key, { codespace: input.codespaceName, phoneId: input.phoneId, userId: input.userId,
+    args: input.args, timeout_s: input.timeout_s, files: input.files.map(({ name, size, sha256 }) => ({ name, size, sha256 })),
+    nonce: randomBytes(18).toString("base64url"), exp }) as string;
+  return { ticket, exp };
 }

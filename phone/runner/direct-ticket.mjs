@@ -70,3 +70,47 @@ export function createRateLimiter({ max = 20, windowMs = 60_000 } = {}) {
     return ++entry.count <= max;
   };
 }
+
+// Upload tickets: one adb file command on `PUT /adb` of the direct port. A separate key label,
+// so a stream ticket never opens an upload and an upload ticket never opens a stream.
+export const UPLOAD_TICKET_TTL_MS = 60_000;
+const UPLOAD_KEY_LABEL = "emuly-upload-ticket-v1";
+const MAX_UPLOAD_TICKET_LENGTH = 16_384;
+
+function uploadKey(phoneKey) {
+  if (typeof phoneKey !== "string" || !/^[0-9a-f]{64}$/.test(phoneKey)) throw new Error("invalid phone key");
+  return createHmac("sha256", Buffer.from(phoneKey, "hex")).update(UPLOAD_KEY_LABEL).digest();
+}
+
+/** payload: { kind: "upload", codespace, phoneId, userId, args, timeout_s, files: [{ name, size, sha256 }], nonce, exp } */
+export function signUploadTicket(phoneKey, payload) {
+  const part = Buffer.from(JSON.stringify({ ...payload, kind: "upload" })).toString("base64url");
+  return `${part}.${mac(uploadKey(phoneKey), part).toString("base64url")}`;
+}
+
+/**
+ * Checks signature, kind, expiry, codespace, file list, then nonce (last, so a bad ticket does not use a nonce slot).
+ * Returns { ok: true, payload } or { ok: false, reason }.
+ */
+export function verifyUploadTicket(phoneKey, ticket, { codespace, nonces, now = Date.now() }) {
+  if (typeof ticket !== "string" || ticket.length > MAX_UPLOAD_TICKET_LENGTH) return { ok: false, reason: "format" };
+  const dot = ticket.indexOf(".");
+  if (dot < 1 || dot !== ticket.lastIndexOf(".")) return { ok: false, reason: "format" };
+  const part = ticket.slice(0, dot);
+  const given = Buffer.from(ticket.slice(dot + 1), "base64url");
+  const expected = mac(uploadKey(phoneKey), part);
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return { ok: false, reason: "signature" };
+  let payload;
+  try { payload = JSON.parse(Buffer.from(part, "base64url").toString("utf8")); }
+  catch { return { ok: false, reason: "format" }; }
+  if (!payload || typeof payload !== "object" || payload.kind !== "upload") return { ok: false, reason: "format" };
+  if (!Number.isSafeInteger(payload.exp) || payload.exp <= now || payload.exp > now + UPLOAD_TICKET_TTL_MS + 5_000) return { ok: false, reason: "expired" };
+  if (payload.codespace !== codespace) return { ok: false, reason: "phone" };
+  if (!Array.isArray(payload.args) || !Array.isArray(payload.files) || !payload.files.length
+    || !payload.files.every(file => file && typeof file.name === "string" && Number.isSafeInteger(file.size) && file.size >= 0
+      && typeof file.sha256 === "string" && /^[0-9a-f]{64}$/.test(file.sha256))) return { ok: false, reason: "format" };
+  if (typeof payload.nonce !== "string" || !/^[A-Za-z0-9_-]{16,64}$/.test(payload.nonce) || !nonces.claim(payload.nonce, payload.exp, now)) {
+    return { ok: false, reason: "replay" };
+  }
+  return { ok: true, payload };
+}

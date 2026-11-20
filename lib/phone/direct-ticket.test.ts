@@ -90,3 +90,29 @@ test("no secret or a short secret gives no key and no ticket", () => {
   assert.notEqual(phoneDirectKey("phone-a", SECRET), phoneDirectKey("phone-b", SECRET));
   assert.match(directKeyFile("phone-a", SECRET)!, /^[0-9a-f]{64}\nphone-a\n$/);
 });
+
+test("upload tickets: valid once, locked to their kind, phone and time", async () => {
+  const { issueUploadTicket } = await import("./direct-ticket.ts");
+  const { verifyUploadTicket } = await import("../../phone/runner/direct-ticket.mjs");
+  const files = [{ name: "a.apk", size: 10, sha256: "a".repeat(64) }];
+  const upload = { codespaceName: "phone-a", phoneId: "ph_a", userId: 7, args: ["install", "-r", "@file0"], timeout_s: 120, files };
+  const nonces = createNonceStore();
+  const issued = issueUploadTicket(upload, { secret: SECRET, now: NOW })!;
+  const verify = (ticket: string | undefined, over = {}) => verifyUploadTicket(key, ticket, { codespace: "phone-a", nonces, now: NOW, ...over });
+  const ok = verify(issued.ticket);
+  assert.equal(ok.ok, true);
+  assert.deepEqual(ok.payload.args, upload.args);
+  assert.deepEqual(ok.payload.files, files);
+  assert.equal(verify(issued.ticket).reason, "replay");
+  assert.equal(verify(issueUploadTicket(upload, { secret: SECRET, now: NOW - 61_000 })!.ticket).reason, "expired");
+  assert.equal(verify(issueUploadTicket({ ...upload, codespaceName: "phone-b" }, { secret: SECRET, now: NOW })!.ticket).reason, "signature");
+  // A stream ticket never opens an upload, and an upload ticket never opens a stream.
+  assert.equal(verify(issueDirectTicket(input, { secret: SECRET, now: NOW })).reason, "signature");
+  assert.equal(check(issueUploadTicket(upload, { secret: SECRET, now: NOW })!.ticket).reason, "signature");
+  // Changed args break the signature.
+  const [part, sig] = issueUploadTicket(upload, { secret: SECRET, now: NOW })!.ticket.split(".");
+  const payload = JSON.parse(Buffer.from(part, "base64url").toString());
+  payload.args = ["shell", "rm", "-rf", "/sdcard"];
+  assert.equal(verify(`${Buffer.from(JSON.stringify(payload)).toString("base64url")}.${sig}`).reason, "signature");
+  assert.equal(issueUploadTicket(upload, {}), undefined);
+});

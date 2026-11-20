@@ -16,6 +16,7 @@ import { createDirectServer } from "./direct-server.mjs";
 import { RELAY_MAX_PAYLOAD } from "./links-protocol.mjs";
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdtemp, open, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -130,31 +131,39 @@ async function streamFiles(req, directory, files, install) {
   for (let index = 0; index < files.length; index++) {
     const path = join(directory, `file${index}${fileExtension(files[index].name, install)}`);
     const handle = await open(path, "w", 0o600);
+    const hash = typeof files[index].sha256 === "string" ? createHash("sha256") : undefined;
     try {
       let remaining = files[index].size;
       while (remaining > 0) {
         const part = await read(Math.min(remaining, 1024 * 1024));
         if (!part.length) throw new HttpError(400, `Upload ended before file${index} was complete.`);
         await handle.write(part);
+        hash?.update(part);
         remaining -= part.length;
         total += part.length;
         if (total > ADB_UPLOAD_MAX_BYTES) throw new HttpError(413, "Uploads are larger than 200 MB.");
       }
     } finally { await handle.close(); }
+    if (hash && hash.digest("hex") !== files[index].sha256) throw new HttpError(400, `file${index} does not match its SHA-256 in the ticket.`);
     paths.push(path);
   }
   if ((await read(1)).length) throw new HttpError(413, "The upload has bytes that belong to no file.");
   return paths;
 }
 
-/** New clients send raw bytes plus a small JSON header. Old JSON-only calls still work. */
-async function readAdbRequest(req) {
-  const header = req.headers["x-emuly-adb"];
-  if (typeof header === "string") {
+/**
+ * New clients send raw bytes plus a small JSON header. Old JSON-only calls still work.
+ * A direct upload (port 8791) passes `ticket`: the signed ticket gives args and files, and the header is ignored.
+ */
+async function readAdbRequest(req, ticket) {
+  const header = ticket ? undefined : req.headers["x-emuly-adb"];
+  if (ticket || typeof header === "string") {
     if (req.headers["content-type"] !== "application/octet-stream") throw new HttpError(415, "Expected binary file content.");
-    let meta;
-    try { meta = JSON.parse(header); }
-    catch { throw new HttpError(400, "invalid adb file header"); }
+    let meta = ticket;
+    if (!meta) {
+      try { meta = JSON.parse(header); }
+      catch { throw new HttpError(400, "invalid adb file header"); }
+    }
     const files = Array.isArray(meta?.files) ? meta.files : [];
     if (files.length > ADB_FILES_MAX) throw new HttpError(400, `Attach at most ${ADB_FILES_MAX} files.`);
     let declared = 0;
@@ -165,6 +174,7 @@ async function readAdbRequest(req) {
       if (declared > ADB_UPLOAD_MAX_BYTES) throw new HttpError(413, "Uploads are larger than 200 MB.");
     }
     const args = adbArguments(meta.args, files.length);
+    if (ticket && !["install", "install-multiple", "push"].includes(args[0])) throw new HttpError(400, "A direct upload runs only install, install-multiple or push.");
     const seconds = adbTimeout(meta.timeout_s, args);
     const directory = await mkdtemp(join(tmpdir(), "emuly-adb-"));
     try {
@@ -182,13 +192,13 @@ async function readAdbRequest(req) {
 }
 
 /** One file command or ordinary adb call. Temp files are removed in every path. */
-async function adbRoute(req) {
+async function adbRoute(req, ticket) {
   if (adbBusy) throw new HttpError(409, "Another adb command is running. Retry when it finishes.");
   let request;
   let directory;
   adbBusy = true;
   try {
-    request = await readAdbRequest(req);
+    request = await readAdbRequest(req, ticket);
     directory = request.directory;
     if (!directory && isDownload(request.args)) directory = await mkdtemp(join(tmpdir(), "emuly-adb-"));
     if (!(await booted())) throw new HttpError(409, "Android is not ready. Start the phone first.");
@@ -255,7 +265,7 @@ function screenshot() {
 }
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 15, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream"], avd: "t", api_level: 36, booted: await booted() }),
+  "GET /health": async () => ({ ok: true, version: 16, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload"], avd: "t", api_level: 36, booted: await booted() }),
 
   "POST /boot": ({ diagnosticOperation }) => {
     return boot ??= exclusive(async () => {
@@ -425,6 +435,8 @@ for (const [signal, code] of [["SIGTERM", 143], ["SIGINT", 130]]) process.once(s
 // The public direct port (direct-server.mjs). The key file is written by the server's private setup.
 const direct = createDirectServer({ ws, keyFile: join(ROOT, ".direct-key"), port: Number(process.env.DIRECT_PORT ?? 8791),
   qualities, log: message => console.log(message),
+  // Direct upload: the ticket carries the args. Only file commands get a ticket, so the result is JSON.
+  upload: (req, ticket) => adbRoute(req, ticket),
   attach: (client, quality, options) => scrcpy.attach(client, quality, options) });
 void direct.start();
 const streams = new ws.WebSocketServer({ noServer: true, maxPayload: 16_384, perMessageDeflate: false });

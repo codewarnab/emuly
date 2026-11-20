@@ -11,8 +11,25 @@ first file. The runner picks a temporary path, uses it for one command, and dele
 - **Pull and bugreport:** `["pull","/sdcard/x.png"]` and `["bugreport"]` stream bytes with a
   `Content-Disposition` filename. Save them to a laptop path.
 
-Limits: 200 MB total upload, 100 MB per pull or bugreport. A `@fileN` that was not uploaded,
-or an uploaded file that args never references, is rejected before adb runs.
+Limits: 4 MB of files on this route, 100 MB per pull or bugreport. A `@fileN` that was not
+uploaded, or an uploaded file that args never references, is rejected before adb runs.
+
+## Large files (over 4 MB, up to 200 MB)
+
+The `/adb` route cannot take more than 4 MB: the host refuses a larger body with an HTML page.
+Check the file size first. For a larger `install`, `install-multiple` or `push`, use two steps:
+
+1. `POST /v1/phones/<id>/adb/upload` with JSON
+   `{"args":["push","@file0","/sdcard/Download/x.zip"],"files":[{"name":"x.zip","size":N,"sha256":"<hex>"}]}`.
+   `size` is in bytes. `sha256` is the lowercase SHA-256 of the file. `timeout_s` is optional.
+2. The answer has `url`, `method` and `headers`. Within 60 s, send `PUT <url>` with those
+   headers and the bytes of file0, file1, … one after another as the body. Use
+   `curl -X PUT -H "Authorization: …" -H "Content-Type: application/octet-stream" --data-binary @x.zip <url>`.
+
+The answer is the usual `{exit_code, stdout, stderr}`. The ticket works once and only for those
+args and files: for a retry, repeat step 1. `401 invalid_ticket` means the ticket expired or was
+used. If step 1 returns `503 direct_upload_unavailable`, or the PUT cannot reach `app.github.dev`,
+use the Apps endpoint below for an APK. That endpoint sends 4 MiB chunks.
 
 ## Install an APK with the Apps endpoint (alternative)
 

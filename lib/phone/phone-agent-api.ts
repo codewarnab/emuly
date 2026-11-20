@@ -33,6 +33,10 @@ class InputError extends Error {
   constructor(status: number, message: string) { super(message); this.status = status; }
 }
 function bad(status: number, message: string): never { throw new InputError(status, message); }
+class InlineLimitError extends Error {}
+const inlineLimitBody = (id: string) => ({ error: "upload_too_large", limit_bytes: ADB_INLINE_MAX_BYTES,
+  message: `This route takes at most ${ADB_INLINE_MAX_BYTES / (1024 * 1024)} MB of files. For larger files (up to ${ADB_UPLOAD_MAX_BYTES / (1024 * 1024)} MB), `
+    + `POST /v1/phones/${id}/adb/upload with JSON {args, timeout_s, files: [{name, size, sha256}]}, then PUT the file bytes to the returned url.` });
 
 async function readJson(request: Request, limit: number): Promise<Record<string, unknown>> {
   if (!request.headers.get("content-type")?.startsWith("application/json")) bad(415, "Expected JSON.");
@@ -57,10 +61,18 @@ async function readJson(request: Request, limit: number): Promise<Record<string,
 
 type UploadedFile = { name: string; bytes: Buffer };
 
+/**
+ * Vercel refuses a function request body over 4.5 MB before this code runs, with an HTML page.
+ * So the multipart route takes at most 4 MB, and larger files use `POST /v1/phones/<id>/adb/upload`.
+ */
+export const ADB_INLINE_MAX_BYTES = 4 * 1024 * 1024;
+const FILE_COMMANDS = new Set(["install", "install-multiple", "push"]);
+export type UploadTicket = { url: string; ticket: string; exp: number };
+
 /** Multipart adb carries `args` plus file0, file1, … . The client never names a runner path. */
 async function readAdbMultipart(request: Request): Promise<{ args: unknown; timeout?: number; files: UploadedFile[] }> {
-  if (Number(request.headers.get("content-length")) > ADB_UPLOAD_MAX_BYTES + 2 * 1024 * 1024) {
-    bad(413, `Attach at most ${ADB_UPLOAD_MAX_BYTES / (1024 * 1024)} MB in total.`);
+  if (Number(request.headers.get("content-length")) > ADB_INLINE_MAX_BYTES) {
+    throw new InlineLimitError();
   }
   let form: FormData;
   try { form = await request.formData(); }
@@ -89,20 +101,22 @@ async function readAdbMultipart(request: Request): Promise<{ args: unknown; time
     if (files.length >= ADB_FILES_MAX) bad(400, `Attach at most ${ADB_FILES_MAX} files.`);
     const bytes = Buffer.from(await value.arrayBuffer());
     total += bytes.length;
-    if (total > ADB_UPLOAD_MAX_BYTES) bad(413, `Attach at most ${ADB_UPLOAD_MAX_BYTES / (1024 * 1024)} MB in total.`);
+    if (total > ADB_INLINE_MAX_BYTES) throw new InlineLimitError();
     files.push({ name: value.name || `file${index}`, bytes });
   }
   return { args, timeout, files };
 }
 
 /** The agent-facing phone routes: list/read plus lifecycle and adb. Both auth kinds may use them. */
-export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDevice, recording, baseUrl, log, update, skillUpdate, networkHint, waitStepMs = 1_000 }: {
+export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadTicket, agentDevice, recording, baseUrl, log, update, skillUpdate, networkHint, waitStepMs = 1_000 }: {
   user: () => Promise<Identity | null>;
   phones: (userId: number) => Promise<PhoneView[]>;
   phone: (userId: number, id: string) => Promise<PhoneView | undefined>;
   service: Pick<ReturnType<typeof createPhoneService>, "start" | "stop"> & Partial<Pick<ReturnType<typeof createPhoneService>, "requestStop">>;
   adb: (userId: number, id: string, input: { args: string[]; timeout_s: number; binary?: boolean;
     files?: { name: string; bytes: Uint8Array }[] }) => Promise<Response>;
+  /** A signed ticket for a direct upload to the phone, or undefined when the direct port is not available. */
+  uploadTicket?: (userId: number, id: string, input: { args: string[]; timeout_s: number; files: { name: string; size: number; sha256: string }[] }) => Promise<UploadTicket | undefined>;
   agentDevice: (userId: number, id: string) => Promise<unknown>;
   /** Screen recording on the runner. Optional so tests and older wiring need not supply it. */
   recording?: (userId: number, id: string, action: RecordingAction, body?: Record<string, unknown>) => Promise<Response>;
@@ -341,9 +355,62 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, agentDe
           return json({ error: "invalid_response", message: "Invalid adb response. Retry the command." }, 502);
         }
       } catch (error) {
+        if (error instanceof InlineLimitError) return json(inlineLimitBody(id), 413);
         if (loggable) await record(identity, id, args, -1);
         if (error instanceof InputError) return json({ error: "invalid_input", message: error.message }, error.status);
         return fail(error, "The adb request could not be confirmed. Retry the command.");
+      }
+    },
+    /**
+     * Step 1 of a large upload. JSON in: {args, timeout_s?, files: [{name, size, sha256}]}.
+     * JSON out: {url, method, headers, expires_at}. The agent then PUTs the files' bytes, one after another,
+     * straight to the phone. The ticket locks the args and each file's size and SHA-256, and it works once.
+     */
+    async adbUpload(request: Request, id: string) {
+      const identity = await user();
+      if (!identity) return json({ error: "unauthorized" }, 401);
+      if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden" }, 403);
+      try {
+        const body = await readJson(request, 64 * 1024);
+        if (!Array.isArray(body.files) || !body.files.length) bad(400, "files must be a list of {name, size, sha256}.");
+        if (body.files.length > ADB_FILES_MAX) bad(400, `Attach at most ${ADB_FILES_MAX} files.`);
+        let total = 0;
+        const files = body.files.map((file: unknown, index: number) => {
+          const item = file as Record<string, unknown> | null;
+          if (!item || typeof item !== "object" || typeof item.name !== "string" || !item.name || item.name.length > 255
+            || !Number.isSafeInteger(item.size) || (item.size as number) < 0
+            || typeof item.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(item.sha256)) {
+            bad(400, `files[${index}] needs name, size in bytes, and sha256 as 64 lowercase hex characters.`);
+          }
+          total += item.size as number;
+          return { name: item.name, size: item.size as number, sha256: item.sha256 };
+        });
+        if (total > ADB_UPLOAD_MAX_BYTES) {
+          return json({ error: "upload_too_large", limit_bytes: ADB_UPLOAD_MAX_BYTES,
+            message: `Attach at most ${ADB_UPLOAD_MAX_BYTES / (1024 * 1024)} MB in total.` }, 413);
+        }
+        const args = adbArguments(body.args, files.length);
+        if (!FILE_COMMANDS.has(args[0])) bad(400, "adb/upload runs only install, install-multiple or push. Send other commands to /adb.");
+        const timeout_s = adbTimeout(body.timeout_s, args);
+        const stored = await phone(identity.id, id);
+        if (!stored) return json({ error: "not_found", message: "Phone not found." }, 404);
+        if (stored.state !== "running" || stored.android_state !== "ready") {
+          return json({ error: "phone_not_ready",
+            message: `The phone is ${stored.state} with Android ${stored.android_state}. Start it with POST /v1/phones/${id}/start, then retry when GET /v1/phones/${id} shows running and ready.` }, 409);
+        }
+        const issued = await uploadTicket?.(identity.id, id, { args, timeout_s, files });
+        if (!issued) {
+          return json({ error: "direct_upload_unavailable", limit_bytes: ADB_INLINE_MAX_BYTES,
+            message: `Direct upload is not available for this phone. Send files of at most ${ADB_INLINE_MAX_BYTES / (1024 * 1024)} MB to POST /v1/phones/${id}/adb, or install an APK with POST /v1/phones/${id}/app-installs.` }, 503);
+        }
+        // The audit log gets the command when Emuly signs it. The phone runs only these args.
+        await record(identity, id, args, 0);
+        return json({ url: issued.url, method: "PUT", expires_at: new Date(issued.exp).toISOString(),
+          headers: { Authorization: `Emuly-Ticket ${issued.ticket}`, "Content-Type": "application/octet-stream" },
+          message: "PUT the bytes of file0, file1, … one after another as the body, before expires_at. The ticket works once." });
+      } catch (error) {
+        if (error instanceof InputError) return json({ error: "invalid_input", message: error.message }, error.status);
+        return fail(error, "The upload ticket could not be made. Retry.");
       }
     },
   };

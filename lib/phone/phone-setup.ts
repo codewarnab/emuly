@@ -9,7 +9,7 @@ import { AGENT_DEVICE_VERSION } from "../agent-device-version.ts";
 import { collectProgress, measure, progressCursor, diagnosticHealth, diagnosticOperation } from "../diagnostics/diagnostics.ts";
 import { validateStep, type Step } from "../diagnostics/diagnostic-contract.ts";
 // Must match the version that phone/runner/runner.mjs reports in GET /health.
-export const RUNNER_VERSION = 15;
+export const RUNNER_VERSION = 16;
 
 /** Files copied into each codespace, relative to `phone/` in this repository. */
 export const FILES = ["scripts/progress.sh", "scripts/node-path.sh", "scripts/read-progress.py", "scripts/bounded-log.py", "scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "scripts/autostart.sh", "runner/runner.mjs", "runner/agent-device-proxy.mjs", "runner/apps.mjs", "runner/apps-protocol.mjs", "runner/adb-protocol.mjs", "runner/apk-download.mjs", "runner/scrcpy.mjs", "runner/scrcpy-hub.mjs", "runner/scrcpy-protocol.mjs", "runner/paste-text.mjs", "runner/recording.mjs", "runner/mp4-mux.mjs", "runner/links.mjs", "runner/links-protocol.mjs", "runner/direct-ticket.mjs", "runner/direct-server.mjs"];

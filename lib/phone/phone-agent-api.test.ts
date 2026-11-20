@@ -331,3 +331,42 @@ test("recording start needs Android ready", async () => {
   assert.equal(response.status, 409);
   assert.equal((await response.json()).error, "phone_not_ready");
 });
+
+test("multipart adb over 4 MB answers JSON that names the limit and the upload route", async () => {
+  const { api } = fixture();
+  const big = multipart(`/v1/phones/${stored.id}/adb`, ["push", "@file0", "/sdcard/x"], [{ name: "x", body: "a".repeat(4 * 1024 * 1024 + 1) }]);
+  const response = await api.adb(big, stored.id);
+  assert.equal(response.status, 413);
+  const body = await response.json();
+  assert.equal(body.error, "upload_too_large");
+  assert.equal(body.limit_bytes, 4 * 1024 * 1024);
+  assert.match(body.message, /adb\/upload/);
+});
+
+test("adb/upload checks the files and args, then returns a direct PUT with the ticket", async () => {
+  const tickets: unknown[] = [];
+  const { api } = fixture({ uploadTicket: async (userId, id, input) => { tickets.push({ userId, id, input });
+    return { url: "https://space-8791.app.github.dev/adb", ticket: "t.sig", exp: 1_800_000_060_000 }; } });
+  const path = `/v1/phones/${stored.id}/adb/upload`;
+  const up = (body: unknown) => post(path, body, { origin: "https://emuly.test" });
+  const file = { name: "a.apk", size: 50_000_000, sha256: "c".repeat(64) };
+  const ok = await api.adbUpload(up({ args: ["install", "-r", "@file0"], files: [file] }), stored.id);
+  assert.equal(ok.status, 200);
+  const body = await ok.json();
+  assert.equal(body.url, "https://space-8791.app.github.dev/adb");
+  assert.equal(body.method, "PUT");
+  assert.equal(body.headers.Authorization, "Emuly-Ticket t.sig");
+  assert.deepEqual(tickets, [{ userId: 7, id: stored.id, input: { args: ["install", "-r", "@file0"], timeout_s: 30, files: [file] } }]);
+
+  assert.equal((await api.adbUpload(up({ args: ["shell", "ls"], files: [file] }), stored.id)).status, 400);
+  assert.equal((await api.adbUpload(up({ args: ["install", "@file0"], files: [{ ...file, sha256: "x" }] }), stored.id)).status, 400);
+  const huge = await api.adbUpload(up({ args: ["install", "@file0"], files: [{ ...file, size: 201 * 1024 * 1024 }] }), stored.id);
+  assert.equal(huge.status, 413);
+  assert.equal((await api.adbUpload(up({ args: ["install", "@file0"], files: [file] }), "phone-other")).status, 404);
+  assert.equal(tickets.length, 1);
+
+  const off = fixture().api;
+  const unavailable = await off.adbUpload(up({ args: ["install", "@file0"], files: [file] }), stored.id);
+  assert.equal(unavailable.status, 503);
+  assert.equal((await unavailable.json()).error, "direct_upload_unavailable");
+});

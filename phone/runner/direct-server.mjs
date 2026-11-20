@@ -1,8 +1,9 @@
-// The direct (public) port. It serves only `GET /stream` as a WebSocket with a signed ticket.
+// The direct (public) port. It serves `GET /stream` as a WebSocket and `PUT /adb` (a large file
+// for one adb command), each with its own kind of signed ticket.
 // Every other request gets 404. With no valid phone key it does not listen (fail closed).
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { createNonceStore, createRateLimiter, TICKET_TTL_MS, verifyTicket } from "./direct-ticket.mjs";
+import { createNonceStore, createRateLimiter, TICKET_TTL_MS, UPLOAD_TICKET_TTL_MS, verifyTicket, verifyUploadTicket } from "./direct-ticket.mjs";
 
 const KEY = /^[0-9a-f]{64}$/;
 
@@ -23,12 +24,14 @@ export async function readPhoneKey(file) {
 
 /**
  * attach(client, quality, { audio }) connects an accepted socket to the shared video stream.
+ * upload(req, ticketPayload) runs one adb file command with the request body as the files and returns JSON.
  * Returns { start, stop, revoke, clients, listening }.
  */
-export function createDirectServer({ ws, keyFile, port = 8791, host = "127.0.0.1", attach,
-  maxViewers = 8, upgradesPerMinute = 20, keyPollMs = 5_000, qualities = /** @type {Record<string, unknown>} */ ({ auto: true }), log = () => {} }) {
+export function createDirectServer({ ws, keyFile, port = 8791, host = "127.0.0.1", attach, upload = /** @type {((req: any, ticket: any) => Promise<unknown>) | undefined} */ (undefined),
+  maxViewers = 8, upgradesPerMinute = 20, uploadsPerMinute = 10, keyPollMs = 5_000, qualities = /** @type {Record<string, unknown>} */ ({ auto: true }), log = () => {} }) {
   const nonces = createNonceStore();
   const allow = createRateLimiter({ max: upgradesPerMinute, windowMs: 60_000 });
+  const allowUpload = createRateLimiter({ max: uploadsPerMinute, windowMs: 60_000 });
   const sockets = new ws.WebSocketServer({ noServer: true, maxPayload: 16_384, perMessageDeflate: false });
   const clients = new Map(); // client -> payload
   const revoked = { all: 0, users: new Map() };
@@ -41,9 +44,35 @@ export function createDirectServer({ ws, keyFile, port = 8791, host = "127.0.0.1
     socket.destroy();
   }
 
-  function isRevoked(payload) {
-    const issued = payload.exp - TICKET_TTL_MS;
+  function isRevoked(payload, ttl = TICKET_TTL_MS) {
+    const issued = payload.exp - ttl;
     return issued <= revoked.all || issued <= (revoked.users.get(payload.userId) ?? 0);
+  }
+
+  /** `PUT /adb` with `Authorization: Emuly-Ticket <ticket>`. The ticket, not the request, gives the args. */
+  async function handle(req, res) {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    if (req.method !== "PUT" || url.pathname !== "/adb" || !key || !upload) return notFound(req, res);
+    const send = (status, value, close = false) => {
+      res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", ...(close ? { connection: "close" } : {}) });
+      res.end(JSON.stringify(value));
+      // A refused body is not read: close the socket instead of taking up to 200 MB.
+      if (close) res.once("finish", () => req.destroy());
+    };
+    if (!allowUpload(clientAddress(req))) return send(429, { error: "rate_limited", message: "Too many uploads. Wait one minute." }, true);
+    const match = /^Emuly-Ticket ([A-Za-z0-9_.-]+)$/.exec(req.headers.authorization ?? "");
+    const result = verifyUploadTicket(key, match?.[1], { codespace, nonces });
+    if (!result.ok || isRevoked(result.payload, UPLOAD_TICKET_TTL_MS)) {
+      log(`direct: upload refused (${result.ok ? "revoked" : result.reason})`);
+      return send(401, { error: "invalid_ticket",
+        message: "The upload ticket is missing, expired, already used, or for another phone. Ask Emuly for a new ticket." }, true);
+    }
+    try { send(200, await upload(req, result.payload)); }
+    catch (error) {
+      const status = Number.isInteger(error?.status) ? error.status : 500;
+      send(status, { error: status === 413 ? "upload_too_large" : status === 409 ? "phone_conflict" : status < 500 ? "invalid_input" : "upload_failed",
+        message: error?.status ? error.message : "The upload failed. Retry with a new ticket." }, !req.complete);
+    }
   }
 
   function upgrade(req, socket, head) {
@@ -69,7 +98,7 @@ export function createDirectServer({ ws, keyFile, port = 8791, host = "127.0.0.1
     key = next?.key;
     codespace = next?.codespace;
     if (key && !server) {
-      server = createServer(notFound);
+      server = createServer((req, res) => void handle(req, res).catch(() => { if (!res.headersSent) res.writeHead(500); res.end(); }));
       server.on("upgrade", upgrade);
       server.on("clientError", (_error, socket) => socket.destroy());
       await new Promise((resolve, reject) => server.once("error", reject).listen(port, host, resolve));

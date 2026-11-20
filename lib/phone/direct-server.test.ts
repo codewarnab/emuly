@@ -137,3 +137,46 @@ test("at most 8 viewers and 20 upgrade tries a minute", async () => {
     for (const r of [a, b]) if (r.ok) r.socket.close();
   } finally { await t.done(); }
 });
+
+function put(port: number, path: string, body: Buffer, headers: Record<string, string>): Promise<{ status: number; body: Record<string, unknown> }> {
+  return new Promise((resolve, reject) => {
+    const req = request({ host: "127.0.0.1", port, method: "PUT", path, headers: { "content-type": "application/octet-stream", ...headers } }, res => {
+      const chunks: Buffer[] = [];
+      res.on("data", chunk => chunks.push(chunk));
+      res.on("end", () => resolve({ status: res.statusCode!, body: JSON.parse(Buffer.concat(chunks).toString() || "{}") }));
+    });
+    req.on("error", reject);
+    req.end(body);
+  });
+}
+
+test("PUT /adb runs the ticket's command once and refuses a missing or used ticket", async () => {
+  const { issueUploadTicket } = await import("./direct-ticket.ts");
+  const dir = await mkdtemp(join(tmpdir(), "emuly-direct-"));
+  const keyFile = join(dir, ".direct-key");
+  await writeFile(keyFile, directKeyFile("phone-a", SECRET)!);
+  const seen: { args: unknown; bytes: string }[] = [];
+  const server = createDirectServer({ ws, keyFile, port: 0, keyPollMs: 50, attach: () => {},
+    upload: async (req: AsyncIterable<Buffer>, payload: { args: unknown }) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk);
+      seen.push({ args: payload.args, bytes: Buffer.concat(chunks).toString() });
+      return { exit_code: 0, stdout: "Success", stderr: "" };
+    } });
+  await server.start();
+  try {
+    const { ticket } = issueUploadTicket({ codespaceName: "phone-a", phoneId: "ph_a", userId: 7, args: ["push", "@file0", "/sdcard/x"],
+      timeout_s: 30, files: [{ name: "x", size: 5, sha256: "b".repeat(64) }] }, { secret: SECRET })!;
+    const auth = { authorization: `Emuly-Ticket ${ticket}` };
+    const first = await put(server.port, "/adb", Buffer.from("hello"), auth);
+    assert.equal(first.status, 200);
+    assert.equal(first.body.stdout, "Success");
+    assert.deepEqual(seen, [{ args: ["push", "@file0", "/sdcard/x"], bytes: "hello" }]);
+    assert.equal((await put(server.port, "/adb", Buffer.from("hello"), auth)).status, 401);
+    const none = await put(server.port, "/adb", Buffer.from("hello"), {});
+    assert.equal(none.status, 401);
+    assert.equal(none.body.error, "invalid_ticket");
+    assert.equal(seen.length, 1);
+    assert.equal(await httpStatus(server.port, "POST", "/adb"), 404);
+  } finally { server.stop(); await rm(dir, { recursive: true, force: true }); }
+});
