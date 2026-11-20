@@ -3,7 +3,7 @@ import { waitUntil } from "@vercel/functions";
 import { withLease, independentWork } from "../data/coordination.ts";
 import type { SetupResult } from "./phone-setup.ts";
 import { DEFAULT_DEVICE_PRESET, devicePreset } from "../shared/device-presets.ts";
-import { validIdle } from "../shared/idle.ts";
+import { PROVIDER_IDLE_MIN, validIdle } from "../shared/idle.ts";
 import { randomBytes } from "node:crypto";
 import { transaction, type DatabaseQueries } from "../data/async-database.ts";
 import { GitHubError, type Codespace, type createGitHubClient } from "../github/github.ts";
@@ -18,7 +18,7 @@ type GitHub = ReturnType<typeof createGitHubClient>;
 type StoredPhone = {
   id: string; codespace_name: string; state: string; state_detail: string | null;
   retention_min: number; last_started_at: string | null; last_stopped_at: string | null;
-  cores: number | null; machine: string; idle_timeout_min: number; device_preset?: string;
+  cores: number | null; machine: string; idle_timeout_min: number; provider_idle_min?: number | null; device_preset?: string;
   retention_at: string | null;
   stop_reason: string | null;
 };
@@ -382,7 +382,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       if (codespace.state === "Available" && previous.state !== "running") void diagnostics.providerAvailable(userId, id);
       if (["stopped", "deleted", "stopping"].includes(state)) {
         if (["ShuttingDown", "Shutdown", "Deleted", "Failed"].includes(codespace.state)) {
-          void diagnostics.observeStop(userId, id, { state: codespace.state, idleTimeoutMin: previous.idle_timeout_min, lastUsedAt: codespace.last_used_at });
+          void diagnostics.observeStop(userId, id, { state: codespace.state, idleTimeoutMin: previous.provider_idle_min ?? previous.idle_timeout_min, lastUsedAt: codespace.last_used_at });
         }
         disconnect?.(userId, id, previous.codespace_name);
       }
@@ -735,7 +735,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
           if (count >= maxPhones) throw new PhoneInputError(`You can have up to ${maxPhones} ${maxPhones === 1 ? "phone" : "phones"} here. Delete a phone to make another.`);
         }
         await queries.execute({ sql: `INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state,
-          created_at, idle_timeout_min, retention_min, device_preset) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, 43200, ?)`, args: [id, userId, `pending:${id}`, input.repository, input.machine ?? "Choosing machine", iso(), input.idleTimeoutMin, input.devicePreset ?? DEFAULT_DEVICE_PRESET] });
+          created_at, idle_timeout_min, provider_idle_min, retention_min, device_preset) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, 43200, ?)`, args: [id, userId, `pending:${id}`, input.repository, input.machine ?? "Choosing machine", iso(), input.idleTimeoutMin, PROVIDER_IDLE_MIN, input.devicePreset ?? DEFAULT_DEVICE_PRESET] });
         await queries.execute({ sql: `INSERT INTO phone_creations (phone_id, display_name, outcome, requested_at)
           VALUES (?, ?, 'unconfirmed', ?)`, args: [id, id, iso()] });
       });
@@ -752,9 +752,9 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         submitted = true;
         const result = await diagnostics.scope(operationId, () => measure("github_create", () => github.createCodespace(userId, id, {
           repository_id: input.repositoryId, machine: machine.name, devcontainer_path: input.devcontainerPath,
-          // The current plan chooses the API maximum for new phones; existing settings stay as recorded.
-          // https://docs.github.com/en/rest/codespaces/codespaces#create-a-codespace-for-the-authenticated-user
-          idle_timeout_minutes: input.idleTimeoutMin, retention_period_minutes: 43200,
+          // GitHub's timer does not count API calls, so it gets the maximum. Emuly's idle check
+          // enforces input.idleTimeoutMin (lib/phone/idle-stop.ts). See PROVIDER_IDLE_MIN.
+          idle_timeout_minutes: PROVIDER_IDLE_MIN, retention_period_minutes: 43200,
         })));
         await database.execute({ sql: "UPDATE phones SET last_started_at = ? WHERE user_id = ? AND id = ?", args: [iso(), userId, id] });
         await confirmCreation(userId, id, result, "emuly");

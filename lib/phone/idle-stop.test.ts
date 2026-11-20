@@ -2,20 +2,21 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createClient } from "../data/async-database.ts";
 import { migrateHosted } from "../data/hosted-migrations.ts";
-import { stopIdlePhones } from "./idle-stop.ts";
+import { ANDROID_UNKNOWN_GRACE_MS, stopIdlePhones } from "./idle-stop.ts";
 import { createActivity, androidIdleMs, ACTIVITY_WRITE_MS } from "./last-activity.ts";
 
 const NOW = Date.parse("2026-11-14T12:00:00Z");
 const ago = (min: number) => new Date(NOW - min * 60_000).toISOString();
 
-async function fixture(lastActivity: string | null, idleMin = 30) {
+async function fixture(lastActivity: string | null, idleMin = 30, androidState = "ready", started: string | null = null) {
   const client = createClient({ url: "file::memory:" });
   await migrateHosted(client);
   await client.executeMultiple(`
     INSERT INTO users (id, github_id, login, token_cipher, token_scopes, created_at, last_seen_at)
       VALUES (1, 11, 'synthetic-user', X'00', 'codespace', '2026-01-01', '2026-01-01');
     INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state, android_state, created_at, idle_timeout_min)
-      VALUES ('p1', 1, 'space-1', 'fixture/template', 'fixture', 'running', 'ready', '2026-11-01', ${idleMin});`);
+      VALUES ('p1', 1, 'space-1', 'fixture/template', 'fixture', 'running', '${androidState}', '2026-11-01', ${idleMin});`);
+  if (started) await client.execute({ sql: "UPDATE phones SET last_started_at = ?", args: [started] });
   if (lastActivity) await client.execute({ sql: "UPDATE phones SET last_activity_at = ?", args: [lastActivity] });
   return client;
 }
@@ -53,13 +54,34 @@ test("a recent Android input (a scrcpy click) keeps the phone and moves the stor
   } finally { client.close(); }
 });
 
-test("when Android cannot be read, the phone keeps running", async () => {
-  const client = await fixture(ago(90));
+test("when a ready phone's Android cannot be read, it gets a grace time and then stops", async () => {
+  const inGrace = await fixture(ago(40));
+  try { assert.deepEqual((await run(inGrace, null)).stops, []); }
+  finally { inGrace.close(); }
+  const pastGrace = await fixture(ago(30 + ANDROID_UNKNOWN_GRACE_MS / 60_000));
+  try { assert.deepEqual((await run(pastGrace, null)).stops, ["p1"]); }
+  finally { pastGrace.close(); }
+});
+
+test("a phone whose Android failed stops after its idle time from the codespace start, without asking Android", async () => {
+  const client = await fixture(null, 30, "failed", ago(31));
+  try {
+    let asked = false;
+    const stops: string[] = [];
+    await stopIdlePhones({ database: client, clock: () => NOW, androidIdleMs: async () => { asked = true; return 0; },
+      stop: async (_, id) => { stops.push(id); } });
+    assert.deepEqual(stops, ["p1"]);
+    assert.equal(asked, false);
+  } finally { client.close(); }
+});
+
+test("a phone that is still booting is left to the boot code", async () => {
+  const client = await fixture(null, 30, "booting", ago(90));
   try { assert.deepEqual((await run(client, null)).stops, []); }
   finally { client.close(); }
 });
 
-test("a phone with no recorded action yet is left to GitHub's timer", async () => {
+test("a phone with no recorded time at all keeps running", async () => {
   const client = await fixture(null);
   try { assert.deepEqual((await run(client, 99 * 60_000)).stops, []); }
   finally { client.close(); }

@@ -328,4 +328,7 @@ export const MIGRATIONS = [
   `CREATE TABLE IF NOT EXISTS user_network (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, direct_blocked_at INTEGER NOT NULL
   );`,
+  // The idle timeout GitHub got for this codespace (PROVIDER_IDLE_MIN in lib/shared/idle.ts).
+  // NULL for older phones: GitHub got idle_timeout_min for those.
+  `ALTER TABLE phones ADD COLUMN provider_idle_min INTEGER;`,
 ];

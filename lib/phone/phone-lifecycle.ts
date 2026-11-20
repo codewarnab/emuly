@@ -54,7 +54,7 @@ export function decidePhoneTransition({ previous, codespace, androidState, setup
  */
 export function decideRunChanges({ previous, codespace, state, source, open, now }: {
   previous: Pick<LifecyclePhone, "state" | "last_started_at" | "last_stopped_at"> & {
-    cores: number | null; machine: string; idle_timeout_min: number;
+    cores: number | null; machine: string; idle_timeout_min: number; provider_idle_min?: number | null;
   };
   codespace: ProviderObservation; state: string; source: string;
   open?: { id: number; cores: number; started_at: string }; now: number;
@@ -64,8 +64,8 @@ export function decideRunChanges({ previous, codespace, state, source, open, now
   const active = ["Available", "Starting", "Creating", "Provisioning", "Rebuilding"].includes(codespace.state);
   const cores = codespace.machine?.cpus ?? previous.cores ?? (previous.machine === "basicLinux32gb" ? 2 : 4);
   if (open && (state === "stopped" || state === "deleted" || (active && open.cores !== cores))) {
-    // last_used_at is activity, not a stop timestamp. Add the chosen idle window.
-    const idleEnd = Date.parse(codespace.last_used_at ?? "") + previous.idle_timeout_min * 60_000;
+    // last_used_at is activity, not a stop timestamp. Add the idle window that GitHub got.
+    const idleEnd = Date.parse(codespace.last_used_at ?? "") + (previous.provider_idle_min ?? previous.idle_timeout_min) * 60_000;
     const end = state === "stopped" && source === "reconciled" && previous.state !== "stopping" && Number.isFinite(idleEnd)
       ? Math.max(Date.parse(open.started_at), Math.min(now, idleEnd)) : now;
     close = { id: open.id, stoppedAt: new Date(end).toISOString() };

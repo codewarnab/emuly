@@ -32,6 +32,7 @@ test("migrate applies a migration added after the connection was opened", () => 
       ALTER TABLE phones DROP COLUMN agent_device_token_hash;
       ALTER TABLE phones ADD COLUMN runner_secret BLOB; ALTER TABLE phones DROP COLUMN last_activity_at;
       ALTER TABLE phones DROP COLUMN device_preset; DROP TABLE IF EXISTS user_network;
+      ALTER TABLE phones DROP COLUMN provider_idle_min;
       PRAGMA user_version = 11`);
     migrate(database);
     assert.equal((database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, latest);
@@ -126,8 +127,8 @@ test("migrations preserve v1 phones, credentials, sessions and history; defaults
       phone_id: "phone-bbbb", display_name: "phone-bbbb", outcome: "unconfirmed", requested_at: "2026-11-02",
     });
     assert.deepEqual(database.prepare("SELECT * FROM users").get(), user);
-    const { idle_timeout_min, cores, retention_min, stop_reason, android_state, android_started_at, android_error, agent_device_token_hash, last_activity_at, device_preset, ...preserved } = database.prepare("SELECT * FROM phones WHERE id = 'phone-aaaa'").get()!;
-    assert.deepEqual([android_state, android_started_at, android_error, agent_device_token_hash, last_activity_at, device_preset], ["idle", null, null, null, null, "generic"]);
+    const { idle_timeout_min, cores, retention_min, stop_reason, android_state, android_started_at, android_error, agent_device_token_hash, last_activity_at, device_preset, provider_idle_min, ...preserved } = database.prepare("SELECT * FROM phones WHERE id = 'phone-aaaa'").get()!;
+    assert.deepEqual([android_state, android_started_at, android_error, agent_device_token_hash, last_activity_at, device_preset, provider_idle_min], ["idle", null, null, null, null, "generic", null]);
     assert.equal(stop_reason, null);
     const { runner_secret: dropped, ...kept } = { ...phone };
     assert.ok(dropped);

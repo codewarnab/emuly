@@ -21,6 +21,18 @@ test("reconciled idle stops cannot close usage before its start or after the obs
   }
 });
 
+test("a GitHub idle stop uses the idle time that GitHub got, not the user's idle time", () => {
+  const started = "2026-11-07T01:00:00.000Z";
+  const changes = decideRunChanges({
+    previous: { state: "running", last_started_at: started, last_stopped_at: null,
+      cores: 2, machine: "basicLinux32gb", idle_timeout_min: 30, provider_idle_min: 240 },
+    codespace: { state: "Shutdown", last_used_at: "2026-11-07T01:15:00.000Z" },
+    state: "stopped", source: "reconciled", open: { id: 7, cores: 2, started_at: started },
+    now: Date.parse("2026-11-07T06:00:00.000Z"),
+  });
+  assert.equal(changes.close?.stoppedAt, "2026-11-07T05:15:00.000Z");
+});
+
 test("a phone leaves stopping after the stop grace when an external restart reports Available", () => {
   const now = Date.parse("2026-11-07T12:00:00.000Z");
   const previous = { state: "stopping", last_started_at: null, last_stopped_at: null, retention_at: null, retention_min: 43200 };

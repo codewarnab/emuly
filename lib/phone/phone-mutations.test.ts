@@ -102,6 +102,7 @@ test("create records intent before HTTP, chooses an available machine, sends tim
       assert.equal(row.machine, "fixture-machine");
       assert.equal(row.cores, 2);
       assert.equal(row.idle_timeout_min, n === 1 ? 240 : 30);
+      assert.equal(row.provider_idle_min, 240);
       assert.equal(row.retention_min, 43200);
       assert.equal("runner_secret" in row, false);
       f.advance(60_000);
@@ -109,7 +110,7 @@ test("create records intent before HTTP, chooses an available machine, sends tim
     assert.equal(creates, 3);
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM phones").get()?.n, 3);
     assert.deepEqual(bodies.map(body => [body.repository_id, body.machine, body.idle_timeout_minutes, body.retention_period_minutes]),
-      [[123, "fixture-machine", 30, 43200], [123, "fixture-machine", 240, 43200], [123, "fixture-machine", 30, 43200]]);
+      [[123, "fixture-machine", 240, 43200], [123, "fixture-machine", 240, 43200], [123, "fixture-machine", 240, 43200]]);
     assert.ok(bodies.every(body => body.devcontainer_path === input.devcontainerPath));
   } finally { await f.close(); }
 });

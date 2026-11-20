@@ -1,6 +1,13 @@
 /** GitHub accepts an idle timeout from 5 to 240 minutes for a codespace. */
 export const IDLE_MIN = 5;
 export const IDLE_MAX = 240;
+/**
+ * The idle timeout Emuly sends to GitHub for each new codespace. GitHub counts only editor, terminal and
+ * SSH input as activity, not API calls through a forwarded port. So Emuly asks for the maximum, and its own
+ * idle check (lib/phone/idle-stop.ts) stops the phone after the user's idle_timeout_min.
+ * https://docs.github.com/en/codespaces/setting-your-user-preferences/setting-your-timeout-period-for-github-codespaces
+ */
+export const PROVIDER_IDLE_MIN = IDLE_MAX;
 export const IDLE_PRESETS = [15, 30, 60, 120, 240] as const;
 
 export function validIdle(value: unknown): value is number {
