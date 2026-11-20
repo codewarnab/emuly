@@ -1,9 +1,9 @@
 import { asyncDb } from "../data/async-db.ts";
 import "server-only";
-import { shortMessage } from "../shared/short-message.ts";
 import { phoneName } from "../shared/phone-name.ts";
 import { devicePreset, isWide } from "../shared/device-presets.ts";
-import { phoneStatus, phoneEventMessage } from "./phone-status.ts";
+import { phoneStatus } from "./phone-status.ts";
+import { eventRow, type StoredEvent } from "./event-row.ts";
 
 import type { PhoneRow } from "@/lib/shared/fixtures";
 import type { LogRow } from "@/components/ui/log-feed";
@@ -72,8 +72,7 @@ export function phoneCard(phone: Phone): PhoneRow {
 }
 
 export async function phoneEvents(userId: number, id: string): Promise<LogRow[]> {
-  const rows = (await asyncDb().execute({ sql: `SELECT ts, kind, message FROM events WHERE user_id = ? AND phone_id = ?
-    ORDER BY ts DESC, id DESC LIMIT 50`, args: [userId, id] })).rows as unknown as { ts: string; kind: string; message: string }[];
-  return rows.map(row => ({ time: `${row.ts.slice(11, 19)} UTC`, at: row.ts, ok: row.kind === "step", error: row.kind === "error",
-    parts: [{ type: "text", value: phoneEventMessage(row.message.length > 100 ? shortMessage(row.message) : row.message) }] }));
+  const rows = (await asyncDb().execute({ sql: `SELECT ts, kind, message, meta FROM events WHERE user_id = ? AND phone_id = ?
+    ORDER BY ts DESC, id DESC LIMIT 50`, args: [userId, id] })).rows as unknown as StoredEvent[];
+  return rows.map(eventRow);
 }

@@ -4,7 +4,13 @@ import type { LogPart } from "@/lib/shared/fixtures";
 import { utcLabel } from "@/lib/shared/relative-time";
 
 /** `at` is the ISO time used to show when the event happened. */
-export type LogRow = { time: string; at?: string; ok?: boolean; error?: boolean; parts: LogPart[] };
+export type LogRow = {
+  time: string; at?: string; ok?: boolean; error?: boolean; parts: LogPart[];
+  /** True for a call an agent made. The row starts with an [agent] tag. */
+  agent?: boolean;
+  /** The stored command. A click on the row shows it under the text. */
+  detail?: string;
+};
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 /** Rows shown before the rest folds under "View all". */
@@ -14,6 +20,27 @@ const FOLD_AT = 13;
 function dayLabel(key: string) {
   const [, month, day] = key.split("-");
   return `${Number(day)} ${MONTHS[Number(month) - 1] ?? ""}`.trim();
+}
+
+/** A row with a command opens on click to show it. A native <details> needs no client code. */
+function FeedRow({ row }: { row: LogRow }) {
+  const className = `${s.feedRow} ${row.error ? s.feedErr : ""}`;
+  const cells = <>
+    <span className={s.feedT}>
+      {row.at ? <time dateTime={row.at} title={utcLabel(row.at)}>{row.at.slice(11, 16)}</time> : row.time}
+    </span>
+    <span className={s.feedM}>
+      {row.agent && <span className={s.feedAgent}>[agent]</span>}
+      {row.parts.map((p, j) =>
+        p.type === "code" ? <code key={j}>{p.value}</code> : <span key={j}>{p.value}</span>,
+      )}
+    </span>
+  </>;
+  if (!row.detail) return <div className={className}>{cells}</div>;
+  return <details className={s.feedDetails}>
+    <summary className={className} title="Show the command">{cells}</summary>
+    <div className={s.feedCmd}><code>{row.detail}</code></div>
+  </details>;
 }
 
 export function LogFeed({ title, rows, live = true, running, emptyMessage = "No activity yet. Updates will appear when this phone connects." }: {
@@ -38,16 +65,7 @@ export function LogFeed({ title, rows, live = true, running, emptyMessage = "No 
   const render = (list: typeof items) => list.map((item, index) => (
     <Fragment key={index}>
       {item.start && item.dayKey && <h5 className={s.feedDayH}>{dayLabel(item.dayKey)}</h5>}
-      <div className={`${s.feedRow} ${item.row.error ? s.feedErr : ""}`}>
-        <span className={s.feedT}>
-          {item.row.at ? <time dateTime={item.row.at} title={utcLabel(item.row.at)}>{item.row.at.slice(11, 16)}</time> : item.row.time}
-        </span>
-        <span className={s.feedM}>
-          {item.row.parts.map((p, j) =>
-            p.type === "code" ? <code key={j}>{p.value}</code> : <span key={j}>{p.value}</span>,
-          )}
-        </span>
-      </div>
+      <FeedRow row={item.row} />
     </Fragment>
   ));
 

@@ -98,3 +98,10 @@ test("unrelated adb commands are not agent actions", () => {
     ["exec-out", "cat", "/sdcard/x.png"], ["uninstall", "com.example.app"], ["get-state"], ["push", "@file0", "/sdcard/x"]])
     assert.equal(parseAdbAction(args), null, args.join(" "));
 });
+
+test("the agent note goes into meta, even with no action", () => {
+  assert.deepEqual(JSON.parse(adbEventMeta(["shell", "dumpsys", "battery"], 0, undefined, "Read the battery")!), { note: "Read the battery" });
+  assert.deepEqual(JSON.parse(adbEventMeta(["shell", "input", "tap", "1", "2"], 0, 7, "Tap Save")!),
+    { agent_key_id: 7, action: { type: "tap", x: 1, y: 2 }, note: "Tap Save" });
+  assert.equal(adbEventMeta(["shell", "dumpsys", "battery"], 0, undefined, null), null);
+});

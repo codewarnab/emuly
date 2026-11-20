@@ -11,7 +11,7 @@ import { runnerAdb, runnerAgentDevice, runnerLinks, runnerRecording, runnerReque
 import { createPhoneLinksApi } from "./phone/phone-links-api";
 import { issueLinkTicket } from "./phone/link-ticket";
 import { directUploadTicket } from "./phone/direct-upload";
-import { recordPhoneAdb } from "./phone/phone-activity";
+import { recordPhoneAdb, recordPhoneAgentAction } from "./phone/phone-activity";
 import { readUsage, userSettings } from "./data/usage";
 import { SELF_HOST } from "./selfhost";
 import { AGENT_RUNBOOK_VERSION, SKILL_NAME, skillVersion } from "./agent-runbook";
@@ -32,7 +32,7 @@ export function agentPhoneApi() {
   return createPhoneAgentApi({ user: getUser, phones: listPhones, phone: findPhone, service: phoneControl(),
     adb: runnerAdb, uploadTicket: directUploadTicket, agentDevice: runnerAgentDevice, recording: runnerRecording,
     screenshot: (userId, id, scale) => runnerRequest(userId, id, "/screenshot", undefined, scale === undefined ? undefined : { scale: String(scale) }),
-    baseUrl: () => env.baseUrl, log: recordPhoneAdb,
+    baseUrl: () => env.baseUrl, log: recordPhoneAdb, action: recordPhoneAgentAction,
     update: () => updateCheck().hint(env.baseUrl),
     skillUpdate: request => skillUpdate(request, skillVersion(), env.baseUrl, SKILL_NAME),
     networkHint: async userId => await directBlocked(asyncDb(), userId) ? DIRECT_BLOCKED_HINT : null });

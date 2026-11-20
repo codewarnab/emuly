@@ -8,13 +8,18 @@ import {
   ADB_FILES_MAX, ADB_UPLOAD_MAX_BYTES, AdbError, adbArguments, adbResult, adbTimeout, isDownload, isScreencap,
 } from "./phone-adb-contract.ts";
 import { PhoneInputError, redact, type createPhoneService } from "./phone-mutations.ts";
+import { readAgentNote } from "./agent-note.ts";
 import { agentDeviceBaseUrl, agentDeviceInfo, agentDeviceSession, agentDeviceUnavailable } from "./agent-device.ts";
 import type { Phone } from "./phones.ts";
 import type { RecordingAction } from "./phone-link.ts";
 
 type Identity = { id: number; authKind?: "session" | "agent"; agentKeyId?: number };
 type PhoneView = Pick<Phone, "id" | "name" | "state" | "android_state" | "idle_timeout_min"> & Partial<Pick<Phone, "last_activity_at" | "android_started_at" | "last_started_at" | "keeping">> & { device_preset?: string };
-type AdbCall = { userId: number; phoneId: string; args: string[]; agentKeyId?: number; exitCode: number };
+const RECORDING_LABELS: Record<Exclude<RecordingAction, "status">, string> = {
+  start: "Started a screen recording", stop: "Stopped the screen recording", discard: "Discarded the screen recording",
+  file: "Downloaded the screen recording", grid: "Made a frame grid of the recording" };
+type AgentCall = { userId: number; phoneId: string; agentKeyId: number; label: string; command: string; note: string | null };
+type AdbCall = { userId: number; phoneId: string; args: string[]; agentKeyId?: number; exitCode: number; note?: string | null };
 
 const WAIT_STATES = new Set(["stopped", "running", "ready"]);
 
@@ -121,7 +126,7 @@ function gridQuery(query: URLSearchParams) {
   return body;
 }
 
-export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadTicket, agentDevice, recording, screenshot, baseUrl, log, update, skillUpdate, networkHint, waitStepMs = 1_000 }: {
+export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadTicket, agentDevice, recording, screenshot, baseUrl, log, action, update, skillUpdate, networkHint, waitStepMs = 1_000 }: {
   user: () => Promise<Identity | null>;
   phones: (userId: number) => Promise<PhoneView[]>;
   phone: (userId: number, id: string) => Promise<PhoneView | undefined>;
@@ -137,6 +142,8 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
   screenshot?: (userId: number, id: string, scale?: number) => Promise<Response>;
   baseUrl: () => string;
   log?: (call: AdbCall) => void | Promise<void>;
+  /** An activity row for an agent call that is not adb, such as a screenshot. Agent keys only. */
+  action?: (call: AgentCall) => void | Promise<void>;
   /** Self-host only: a once-per-version "newer Emuly on GitHub" hint for the agent. */
   update?: () => Promise<unknown>;
   /** Hosted and self-host: a "newer skill on this server" hint, from the request headers. Null when current. */
@@ -153,8 +160,12 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
     idle_timeout_min: stored.idle_timeout_min, idle_stop_at: idleStopAt(stored), device_preset: stored.device_preset ?? "generic",
     browser_url: `${baseUrl().replace(/\/$/, "")}/app/phones/${encodeURIComponent(stored.id)}`,
   });
-  const record = async (identity: Identity, id: string, args: string[], exitCode: number) => {
-    try { await log?.({ userId: identity.id, phoneId: id, args, agentKeyId: identity.agentKeyId, exitCode }); } catch {}
+  const record = async (identity: Identity, id: string, args: string[], exitCode: number, note: string | null) => {
+    try { await log?.({ userId: identity.id, phoneId: id, args, agentKeyId: identity.agentKeyId, exitCode, note }); } catch {}
+  };
+  const act = async (identity: Identity, id: string, label: string, command: string, request: Request) => {
+    if (identity.agentKeyId === undefined) return;
+    try { await action?.({ userId: identity.id, phoneId: id, agentKeyId: identity.agentKeyId, label, command, note: readAgentNote(request) }); } catch {}
   };
   const fail = (error: unknown, fallback: string) => {
     if (error instanceof GitHubError) return json({ error: "github_refused", message: redact(error.message) }, 409);
@@ -275,6 +286,9 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         }
         if (route.action === "grid") body = gridQuery(query);
         const response = await recording(identity.id, id, route.action, body);
+        if (response.ok && route.action !== "status") {
+          await act(identity, id, RECORDING_LABELS[route.action], `${route.method} recording/${route.action}`, request);
+        }
         if (response.headers.get("content-type")?.startsWith("video/mp4")) {
           const headers = new Headers({ "Content-Type": "video/mp4", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" });
           for (const name of ["content-length", "content-disposition"]) { const value = response.headers.get(name); if (value) headers.set(name, value); }
@@ -326,12 +340,14 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         const response = await screenshot(identity.id, id, scale);
         const bytes = await response.arrayBuffer();
         if (!response.headers.get("content-type")?.startsWith("image/png")) throw new Error("Invalid screenshot");
+        await act(identity, id, "Took a screenshot", `GET screenshot${scale === undefined ? "" : `?scale=${scale}`}`, request);
         // An older runner ignores scale and sends the full PNG: the header says which one came.
         return new Response(bytes, { headers: { "Content-Type": "image/png", "Cache-Control": "private, no-store",
           "X-Content-Type-Options": "nosniff", "X-Screenshot-Scale": response.headers.get("x-screenshot-scale") ?? "1" } });
       } catch (error) { return fail(error, "The screenshot failed. Retry."); }
     },
     async adb(request: Request, id: string) {
+      const note = readAgentNote(request);
       const identity = await user();
       if (!identity) return json({ error: "unauthorized" }, 401);
       if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden" }, 403);
@@ -370,7 +386,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         if (key !== undefined && !/^[\w.:-]{1,100}$/.test(key)) bad(400, "Idempotency-Key must be 1 to 100 letters, digits, _ . : or -.");
         const response = await adb(identity.id, id, { args, timeout_s, binary, ...(files ? { files } : {}), ...(key ? { key } : {}) });
         if (!response.ok) {
-          await record(identity, id, args, -1);
+          await record(identity, id, args, -1, note);
           let value: Record<string, unknown> = {};
           try {
             const parsed: unknown = await response.json();
@@ -391,7 +407,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         }
         if (binary) {
           const bytes = await response.arrayBuffer();
-          await record(identity, id, args, 0);
+          await record(identity, id, args, 0, note);
           const headers: Record<string, string> = { "Content-Type": "image/png", "Cache-Control": "private, no-store",
             "X-Content-Type-Options": "nosniff" };
           if (download) {
@@ -403,18 +419,18 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         }
         let payload: unknown;
         try { payload = await response.json(); }
-        catch { await record(identity, id, args, -1); return json({ error: "invalid_response", message: "Invalid adb response. Retry the command." }, 502); }
+        catch { await record(identity, id, args, -1, note); return json({ error: "invalid_response", message: "Invalid adb response. Retry the command." }, 502); }
         try {
           const result = adbResult(payload);
-          await record(identity, id, args, result.exit_code);
+          await record(identity, id, args, result.exit_code, note);
           return json(result);
         } catch {
-          await record(identity, id, args, -1);
+          await record(identity, id, args, -1, note);
           return json({ error: "invalid_response", message: "Invalid adb response. Retry the command." }, 502);
         }
       } catch (error) {
         if (error instanceof InlineLimitError) return json(inlineLimitBody(id), 413);
-        if (loggable) await record(identity, id, args, -1);
+        if (loggable) await record(identity, id, args, -1, note);
         if (error instanceof InputError) return json({ error: "invalid_input", message: error.message, ran: false }, error.status);
         // A known refusal (busy, rate limit, bad input) came before adb. Any other failure may be after it.
         const failed = fail(error, "The connection to the phone failed. The command may have run: check the phone, or retry with the same Idempotency-Key.");
@@ -428,6 +444,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
      * straight to the phone. The ticket locks the args and each file's size and SHA-256, and it works once.
      */
     async adbUpload(request: Request, id: string) {
+      const note = readAgentNote(request);
       const identity = await user();
       if (!identity) return json({ error: "unauthorized" }, 401);
       if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden" }, 403);
@@ -465,7 +482,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
             message: `Direct upload is not available for this phone. Send files of at most ${ADB_INLINE_MAX_BYTES / (1024 * 1024)} MB to POST /v1/phones/${id}/adb, or install an APK with POST /v1/phones/${id}/app-installs.` }, 503);
         }
         // The audit log gets the command when Emuly signs it. The phone runs only these args.
-        await record(identity, id, args, 0);
+        await record(identity, id, args, 0, note);
         return json({ url: issued.url, method: "PUT", expires_at: new Date(issued.exp).toISOString(),
           headers: { Authorization: `Emuly-Ticket ${issued.ticket}`, "Content-Type": "application/octet-stream" },
           message: "PUT the bytes of file0, file1, … one after another as the body, before expires_at. The ticket works once." });

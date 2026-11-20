@@ -13,6 +13,20 @@ message that names a replacement. The blocked list includes `sideload`, `backup`
 options such as `-s`, `-H`, `-P`, `-L`. Never send a runner-side path: file commands
 upload bytes through the API, and the runner chooses its own temporary path.
 
+**Say what each call does.** Send the header `X-Emuly-Note` with each adb, screenshot and
+recording call. The user sees the note in the phone's activity log as `[agent] <note>`, and a
+click shows the command. Rules for the note:
+
+- Use 3 to 10 plain words in the present tense. Say what the call does, not why.
+  For example "Open Wi-Fi settings", "Type the test email", "Check the toast after Save".
+- Never put secrets, passwords or typed personal data in the note.
+- Headers carry only ASCII. Percent-encode other text, for example with `encodeURIComponent`.
+- The note is optional and only for display. Emuly cuts it to 80 characters.
+
+```bash
+curl -sS -X POST "$base/v1/phones/$id/adb" -H "Authorization: Bearer $EMULY_KEY"   -H "Content-Type: application/json" -H "X-Emuly-Note: Open Wi-Fi settings"   -d '{"args":["shell","am","start","-a","android.settings.WIFI_SETTINGS"]}'
+```
+
 Example argument arrays:
 
 ```json

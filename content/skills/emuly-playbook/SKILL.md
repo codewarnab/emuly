@@ -107,6 +107,8 @@ Do not change the user's DNS or network settings yourself. Only tell the user.
   a new **Copy prompt**.
 - Reuse a running or stopped phone. Create one only when none exists or the user asks.
 - Drive the phone with the HTTP adb route. Use native adb only when the user asks for it.
+- Send `X-Emuly-Note: <3-10 words on what the call does>` with each adb, screenshot and
+  recording call. The user reads it in the activity log. See `references/adb.md`.
 - When Android is ready, always offer both ways to see the phone: scrcpy first, marked
   "recommended", then the browser link (see `references/phones.md`). Offer scrcpy even when
   it is not installed.

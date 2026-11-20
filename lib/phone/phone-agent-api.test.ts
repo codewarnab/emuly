@@ -438,3 +438,32 @@ test("an adb error says whether the command ran, and the Idempotency-Key reaches
   assert.equal(dropped.status, 502);
   assert.equal((await dropped.json()).ran, "unknown");
 });
+
+test("the X-Emuly-Note header reaches the adb log and the screenshot row", async () => {
+  const logged: unknown[] = [];
+  const acted: unknown[] = [];
+  const { api } = fixture({
+    user: async () => ({ id: 7, authKind: "agent", agentKeyId: 42 }),
+    log: call => { logged.push({ args: call.args, note: call.note }); },
+    action: call => { acted.push(call); },
+    screenshot: async () => new Response(new Uint8Array([0x89]), { headers: { "content-type": "image/png" } }),
+  });
+  await api.adb(post(`/v1/phones/${stored.id}/adb`, { args: ["shell", "input", "tap", "1", "2"] },
+    { "x-emuly-note": "Open%20Wi-Fi%20settings\n" }), stored.id);
+  assert.deepEqual(logged, [{ args: ["shell", "input", "tap", "1", "2"], note: "Open Wi-Fi settings" }]);
+  await api.adb(post(`/v1/phones/${stored.id}/adb`, { args: ["shell", "id"] }), stored.id);
+  assert.equal((logged[1] as { note: unknown }).note, null);
+
+  await api.screenshot(new Request(`https://emuly.test/v1/phones/${stored.id}/screenshot?scale=0.5`,
+    { headers: { "x-emuly-note": "Check the toast" } }), stored.id);
+  assert.deepEqual(acted, [{ userId: 7, phoneId: stored.id, agentKeyId: 42, label: "Took a screenshot",
+    command: "GET screenshot?scale=0.5", note: "Check the toast" }]);
+});
+
+test("a screenshot from the browser session writes no agent row", async () => {
+  const acted: unknown[] = [];
+  const { api } = fixture({ action: call => { acted.push(call); },
+    screenshot: async () => new Response(new Uint8Array([0x89]), { headers: { "content-type": "image/png" } }) });
+  await api.screenshot(get(`/v1/phones/${stored.id}/screenshot`), stored.id);
+  assert.deepEqual(acted, []);
+});

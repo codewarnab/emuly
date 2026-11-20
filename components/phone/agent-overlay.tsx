@@ -4,8 +4,8 @@ import s from "@/components/phone/phone-screen.module.css";
 import type { AgentAction } from "@/lib/phone/agent-action";
 
 type Display = { width: number; height: number };
-type Feed = { display: Display | null; actions: { id: number; at: string; action: AgentAction }[] };
-type Mark = { key: number; action: AgentAction; display: Display | null };
+type Feed = { display: Display | null; actions: { id: number; at: string; action: AgentAction; note?: string }[] };
+type Mark = { key: number; action: AgentAction; note?: string; display: Display | null };
 type Size = { w: number; h: number };
 
 function chipText(action: AgentAction): string {
@@ -79,7 +79,7 @@ export function AgentOverlay({ id, live, delayMs, onActivity }: {
         for (const item of feed.actions) {
           schedule(() => {
             activity.current?.(Date.now());
-            const mark: Mark = { key: nextKey.current++, action: item.action, display: feed.display };
+            const mark: Mark = { key: nextKey.current++, action: item.action, note: typeof item.note === "string" ? item.note : undefined, display: feed.display };
             setMarks(current => [...current, mark]);
             schedule(() => setMarks(current => current.filter(entry => entry.key !== mark.key)), 1500);
           }, Number.isFinite(delay.current) ? Math.max(0, delay.current) : 0);
@@ -151,7 +151,7 @@ export function AgentOverlay({ id, live, delayMs, onActivity }: {
       if (mark.key !== latestChip) return null;
       return <span key={mark.key} className={s.agentChip}>
         <i className={s.agentChipIcon} />
-        <span className={s.agentChipLabel}>{chipText(action)}</span>
+        <span className={s.agentChipLabel}>{mark.note ?? chipText(action)}</span>
         {action.type === "text" && <span className={s.agentTyping}><i /><i /><i /></span>}
       </span>;
     })}

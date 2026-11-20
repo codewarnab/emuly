@@ -2,7 +2,7 @@ import "server-only";
 import { asyncDb } from "../data/async-db.ts";
 import type { AgentAction } from "./agent-action.ts";
 
-export type AgentActionEvent = { id: number; at: string; action: AgentAction };
+export type AgentActionEvent = { id: number; at: string; action: AgentAction; note?: string };
 
 function point(value: unknown): value is { x: number; y: number } {
   if (value === null || typeof value !== "object") return false;
@@ -31,11 +31,13 @@ function asAgentAction(value: unknown): AgentAction | null {
   }
 }
 
-function storedAction(meta: unknown): AgentAction | null {
+function stored(meta: unknown): { action: AgentAction; note?: string } | null {
   if (typeof meta !== "string") return null;
   try {
-    const parsed = JSON.parse(meta) as { action?: unknown } | null;
-    return asAgentAction(parsed?.action);
+    const parsed = JSON.parse(meta) as { action?: unknown; note?: unknown } | null;
+    const action = asAgentAction(parsed?.action);
+    if (!action) return null;
+    return typeof parsed?.note === "string" && parsed.note ? { action, note: parsed.note } : { action };
   } catch { return null; }
 }
 
@@ -48,8 +50,8 @@ export async function readAgentActions(userId: number, phoneId: string, afterId:
     args: [userId, phoneId, afterId],
   })).rows;
   return rows.flatMap(row => {
-    const action = storedAction(row.meta);
-    return action ? [{ id: Number(row.id), at: String(row.ts), action }] : [];
+    const value = stored(row.meta);
+    return value ? [{ id: Number(row.id), at: String(row.ts), ...value }] : [];
   });
 }
 

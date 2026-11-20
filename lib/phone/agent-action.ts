@@ -74,14 +74,15 @@ export function parseWmSize(stdout: string): { width: number; height: number } |
 }
 
 /**
- * Builds the events.meta payload for an adb row: agent attribution plus the
- * displayable action. Null when there is neither, so plain rows stay lean.
+ * Builds the events.meta payload for an adb row: agent attribution, the
+ * displayable action, and the agent's note. Null when there is neither, so plain rows stay lean.
  */
-export function adbEventMeta(args: string[], exitCode: number, agentKeyId?: number): string | null {
+export function adbEventMeta(args: string[], exitCode: number, agentKeyId?: number, note?: string | null): string | null {
   const action = exitCode === 0 ? parseAdbAction(args) : null;
-  if (action === null && agentKeyId === undefined) return null;
+  if (action === null && agentKeyId === undefined && !note) return null;
   return JSON.stringify({
     ...(agentKeyId === undefined ? {} : { agent_key_id: agentKeyId }),
     ...(action === null ? {} : { action }),
+    ...(note ? { note } : {}),
   });
 }
