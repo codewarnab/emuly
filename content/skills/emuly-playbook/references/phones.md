@@ -51,7 +51,17 @@ link opens sign-in first and then returns to the phone page.
 Always offer both ways to see the phone. scrcpy comes first, marked "recommended": its video
 goes straight from the codespace to the user's computer over gh's SSH tunnel, and skips the
 Emuly server. Offer scrcpy even when gh, adb or scrcpy is not installed: do not check for
-the tools before the offer. Give both ways with this text:
+the tools before the offer.
+
+Fill in the template with real values before you send it:
+
+- `<browser_url>` is the full phone link from `GET /v1/phones/<id>`, for example
+  `https://emuly.vercel.app/app/phones/phone-copper-robin`. Never give only the base URL
+  (`https://emuly.vercel.app`): it opens the phone list, not this phone.
+- `<id>` is the phone id, for example `phone-copper-robin`. The codespace display name is the
+  same id.
+- Give the commands as they are below, with `<id>` filled in, so the user can run them
+  without you. Put each command on its own line in a code block.
 
 ```text
 Two ways to see the phone:
@@ -60,12 +70,20 @@ Two ways to see the phone:
    + Faster: the video skips the Emuly server. Smoother, with less delay.
    + Your keyboard, copy and paste, and file drag-and-drop work.
    - Needs gh, adb and scrcpy. I will ask before I install anything.
+   Say yes and I will open it. To run it yourself, use 3 terminals:
+     gh codespace ssh -c (gh codespace list --json name,displayName -q '.[] | select(.displayName=="<id>") | .name') -- -N -L 5555:127.0.0.1:5555
+     adb connect 127.0.0.1:5555
+     scrcpy -s 127.0.0.1:5555
 
-2. Browser link (ready now): <browser_url>
+2. Browser link (ready now):
+   <browser_url>
    + Nothing to install. Works on any computer.
 
 Do you want me to open the scrcpy window?
 ```
+
+The first command uses PowerShell syntax. On Linux and macOS, write `$(...)` in place of
+`(...)`. If port 5555 is in use on the user's computer, use 5556 in all 3 commands.
 
 Offer it once per session. Do not set it up until the user says yes. The steps are in
 `references/native-adb.md`. On a remote machine, use the wording and steps in
