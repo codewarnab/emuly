@@ -758,7 +758,10 @@ test("setup boots Android once, persists failures until Retry boot, and records 
     setup: async () => "ready", runner: async (_user, _id, path, body) => {
       if (path === "/health") return Response.json({ booted: false });
       assert.equal(path, "/boot");
-      assert.deepEqual(body, {});
+      // The boot attempt id: the runner tags its push event with it (runner-events.ts).
+      assert.deepEqual(Object.keys(body ?? {}), ["attempt"]);
+      const attempt = (await f.asyncDatabase.execute("SELECT android_started_at FROM phones WHERE id = 'phone-aaaa'")).rows[0]?.android_started_at;
+      assert.equal(body?.attempt, attempt);
       boots++;
       return boot.promise;
     } });

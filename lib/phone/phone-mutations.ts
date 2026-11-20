@@ -6,6 +6,7 @@ import { DEFAULT_DEVICE_PRESET, devicePreset } from "../shared/device-presets.ts
 import { PROVIDER_IDLE_MIN, validIdle } from "../shared/idle.ts";
 import { randomBytes } from "node:crypto";
 import { transaction, type DatabaseQueries } from "../data/async-database.ts";
+import { finishBoot } from "./boot-finish.ts";
 import { GitHubError, type Codespace, type createGitHubClient } from "../github/github.ts";
 import { assertMutationRate } from "../data/rate-limit.ts";
 import { emitEvent, type EventEmitter } from "../data/events.ts";
@@ -127,7 +128,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       let answered = false;
       try {
         await diagnostics.scope(operationId, () => measure("android_boot", async () => {
-          const result = await runner(userId, id, "/boot", operationId ? { diagnosticOperation: operationId } : {});
+          // The attempt id lets the runner tag its push event with this boot (runner-events.ts).
+          const result = await runner(userId, id, "/boot", { attempt: started, ...(operationId ? { diagnosticOperation: operationId } : {}) });
           const reply = await result.json();
           answered = true;
           if (reply.booted !== true) throw new Error("Android boot was not confirmed.");
@@ -152,18 +154,9 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         console.warn(`[boot] ${id}: Android still booting; the next sync joins this boot`);
         return;
       }
-      const changed = await transaction(database, async queries => {
-        // Android ready starts the idle clock, so a new phone does not count as idle at once.
-        const result = await queries.execute({ sql: `UPDATE phones SET android_state = ?, android_error = ?,
-          last_activity_at = CASE WHEN ? THEN ? ELSE last_activity_at END
-          WHERE user_id = ? AND id = ? AND state = 'running' AND android_state = 'booting' AND android_started_at = ?`,
-          args: [booted ? "ready" : "failed", booted ? null : "Android boot failed. Retry boot.", booted ? 1 : 0,
-            new Date(clock()).toISOString(), userId, id, started] });
-        if (result.rowsAffected) await event(userId, id, booted ? "step" : "error", booted
-          ? `Android ready (took ${Math.round((clock() - Date.parse(firstStarted)) / 1000)} s)`
-          : "Android boot failed: Android boot failed. Retry boot.", queries);
-        return result.rowsAffected;
-      });
+      // A runner push event (runner-events.ts) may have ended this boot first; "already" is the same result.
+      const ended = await finishBoot(database, { userId, id, attempt: started, booted, firstStarted }, clock(), redact);
+      const changed = ended !== "stale";
       void diagnostics.finish(operationId, changed ? booted ? "succeeded" : "failed" : "cancelled");
     } finally {
       booting.delete(id);
