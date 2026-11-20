@@ -35,8 +35,13 @@ let lifecycle = Promise.resolve();
 let boot;
 let stopping;
 const STOP_ANSWER_MS = 80_000;
+// Busy work for GET /health: the server updates a running runner only when nothing uses it.
+let lifecycleWork = 0;
+let requestsInFlight = 0;
+let lastRequestAt = Date.now();
 function exclusive(work) {
-  const result = lifecycle.then(work);
+  lifecycleWork++;
+  const result = lifecycle.then(work).finally(() => { lifecycleWork--; });
   lifecycle = result.catch(() => {});
   return result;
 }
@@ -265,7 +270,9 @@ function screenshot() {
 }
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 16, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload"], avd: "t", api_level: 36, booted: await booted() }),
+  "GET /health": async () => ({ ok: true, version: 17, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload"], avd: "t", api_level: 36, booted: await booted(),
+    busy: { viewers: scrcpy.viewers(), links: links.count(), work: requestsInFlight + lifecycleWork + (adbBusy ? 1 : 0) + (boot || stopping ? 1 : 0),
+      idle_ms: Date.now() - lastRequestAt } }),
 
   "POST /boot": ({ diagnosticOperation }) => {
     return boot ??= exclusive(async () => {
@@ -364,6 +371,10 @@ const server = createServer(async (req, res) => {
   try {
     if (SECRET && req.headers["x-phone-secret"] !== SECRET) return send(401, { error: "unauthorized" });
     const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    if (path !== "/health") {
+      requestsInFlight++; lastRequestAt = Date.now();
+      res.once("close", () => { requestsInFlight--; lastRequestAt = Date.now(); });
+    }
     const install = path.match(/^\/app-installs\/([0-9a-f-]{36})(?:\/(content|complete|cancel))?$/);
     if (install) {
       const [, id, action] = install;
@@ -442,6 +453,7 @@ void direct.start();
 const streams = new ws.WebSocketServer({ noServer: true, maxPayload: 16_384, perMessageDeflate: false });
 const relays = new ws.WebSocketServer({ noServer: true, maxPayload: RELAY_MAX_PAYLOAD, perMessageDeflate: false });
 server.on("upgrade", (req, socket, head) => {
+  lastRequestAt = Date.now();
   const url = new URL(req.url ?? "/", "http://localhost");
   if (url.pathname === "/links/relay") {
     if (SECRET && req.headers["x-phone-secret"] !== SECRET) return socket.destroy();

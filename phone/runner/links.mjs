@@ -162,7 +162,7 @@ export function createLinks({ adb, booted }) {
     return logcatHints(String(text));
   }
 
-  return { list, add, remove, reapply, sweep, prune, clear, relay, netCheck, hints };
+  return { list, add, remove, reapply, sweep, prune, clear, relay, netCheck, hints, count: () => links.size };
 }
 
 class Relay {

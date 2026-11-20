@@ -8,8 +8,9 @@ import { directKeyFile } from "./direct-ticket.ts";
 import { AGENT_DEVICE_VERSION } from "../agent-device-version.ts";
 import { collectProgress, measure, progressCursor, diagnosticHealth, diagnosticOperation } from "../diagnostics/diagnostics.ts";
 import { validateStep, type Step } from "../diagnostics/diagnostic-contract.ts";
+import type { RunnerHealth } from "./runner-update.ts";
 // Must match the version that phone/runner/runner.mjs reports in GET /health.
-export const RUNNER_VERSION = 16;
+export const RUNNER_VERSION = 17;
 
 /** Files copied into each codespace, relative to `phone/` in this repository. */
 export const FILES = ["scripts/progress.sh", "scripts/node-path.sh", "scripts/read-progress.py", "scripts/bounded-log.py", "scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "scripts/autostart.sh", "runner/runner.mjs", "runner/agent-device-proxy.mjs", "runner/apps.mjs", "runner/apps-protocol.mjs", "runner/adb-protocol.mjs", "runner/apk-download.mjs", "runner/scrcpy.mjs", "runner/scrcpy-hub.mjs", "runner/scrcpy-protocol.mjs", "runner/paste-text.mjs", "runner/recording.mjs", "runner/mp4-mux.mjs", "runner/links.mjs", "runner/links-protocol.mjs", "runner/direct-ticket.mjs", "runner/direct-server.mjs"];
@@ -170,14 +171,20 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
     }
   }
   async function askHealth(userId: number, codespaceName: string, fetcher: typeof fetch) {
+    const health = await readHealth(userId, codespaceName, fetcher);
+    return health?.ok === true && health.version === RUNNER_VERSION && health.scripts === scriptsVersion();
+  }
+  /** The runner's GET /health through GitHub's port forward, or null when it does not answer. */
+  async function readHealth(userId: number, codespaceName: string, fetcher: typeof fetch = fetch): Promise<RunnerHealth | null> {
+    if (!/^[\w-]{1,100}$/.test(codespaceName)) return null;
     try {
       const secret = await token(userId);
       const response = await fetcher(`https://${codespaceName}-8790.app.github.dev/health`, { headers: { "X-Github-Token": secret },
         redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(5000) });
-      if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) { await response.body?.cancel(); return false; }
+      if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) { await response.body?.cancel(); return null; }
       const health = await response.json();
-      return health?.ok === true && health.version === RUNNER_VERSION && health.scripts === scriptsVersion();
-    } catch { return false; }
+      return health && typeof health === "object" ? health as RunnerHealth : null;
+    } catch { return null; }
   }
   return Object.assign(async function setupPhone(userId: number, codespaceName: string, preset = DEFAULT_DEVICE_PRESET): Promise<SetupResult> {
     const secret = await measure("credential_lookup", () => token(userId));
@@ -194,5 +201,5 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
     if (result.code === 0 && output.includes("EMULY_READY")) return { state: "ready", ...progress };
     if (result.code === 0 && output.includes("EMULY_WORKING")) return { state: "working", ...progress };
     return { state: "failed", ...progress };
-  }, { collect, quickCheck });
+  }, { collect, quickCheck, readHealth });
 }

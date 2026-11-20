@@ -252,5 +252,7 @@ export function createHub({ open, share = true, lingerMs = LINGER_MS, switchLing
     for (const entry of [...entries.values()]) end(entry);
   }
 
-  return { attach, closeAll, sessions: () => entries.size };
+  return { attach, closeAll, sessions: () => entries.size,
+    /** Viewers of all sessions. A running recording counts as one viewer. */
+    viewers: () => [...entries.values()].reduce((sum, entry) => sum + entry.viewers.size, 0) };
 }
