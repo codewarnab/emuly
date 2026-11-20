@@ -42,8 +42,9 @@ Run production migrations before an update that needs them.
 
 ## Cut over and roll back
 
-Keep `emuly-cron.timer` on for the first days: it gets 409 while the scheduler
-runs, and it takes over if the scheduler is down for more than 2 min.
-To turn the fallback off, `sudo systemctl disable --now emuly-cron.timer`, or
-set `EMULY_CRON_OFF=1` on Vercel. To roll back, `systemctl --user disable --now emuly-scheduler`;
-the timer takes over within 2 min.
+After the scheduler runs well, turn off the old timer:
+`sudo systemctl disable --now emuly-cron.timer`. Then `/api/cron` gets no calls.
+If the scheduler stops for more than 5 min, `/api/health` answers 503.
+To roll back, `systemctl --user disable --now emuly-scheduler` and
+`sudo systemctl enable --now emuly-cron.timer`. `EMULY_CRON_OFF=1` on Vercel
+turns the `/api/cron` work off even when something still calls it.
