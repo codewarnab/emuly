@@ -24,12 +24,11 @@ jobs:
           set -euo pipefail
           if [ -z "$VERCEL_TOKEN" ]; then echo "No VERCEL_TOKEN secret; skip."; exit 0; fi
           api() { curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" "$@"; }
-          team=$(api https://api.vercel.com/v2/teams | jq -r --arg s "$TEAM" '.teams[] | select(.slug == $s) | .id')
-          project=$(api "https://api.vercel.com/v9/projects/$PROJECT?teamId=$team")
+          project=$(api "https://api.vercel.com/v9/projects/$PROJECT?slug=$TEAM")
           current=$(echo "$project" | jq -r '.targets.production.id // empty')
           if [ -z "$current" ]; then echo "No current production deployment; skip."; exit 0; fi
-          ids=$(api "https://api.vercel.com/v6/deployments?teamId=$team&projectId=$(echo "$project" | jq -r .id)&limit=100" \
+          ids=$(api "https://api.vercel.com/v6/deployments?slug=$TEAM&projectId=$(echo "$project" | jq -r .id)&limit=100" \
             | jq -r --arg c "$current" '.deployments[] | select(.uid != $c and .state != "BUILDING" and .state != "QUEUED" and .state != "INITIALIZING") | .uid')
           for id in $ids; do
-            api -X DELETE "https://api.vercel.com/v13/deployments/$id?teamId=$team" > /dev/null && echo "deleted $id"
+            api -X DELETE "https://api.vercel.com/v13/deployments/$id?slug=$TEAM" > /dev/null && echo "deleted $id"
           done
