@@ -3,6 +3,7 @@ import { crossOrigin } from "../auth/origin.ts";
 import { APK_CHUNK_BYTES, APK_MAX_BYTES, installFinished } from "./phone-apps-contract.ts";
 import type { AppsPath, AppsRequest } from "./phone-link.ts";
 import type { sharedAppAdmission } from "./app-admission.ts";
+import { readAgentNote } from "./agent-note.ts";
 import { PhoneResponseError, parseAppsResponse, parseFileFetch, parseFileFetches, parsePhoneError, parseRunnerUpdate, readPhoneResponse } from "./phone-response.ts";
 
 type Phone = { state: string; android_state: string };
@@ -58,8 +59,10 @@ function fileFetchInput(input: unknown): Record<string, unknown> & { host: strin
 }
 
 /** One authorization boundary for inventory, operations, binary upload and launch. */
-export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmission }: {
-  user: () => Promise<{ id: number; authKind?: "session" | "agent" } | null>;
+export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmission, action }: {
+  user: () => Promise<{ id: number; authKind?: "session" | "agent"; agentKeyId?: number } | null>;
+  /** An activity row for an agent's file fetch, with its X-Emuly-Note. Agent keys only. */
+  action?: (call: { userId: number; phoneId: string; agentKeyId: number; label: string; command: string; note: string | null }) => void | Promise<void>;
   phone: (userId: number, id: string) => Phone | undefined | Promise<Phone | undefined>;
   runner: (userId: number, id: string, path: AppsPath, options: AppsRequest) => Promise<Response>;
   upgrade?: (userId: number, id: string) => Promise<{ status: string }>;
@@ -149,6 +152,13 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmissi
           : await readPhoneResponse(response, parsePhoneError);
         // Host only: a query string can hold a token.
         if (request.method === "POST" && route === "file-fetches") console.log(`[file-fetch] user=${identity.id} phone=${id} host=${fetchHost} status=${response.status}`);
+        if (request.method === "POST" && route === "file-fetches" && response.ok && identity.agentKeyId !== undefined) {
+          // Host only, never the full URL: a query string can hold a token.
+          try {
+            await action?.({ userId: identity.id, phoneId: id, agentKeyId: identity.agentKeyId, label: "Started a file download to the phone",
+              command: `POST file-fetches ${fetchHost} -> ${String((options.json as { dest?: unknown }).dest)}`, note: readAgentNote(request) });
+          } catch {}
+        }
         return Response.json(fetched, { status: response.ok && route === "file-fetches" && request.method === "POST" ? 202 : response.status, headers });
       }
       const payload = response.ok

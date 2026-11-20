@@ -7,10 +7,11 @@ import { createPhoneAppsApi } from "../../../../../lib/phone/phone-apps-api";
 import { asyncDb } from "../../../../../lib/data/async-db";
 import { sharedAppAdmission } from "../../../../../lib/phone/app-admission";
 import { withLease } from "../../../../../lib/data/coordination";
+import { recordPhoneAgentAction } from "../../../../../lib/phone/phone-activity";
 
 const setup = createPhoneSetup({ token: getAccessToken });
 const upgrades = new Map<string, Promise<{ status: string }>>();
-const handle = createPhoneAppsApi({ user: getUser, phone: findPhone, sharedAdmission: {
+const handle = createPhoneAppsApi({ user: getUser, phone: findPhone, action: recordPhoneAgentAction, sharedAdmission: {
   current: (...args) => sharedAppAdmission(asyncDb()).current(...args),
   claim: (...args) => sharedAppAdmission(asyncDb()).claim(...args),
   release: (...args) => sharedAppAdmission(asyncDb()).release(...args),

@@ -43,3 +43,16 @@ test("other rows and bad meta stay as before", () => {
   assert.deepEqual(row.parts, [{ type: "text", value: "Phone runner ready" }]);
   assert.equal(eventRow({ ts, kind: "adb", message: "adb shell id", meta: "{bad" }).detail, undefined);
 });
+
+test("agent-device rows get plain words, and the command shows on click", () => {
+  const row = eventRow({ ts, kind: "agent_device", message: "agent-device snapshot", meta: null });
+  assert.equal(row.agent, true);
+  assert.deepEqual(row.parts, [{ type: "text", value: "Read the screen" }]);
+  assert.equal(row.detail, "agent-device snapshot");
+  const failed = eventRow({ ts, kind: "agent_device", message: "agent-device press (HTTP 500)", meta: null });
+  assert.deepEqual(failed.parts, [{ type: "text", value: "Pressed an element (HTTP 500)" }]);
+  assert.equal(failed.error, true);
+  const unknown = eventRow({ ts, kind: "agent_device", message: "agent-device frobnicate", meta: null });
+  assert.deepEqual(unknown.parts, [{ type: "text", value: "agent-device frobnicate" }]);
+  assert.equal(unknown.detail, undefined);
+});

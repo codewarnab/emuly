@@ -136,3 +136,17 @@ test("File fetch: bad input stops at Emuly; good input reaches the runner withou
   assert.equal(status.status, 200);
   assert.equal((await api(request("PUT"), "one", ["file-fetches", job.id])).status, 404);
 });
+test("an agent's file fetch writes an activity row with its note and the host only", async () => {
+  const acted: unknown[] = [];
+  const job = { id: "11111111-1111-4111-8111-111111111111", url_host: "files.example", dest: "/sdcard/Download/a.json", stage: "downloading",
+    bytes_received: 0, total_bytes: null, created_at: "2026-11-20T00:00:00Z", updated_at: "2026-11-20T00:00:00Z", can_cancel: true };
+  const key = "22222222-2222-4222-8222-222222222222";
+  const api = createPhoneAppsApi({ user: async () => ({ id: 3, authKind: "agent", agentKeyId: 5 }), phone: () => ({ state: "running", android_state: "ready" }),
+    runner: async () => Response.json(job), action: call => { acted.push(call); } });
+  const input = new Request("https://emuly.test/v1/phones/one/file-fetches", { method: "POST",
+    headers: { "content-type": "application/json", "x-emuly-note": "Get the test JSON" },
+    body: JSON.stringify({ key, url: "https://files.example/a.json?token=t", dest: "/sdcard/Download/a.json" }) });
+  assert.equal((await api(input, "one", ["file-fetches"])).status, 202);
+  assert.deepEqual(acted, [{ userId: 3, phoneId: "one", agentKeyId: 5, label: "Started a file download to the phone",
+    command: "POST file-fetches files.example -> /sdcard/Download/a.json", note: "Get the test JSON" }]);
+});
