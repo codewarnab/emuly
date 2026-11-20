@@ -7,12 +7,31 @@
 | fast | 5 s | Webhook delivery |
 | sync | 5 s check | GitHub sync per user: 10 s while a phone changes state, 60 s while a phone runs, 30 min when all are stopped |
 | minute | 60 s | Idle warning (`phone.idle_warning`) and idle stop, budget, diagnostics, heartbeat for `/api/health` |
+| runner | 60 s | In-place runner update of quiet running phones (`lib/phone/runner-update.ts`) |
 | hourly | 1 h | Retention warnings and auto-keep |
 
 Users run in parallel (`EMULY_SCHEDULER_PARALLEL`, default 8). Boots run in this
 process, so the VM holds the long `/boot` call and Vercel spends no CPU on it.
 The process holds the `scheduled:reconcile` lease. While it runs, `/api/cron`
 answers 409, so the old timer is a safe fallback. A second copy stands by.
+
+## In-place runner update
+
+After a deploy changes `RUNNER_VERSION` or a file in `phone/`, a running phone gets the
+new runner without a phone stop. The runner loop updates a phone only when all are true:
+
+- The phone is `running` and Android is `ready` (no boot or stop in progress).
+- No agent or browser use for 5 min (`last_activity_at`), and no Android input for 5 min.
+- Runner `/health` `busy`: no viewers (a recording counts), no links, no work in
+  progress, and no request in the last 30 s. A runner older than 17 has no `busy`.
+- The user lease `phones:<user>` is free, so a start or stop never overlaps.
+
+The update runs the normal setup script. It stops only the runner, writes the new files,
+and starts the runner again; `boot.sh` joins the running emulator. Then it waits up to
+90 s for `/health` to show the new version. At most 2 phones update at a time. A failure
+waits 5, 15, then 60 min. Measured 2026-11-20: 16 -> 17 in 8 s, Android kept running.
+
+The scheduler runs the code in its own copy, so redeploy the VM after each runner change.
 
 ## Needs
 
