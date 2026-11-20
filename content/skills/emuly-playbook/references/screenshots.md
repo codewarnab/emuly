@@ -124,6 +124,8 @@ Use the first way that you can.
 
 ## Put a video in a GitHub PR or issue
 
+Trim and caption the video first with `references/annotate.md`.
+
 Do this only when the user asks for the video in a PR or an issue. GitHub plays a video only
 from a link of the form `https://github.com/user-attachments/assets/<id>`. It removes a
 `<video>` tag, and it does not play a link to another site or a raw repository file. These
