@@ -79,6 +79,7 @@ function fakeParts(record: string[], { failUser = 0 } = {}): SchedulerParts {
     protectRetention: async userId => { record.push(`retention:${userId}`); },
     minute: async () => { record.push("minute"); },
     deliver: async () => { record.push("deliver"); },
+    updateRunners: async () => {},
   };
 }
 

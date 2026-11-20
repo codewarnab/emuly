@@ -13,7 +13,7 @@ export const SYNC_TIERS = {
   stoppedMs: 30 * 60_000,
 } as const;
 
-export const LOOP_MS = { fast: 5_000, sync: 5_000, minute: 60_000, hourly: 60 * 60_000 } as const;
+export const LOOP_MS = { fast: 5_000, sync: 5_000, minute: 60_000, runner: 60_000, hourly: 60 * 60_000 } as const;
 /** The lease of /api/cron, so the old cron and this scheduler never run at the same time. */
 export const SCHEDULER_LEASE = "scheduled:reconcile";
 
@@ -60,6 +60,8 @@ export type SchedulerParts = {
   minute: () => Promise<void>;
   /** Webhook delivery. */
   deliver: () => Promise<void>;
+  /** In-place runner update of running phones (runner-update.ts). */
+  updateRunners: () => Promise<void>;
 };
 
 type Log = (message: string) => void;
@@ -69,6 +71,7 @@ type Log = (message: string) => void;
  * - fast (5 s): webhook delivery;
  * - sync (5 s check): GitHub sync for each due user, by SYNC_TIERS;
  * - minute: idle warning and idle stop, budget, diagnostics, and the heartbeat row;
+ * - runner (1 min): in-place runner update of quiet running phones;
  * - hourly: retention warnings and auto-keep.
  * Users run in parallel, at most `limit` at a time. Only the holder of SCHEDULER_LEASE runs loops.
  */
@@ -158,7 +161,8 @@ export function createScheduler({ database, parts, clock = Date.now, limit = 8, 
           generation++;
           log("[scheduler] lease held; loops start");
           void Promise.all([loop("fast", LOOP_MS.fast, parts.deliver), loop("sync", LOOP_MS.sync, syncDue),
-            loop("minute", LOOP_MS.minute, minute), loop("hourly", LOOP_MS.hourly, hourly)]);
+            loop("minute", LOOP_MS.minute, minute),
+            loop("runner", LOOP_MS.runner, parts.updateRunners), loop("hourly", LOOP_MS.hourly, hourly)]);
         }
       } catch (error) {
         // A database fault: keep the loops only while the lease time may still be ours.
