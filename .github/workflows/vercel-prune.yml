@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      TEAM: arnab-mondals-projects
+      TEAM: paws
       PROJECT: emuly
     steps:
       - name: Delete every production deployment except the current one
