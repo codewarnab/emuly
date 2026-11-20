@@ -65,7 +65,7 @@ export type SchedulerParts = {
 type Log = (message: string) => void;
 
 /**
- * The long-running scheduler for the OCI VM. It replaces the 60 s /api/cron call:
+ * The long-running scheduler for a private VM. It replaces the 60 s /api/cron call:
  * - fast (5 s): webhook delivery;
  * - sync (5 s check): GitHub sync for each due user, by SYNC_TIERS;
  * - minute: idle warning and idle stop, budget, diagnostics, and the heartbeat row;

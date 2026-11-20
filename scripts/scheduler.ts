@@ -1,4 +1,4 @@
-// The Emuly scheduler for the OCI VM: one long-running process instead of the 60 s /api/cron call.
+// The Emuly scheduler for a private VM: one long-running process instead of the 60 s /api/cron call.
 // Run: node --import ./scripts/node-resolve.mjs --conditions=react-server --experimental-strip-types scripts/scheduler.ts
 // It needs the same env vars as the Vercel app (database, GitHub app, token key, direct and webhook secrets).
 // It never prints env values or provider errors.
