@@ -109,7 +109,19 @@ async function readAdbMultipart(request: Request): Promise<{ args: unknown; time
 }
 
 /** The agent-facing phone routes: list/read plus lifecycle and adb. Both auth kinds may use them. */
-export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadTicket, agentDevice, recording, baseUrl, log, update, skillUpdate, networkHint, waitStepMs = 1_000 }: {
+/** Grid options from the query. The runner checks the ranges and names them in a 400. */
+function gridQuery(query: URLSearchParams) {
+  const body: Record<string, unknown> = {};
+  for (const name of ["fps", "cols", "width", "count", "page"]) {
+    const value = query.get(name);
+    if (value === null || value === "") continue;
+    if (!/^\d{1,5}(\.\d{1,3})?$/.test(value)) throw new InputError(400, `${name} must be a number.`);
+    body[name] = value;
+  }
+  return body;
+}
+
+export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadTicket, agentDevice, recording, screenshot, baseUrl, log, update, skillUpdate, networkHint, waitStepMs = 1_000 }: {
   user: () => Promise<Identity | null>;
   phones: (userId: number) => Promise<PhoneView[]>;
   phone: (userId: number, id: string) => Promise<PhoneView | undefined>;
@@ -121,6 +133,8 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
   agentDevice: (userId: number, id: string) => Promise<unknown>;
   /** Screen recording on the runner. Optional so tests and older wiring need not supply it. */
   recording?: (userId: number, id: string, action: RecordingAction, body?: Record<string, unknown>) => Promise<Response>;
+  /** A PNG screenshot from the runner. scale (0.1 to 1) makes it smaller. Optional like recording. */
+  screenshot?: (userId: number, id: string, scale?: number) => Promise<Response>;
   baseUrl: () => string;
   log?: (call: AdbCall) => void | Promise<void>;
   /** Self-host only: a once-per-version "newer Emuly on GitHub" hint for the agent. */
@@ -237,9 +251,12 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
       const methods: Record<string, { method: string; action: RecordingAction }> = {
         start: { method: "POST", action: "start" }, stop: { method: "POST", action: "stop" },
         discard: { method: "POST", action: "discard" }, status: { method: "GET", action: "status" },
-        file: { method: "GET", action: "file" } };
-      const route = Object.hasOwn(methods, action) ? methods[action] : undefined;
-      if (!route) return json({ error: "not_found", message: "Use recording/start, recording/stop, recording/status, recording/file or recording/discard." }, 404);
+        file: { method: "GET", action: "file" }, grid: { method: "GET", action: "grid" } };
+      // file?format=grid is the same as grid.
+      const query = new URL(request.url).searchParams;
+      const named = action === "file" && query.get("format") === "grid" ? "grid" : action;
+      const route = Object.hasOwn(methods, named) ? methods[named] : undefined;
+      if (!route) return json({ error: "not_found", message: "Use recording/start, recording/stop, recording/status, recording/file, recording/grid or recording/discard." }, 404);
       if (route.method !== request.method) return json({ error: "method_not_allowed", message: `Use ${route.method} for recording/${action}.` }, 405, { Allow: route.method });
       if (!recording) return json({ error: "not_available", message: "Recording is not available on this server." }, 503);
       try {
@@ -256,10 +273,16 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
           if (raw.quality !== undefined) body.quality = raw.quality;
           if (raw.max_s !== undefined) body.max_s = raw.max_s;
         }
+        if (route.action === "grid") body = gridQuery(query);
         const response = await recording(identity.id, id, route.action, body);
         if (response.headers.get("content-type")?.startsWith("video/mp4")) {
           const headers = new Headers({ "Content-Type": "video/mp4", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" });
           for (const name of ["content-length", "content-disposition"]) { const value = response.headers.get(name); if (value) headers.set(name, value); }
+          return new Response(response.body, { headers });
+        }
+        if (response.headers.get("content-type")?.startsWith("image/jpeg")) {
+          const headers = new Headers({ "Content-Type": "image/jpeg", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" });
+          for (const [name, value] of response.headers) if (name.startsWith("x-grid-")) headers.set(name, value);
           return new Response(response.body, { headers });
         }
         let value: Record<string, unknown> = {};
@@ -271,13 +294,42 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         if (!response.ok) {
           const code = typeof value.errorCode === "string" ? value.errorCode : "recording_failed";
           const message = typeof value.error === "string" ? value.error : "The recording request failed. Retry.";
-          return json({ error: code, message }, [400, 404, 409, 503].includes(response.status) ? response.status : 502);
+          return json({ error: code, message }, [400, 404, 409, 413, 503].includes(response.status) ? response.status : 502);
         }
         return json(value);
       } catch (error) {
         if (error instanceof InputError) return json({ error: "invalid_input", message: error.message }, error.status);
         return fail(error, "The recording request could not be confirmed. Retry.");
       }
+    },
+    /**
+     * GET screenshot: the phone screen as a PNG. ?scale=0.5 gives half the width and height,
+     * so about a quarter of the image tokens. Use full size for an image the user will see.
+     */
+    async screenshot(request: Request, id: string) {
+      const identity = await user();
+      if (!identity) return json({ error: "unauthorized" }, 401);
+      if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden" }, 403);
+      if (!screenshot) return json({ error: "not_available", message: "Screenshots are not available on this server." }, 503);
+      const raw = new URL(request.url).searchParams.get("scale");
+      const scale = raw === null || raw === "" ? undefined : Number(raw);
+      if (scale !== undefined && (!Number.isFinite(scale) || scale < 0.1 || scale > 1)) {
+        return json({ error: "invalid_input", message: "scale must be a number from 0.1 to 1." }, 400);
+      }
+      try {
+        const stored = await phone(identity.id, id);
+        if (!stored) return json({ error: "not_found", message: "Phone not found." }, 404);
+        if (stored.state !== "running" || stored.android_state !== "ready") {
+          return json({ error: "phone_not_ready",
+            message: `The phone is ${stored.state} with Android ${stored.android_state}. Retry when GET /v1/phones/${id} shows running and ready.` }, 409);
+        }
+        const response = await screenshot(identity.id, id, scale);
+        const bytes = await response.arrayBuffer();
+        if (!response.headers.get("content-type")?.startsWith("image/png")) throw new Error("Invalid screenshot");
+        // An older runner ignores scale and sends the full PNG: the header says which one came.
+        return new Response(bytes, { headers: { "Content-Type": "image/png", "Cache-Control": "private, no-store",
+          "X-Content-Type-Options": "nosniff", "X-Screenshot-Scale": response.headers.get("x-screenshot-scale") ?? "1" } });
+      } catch (error) { return fail(error, "The screenshot failed. Retry."); }
     },
     async adb(request: Request, id: string) {
       const identity = await user();

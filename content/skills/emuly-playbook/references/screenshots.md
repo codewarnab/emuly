@@ -51,6 +51,22 @@ sound as an Opus track. Send the same
 support (a phone restart updates both). To check that an app plays a sound without a recording,
 run `["shell","dumpsys","audio"]` through the adb route and look for `state:started` players.
 
+### Frame grid: see short UI changes in one image
+
+`GET <base>/v1/phones/<id>/recording/grid?fps=2` returns one JPEG with frames from the last
+recording in a grid. Each frame shows its time in the recording. Use it to find toasts,
+snackbars and other short UI changes without a video player. `GET .../recording/file?format=grid`
+is the same call.
+
+Options (all optional): `fps` (0.1 to 10, default 2), `cols` (1 to 10, default 6),
+`width` of one frame in pixels (80 to 480, default 200), `count` of frames on one sheet
+(1 to 100, default 36) and `page` (from 0). The headers `X-Grid-Pages`, `X-Grid-Page`,
+`X-Grid-Frames` and `X-Grid-Start-Ms` say what the sheet shows. For a long recording, get
+the next sheet with `page=1`, `page=2` and so on, or use a lower `fps`. A page after the last
+gets **404** `grid_page_out_of_range`. Stop the recording first: a running one gets **409**.
+**503** `ffmpeg_missing` means the codespace was made before this feature: a phone restart
+installs ffmpeg.
+
 `GET .../recording/status` shows the state. `POST .../recording/discard` deletes the file.
 One recording runs at a time: a second start gets **409** `recording_busy`. A recording stops
 by itself at `max_s`, at 1 GB, or when the phone stops; `file` still returns what it has.
@@ -63,7 +79,14 @@ A **503** `runner_update_required` means the phone runs an older runner: use age
 
 Use the first way that you can.
 
-1. **agent-device** (when it is set up, see `references/tools/agent-device.md`). No extra
+1. **The screenshot route** (no install). `GET <base>/v1/phones/<id>/screenshot` returns a PNG.
+   Add `?scale=0.5` for half the width and height (about a quarter of the image tokens), or
+   any value from 0.1 to 1. Use a scaled screenshot for your own checks only. When you show
+   a screenshot to the user, take it again at full size (no `scale`), so the user sees the
+   best quality. The `X-Screenshot-Scale` header says which scale came back; `1` from an
+   older runner means it ignored `scale`.
+
+2. **agent-device** (when it is set up, see `references/tools/agent-device.md`). No extra
    install.
 
    ```sh
@@ -77,12 +100,12 @@ Use the first way that you can.
    agent-device record stop
    ```
 
-2. **The HTTP adb route** (always works, no install). Send
+3. **The HTTP adb route** (always works, no install). Send
    `{"args":["exec-out","screencap","-p"]}` to `POST /v1/phones/<id>/adb` and save the raw
    PNG bytes. The commands for your shell are in the OS file, for example
    `references/os/windows.md`.
 
-3. **Native adb** (only when the user already uses it, see `references/native-adb.md`):
+4. **Native adb** (only when the user already uses it, see `references/native-adb.md`):
 
    ```sh
    adb exec-out screencap -p > <scratchpad path>/emuly-<id>-result.png

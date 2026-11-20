@@ -66,7 +66,8 @@ do not create a phone to work around it.
 
 **Screenshots:** the route detects `["exec-out","screencap","-p"]` and returns raw PNG bytes
 instead of JSON. Save them to a file. Sending `Accept: image/png` also asks for raw bytes;
-use it only with screenshot calls.
+use it only with screenshot calls. For a smaller image, use `GET /v1/phones/<id>/screenshot?scale=0.5`
+(see `references/screenshots.md`).
 
 **Read the screen as text:** dump the UI hierarchy, then read the file back.
 
@@ -79,3 +80,28 @@ It returns XML with one node per element, each carrying `text`, `resource-id`,
 `content-desc` and `bounds="[x1,y1][x2,y2]"`. Tap the center of a node's bounds with
 `["shell","input","tap","<x>","<y>"]`. Prefer this over guessing coordinates from a
 screenshot. Dump again after the screen changes, because the old XML goes stale.
+
+`uiautomator dump` does not show the buttons of a Jetpack Compose dialog. The dialog's
+nodes are missing from the XML, so a tap on them is a guess from a screenshot. For a
+Compose app, use agent-device (`references/tools/agent-device.md`): its snapshot reads
+the Compose semantics tree and gives each button a ref to tap.
+
+**Open a file with an app:** push the file, then send a VIEW intent with its type.
+
+```json
+["push","@file0","/sdcard/Download/report.pdf"]
+["shell","am","start","-a","android.intent.action.VIEW","-t","application/pdf","--grant-read-uri-permission","-d","file:///sdcard/Download/report.pdf"]
+```
+
+Add `-n <package>/<activity>` or `-p <package>` to pick the app. Without it, Android may show
+a chooser: read the screen and tap the app. If the app shows an empty screen or a
+permission error, it cannot read a `file://` path. Then use a `content://` URI from the
+media store:
+
+```json
+["shell","content","query","--uri","content://media/external/file","--projection","_id","--where","_data='/sdcard/Download/report.pdf'"]
+["shell","am","start","-a","android.intent.action.VIEW","-t","application/pdf","--grant-read-uri-permission","-d","content://media/external/file/<_id>"]
+```
+
+If the query returns no row, the media store has not seen the file yet. Wait a few seconds
+and query again.

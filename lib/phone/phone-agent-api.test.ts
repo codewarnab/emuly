@@ -370,3 +370,39 @@ test("adb/upload checks the files and args, then returns a direct PUT with the t
   assert.equal(unavailable.status, 503);
   assert.equal((await unavailable.json()).error, "direct_upload_unavailable");
 });
+
+test("recording grid passes the grid options, keeps the X-Grid headers and accepts file?format=grid", async () => {
+  const sent: unknown[] = [];
+  const { api } = fixture({ user: async () => ({ id: 7, authKind: "agent" }),
+    recording: async (_userId, _id, action, body) => {
+      sent.push([action, body]);
+      return new Response(new Uint8Array([0xff, 0xd8]), { headers: { "content-type": "image/jpeg", "x-grid-pages": "2", "x-other": "no" } });
+    } });
+  const path = `/v1/phones/${stored.id}/recording`;
+  const grid = await api.recording(get(`${path}/grid?fps=0.5&page=1&evil=1`), stored.id, "grid");
+  assert.equal(grid.headers.get("content-type"), "image/jpeg");
+  assert.equal(grid.headers.get("x-grid-pages"), "2");
+  assert.equal(grid.headers.get("x-other"), null);
+  assert.deepEqual(sent[0], ["grid", { fps: "0.5", page: "1" }]);
+  assert.equal((await api.recording(get(`${path}/file?format=grid`), stored.id, "file")).status, 200);
+  assert.deepEqual(sent[1], ["grid", {}]);
+  assert.equal((await api.recording(get(`${path}/grid?fps=abc`), stored.id, "grid")).status, 400);
+});
+
+test("screenshot checks scale and says which scale came back", async () => {
+  const scales: unknown[] = [];
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+  const { api } = fixture({ user: async () => ({ id: 7, authKind: "agent" }),
+    screenshot: async (_userId, _id, scale) => {
+      scales.push(scale);
+      return new Response(png, { headers: { "content-type": "image/png", ...(scale ? { "x-screenshot-scale": String(scale) } : {}) } });
+    } });
+  const path = `/v1/phones/${stored.id}/screenshot`;
+  const small = await api.screenshot(get(`${path}?scale=0.5`), stored.id);
+  assert.equal(small.headers.get("content-type"), "image/png");
+  assert.equal(small.headers.get("x-screenshot-scale"), "0.5");
+  const full = await api.screenshot(get(path), stored.id);
+  assert.equal(full.headers.get("x-screenshot-scale"), "1");
+  assert.deepEqual(scales, [0.5, undefined]);
+  assert.equal((await api.screenshot(get(`${path}?scale=3`), stored.id)).status, 400);
+});

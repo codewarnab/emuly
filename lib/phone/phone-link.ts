@@ -37,7 +37,7 @@ export type LinksPath = "/links" | "/links/remove" | "/net-check" | "/link-hints
 export type AppsPath = "/apps" | "/apps/open" | "/app-installs" | `/app-installs/${string}`;
 export type AppsRequest = { method: "GET" | "POST" | "PUT"; json?: Record<string, unknown>; bytes?: Uint8Array; offset?: number; digest?: string; signal?: AbortSignal };
 export type AdbRequest = { args: string[]; timeout_s: number; binary?: boolean; files?: { name: string; bytes: Uint8Array }[] };
-export type RecordingAction = "start" | "stop" | "status" | "file" | "discard";
+export type RecordingAction = "start" | "stop" | "status" | "file" | "discard" | "grid";
 export type ProxyRequest = { method: string; headers: Headers; body?: ReadableStream<Uint8Array> | null; signal?: AbortSignal };
 
 /** One connection per owned phone. Only a read-only probe may fall back; never replay a mutation. */
@@ -334,8 +334,10 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
      */
     async recording(phone: Owner, action: RecordingAction, body?: Record<string, unknown>): Promise<Response> {
       const routes: Record<RecordingAction, [string, string]> = { start: ["POST", "/recording/start"], stop: ["POST", "/recording/stop"],
-        discard: ["POST", "/recording/discard"], status: ["GET", "/recording"], file: ["GET", "/recording/file"] };
-      const [method, path] = routes[action];
+        discard: ["POST", "/recording/discard"], status: ["GET", "/recording"], file: ["GET", "/recording/file"], grid: ["GET", "/recording/grid"] };
+      const [method, route] = routes[action];
+      // grid sends its options (fps, cols, width, count, page) as the query.
+      const path = action === "grid" && body ? `${route}?${new URLSearchParams(Object.entries(body).map(([k, v]) => [k, String(v)]))}` : route;
       if (action === "start" || action === "stop") activity?.mark(phone);
       const { entry, release } = acquire(phone);
       let released = false;
@@ -347,7 +349,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
         const response = await request(`${connection.url}${path}`, { method, headers,
           body: method === "POST" ? JSON.stringify(body ?? {}) : undefined, redirect: "manual", cache: "no-store",
           // A 30-minute recording is up to ~1 GB; the download gets 10 minutes, every other call 40 s.
-          signal: AbortSignal.any([entry.abort.signal, AbortSignal.timeout(action === "file" ? 600_000 : 40_000)]) });
+          signal: AbortSignal.any([entry.abort.signal, AbortSignal.timeout(action === "file" ? 600_000 : action === "grid" ? 120_000 : 40_000)]) });
         const type = response.headers.get("content-type") ?? "";
         if (action === "file" && response.ok && type.startsWith("video/mp4") && response.body) {
           const reader = response.body.getReader();
@@ -366,6 +368,11 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
         }
         const bytes = await response.arrayBuffer();
         done();
+        if (action === "grid" && response.ok && type.startsWith("image/jpeg")) {
+          const forwarded = new Headers({ "content-type": "image/jpeg" });
+          for (const [name, value] of response.headers) if (name.startsWith("x-grid-")) forwarded.set(name, value);
+          return new Response(bytes, { status: 200, headers: forwarded });
+        }
         if (!type.includes("application/json")) {
           return Response.json({ error: "Update the phone runner before recording.", errorCode: "runner_update_required" }, { status: 503 });
         }
@@ -385,7 +392,8 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
           signal: entry.abort.signal, release };
       } catch (error) { release(); throw error; }
     },
-    async request(phone: Owner, path: RunnerPath, body?: Record<string, unknown>): Promise<Response> {
+    /** query is only for GET /screenshot (scale). */
+    async request(phone: Owner, path: RunnerPath, body?: Record<string, unknown>, query?: Record<string, string>): Promise<Response> {
       if (!/^[\w-]{1,100}$/.test(phone.codespaceName)) throw new Error("Invalid codespace name");
       if (!["/health", "/boot", "/stop", "/screenshot", "/tap", "/key", "/agent-device-info", "/direct/revoke"].includes(path)) throw new Error("Invalid runner route");
       const { entry, release } = acquire(phone);
@@ -393,14 +401,18 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
         const connection = await entry.connection;
         const headers = new Headers({ "content-type": "application/json" });
         if (connection.forwarded) headers.set("X-Github-Token", await token(phone.userId));
-        const response = await request(`${connection.url}${path}`, { method: body ? "POST" : "GET", headers,
+        const search = query && path === "/screenshot" ? `?${new URLSearchParams(query)}` : "";
+        const response = await request(`${connection.url}${path}${search}`, { method: body ? "POST" : "GET", headers,
           body: body ? JSON.stringify(body) : undefined, redirect: "manual", cache: "no-store",
           signal: AbortSignal.any([entry.abort.signal, AbortSignal.timeout(path === "/boot" ? BOOT_REQUEST_MS : path === "/stop" ? 180_000 : 20_000)]) });
         // Consume before releasing the lease: a slow image must not lose its bridge to the idle timer.
         const bytes = await response.arrayBuffer();
         if (!response.ok) throw new RunnerResponseError(`Runner ${path} returned ${response.status}.`);
         if (path === "/tap" || path === "/key") { observations?.input(phone); activity?.mark(phone); }
-        return new Response(bytes, { headers: { "content-type": response.headers.get("content-type") ?? "application/json" } });
+        const forwarded: Record<string, string> = { "content-type": response.headers.get("content-type") ?? "application/json" };
+        const scale = response.headers.get("x-screenshot-scale");
+        if (scale) forwarded["x-screenshot-scale"] = scale;
+        return new Response(bytes, { headers: forwarded });
       } catch (error) {
         // Log the kind of failure (timeout, abort, network code, HTTP status) without any runner output.
         const cause = error instanceof Error ? (error as Error & { cause?: { code?: string } }).cause?.code : undefined;

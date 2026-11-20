@@ -227,7 +227,7 @@ export function createRecorder({ attach, dir = tmpdir(), now = Date.now, maxByte
     await current.done;
     if (current.state === "failed") throw new RecordingError(409, "recording_failed", current.error ?? "The recording failed.");
     const { size } = await stat(current.path);
-    return { path: current.path, bytes: size, id: current.id };
+    return { path: current.path, bytes: size, id: current.id, durationMs: current.result?.durationMs ?? 0 };
   }
 
   async function discard() {

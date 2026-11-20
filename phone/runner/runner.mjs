@@ -4,6 +4,7 @@ import ws from "./ws.cjs";
 import { openScrcpy } from "./scrcpy.mjs";
 import { createHub } from "./scrcpy-hub.mjs";
 import { createRecorder } from "./recording.mjs";
+import { gridOptions, makeGrid, scalePng, screenshotScale } from "./grid.mjs";
 import { createEvents } from "./events.mjs";
 import { qualities } from "./scrcpy-protocol.mjs";
 import { createApps, CHUNK_SIZE } from "./apps.mjs";
@@ -278,7 +279,7 @@ function screenshot() {
 }
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 18, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents"], avd: "t", api_level: 36, booted: await booted(),
+  "GET /health": async () => ({ ok: true, version: 19, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale"], avd: "t", api_level: 36, booted: await booted(),
     busy: { viewers: scrcpy.viewers(), links: links.count(), work: requestsInFlight + lifecycleWork + (adbBusy ? 1 : 0) + (boot || stopping ? 1 : 0),
       idle_ms: Date.now() - lastRequestAt } }),
 
@@ -381,7 +382,8 @@ const server = createServer(async (req, res) => {
   };
   try {
     if (SECRET && req.headers["x-phone-secret"] !== SECRET) return send(401, { error: "unauthorized" });
-    const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const path = url.pathname;
     if (path !== "/health") {
       requestsInFlight++; lastRequestAt = Date.now();
       res.once("close", () => { requestsInFlight--; lastRequestAt = Date.now(); });
@@ -418,6 +420,24 @@ const server = createServer(async (req, res) => {
         return res.end(result.png);
       }
       return send(200, result);
+    }
+    // Frame grid: one JPEG of frames at ?fps=, with each frame's time (grid.mjs).
+    if (req.method === "GET" && path === "/recording/grid") {
+      const options = gridOptions(url.searchParams);
+      const { path: file, durationMs } = await recorder.file();
+      const { jpeg, layout } = await makeGrid({ path: file, durationMs, options });
+      res.writeHead(200, { "content-type": "image/jpeg", "content-length": String(jpeg.length), "cache-control": "no-store",
+        "x-grid-frames": String(layout.frames), "x-grid-page": String(options.page), "x-grid-pages": String(layout.pages),
+        "x-grid-start-ms": String(Math.round(layout.startS * 1000)), "x-grid-fps": String(options.fps), "x-grid-cols": String(layout.cols) });
+      return res.end(jpeg);
+    }
+    // A smaller screenshot (?scale=0.5) costs the agent fewer image tokens. No scale: the full PNG.
+    if (req.method === "GET" && path === "/screenshot" && url.searchParams.has("scale")) {
+      const scale = screenshotScale(url.searchParams);
+      const full = await screenshot();
+      const png = scale ? await scalePng(full, scale) : full;
+      res.writeHead(200, { "content-type": "image/png", "cache-control": "no-store", "x-screenshot-scale": String(scale ?? 1) });
+      return res.end(png);
     }
     if (req.method === "GET" && path === "/recording/file") {
       const { path: file, bytes, id } = await recorder.file();

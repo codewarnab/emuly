@@ -7,7 +7,7 @@ import { phoneControl, templateRepository } from "./phone/phone-control";
 import { createPhoneApi } from "./phone/phone-api";
 import { createPhoneAgentApi } from "./phone/phone-agent-api";
 import { findPhone, listPhones } from "./phone/phones";
-import { runnerAdb, runnerAgentDevice, runnerLinks, runnerRecording } from "./phone/phone-runner";
+import { runnerAdb, runnerAgentDevice, runnerLinks, runnerRecording, runnerRequest } from "./phone/phone-runner";
 import { createPhoneLinksApi } from "./phone/phone-links-api";
 import { issueLinkTicket } from "./phone/link-ticket";
 import { directUploadTicket } from "./phone/direct-upload";
@@ -30,7 +30,9 @@ export function phoneApi() {
 /** List/read/start/stop/adb share the agent-facing surface and the same origin rule. */
 export function agentPhoneApi() {
   return createPhoneAgentApi({ user: getUser, phones: listPhones, phone: findPhone, service: phoneControl(),
-    adb: runnerAdb, uploadTicket: directUploadTicket, agentDevice: runnerAgentDevice, recording: runnerRecording, baseUrl: () => env.baseUrl, log: recordPhoneAdb,
+    adb: runnerAdb, uploadTicket: directUploadTicket, agentDevice: runnerAgentDevice, recording: runnerRecording,
+    screenshot: (userId, id, scale) => runnerRequest(userId, id, "/screenshot", undefined, scale === undefined ? undefined : { scale: String(scale) }),
+    baseUrl: () => env.baseUrl, log: recordPhoneAdb,
     update: () => updateCheck().hint(env.baseUrl),
     skillUpdate: request => skillUpdate(request, skillVersion(), env.baseUrl, SKILL_NAME),
     networkHint: async userId => await directBlocked(asyncDb(), userId) ? DIRECT_BLOCKED_HINT : null });

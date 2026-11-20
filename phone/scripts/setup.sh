@@ -37,7 +37,8 @@ ph_end
 # --- 2. X11/runtime libs the emulator needs (blank template lacks them) ---
 PKGS="libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext6 \
 libxfixes3 libxi6 libxrandr2 libxrender1 libxtst6 libxkbcommon0 libnss3 libgl1 \
-libegl1 libgbm1 libpulse0 unzip curl bubblewrap util-linux openjdk-21-jre-headless"
+libegl1 libgbm1 libpulse0 unzip curl bubblewrap util-linux openjdk-21-jre-headless \
+ffmpeg fonts-dejavu-core"
 # Ubuntu 24.04 renamed libasound2; the codespace image may be older.
 if apt-cache show libasound2t64 >/dev/null 2>&1; then PKGS="$PKGS libasound2t64"; else PKGS="$PKGS libasound2"; fi
 ph_begin runtime_libraries
