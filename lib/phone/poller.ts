@@ -107,7 +107,28 @@ export function createStatePoller({ database, sync, autoStop, autoKeep, deliver,
     if (failure) throw failure;
   }
 
-  return async function tick() {
+  /** Milliseconds until this user's backoff ends; 0 when the user may sync now. */
+  async function backoffLeft(userId: number) {
+    const saved = Number((await database.execute({ sql: "SELECT retry_at FROM poller_retries WHERE user_id = ?", args: [userId] })).rows[0]?.retry_at ?? 0);
+    return Math.max(0, Math.max(saved, retryAt.get(userId) ?? 0) - clock());
+  }
+  async function clearBackoff(userId: number) {
+    retryAt.delete(userId);
+    await database.execute({ sql: "DELETE FROM poller_retries WHERE user_id = ?", args: [userId] });
+  }
+  /** Back off 5 min on a GitHub rate limit, else 60 s, and mark booting phones. Never log provider errors. */
+  async function backOff(userId: number, error: unknown) {
+    const delay = error instanceof GitHubError && [403, 429].includes(error.status) ? 5 * 60_000 : 60_000;
+    retryAt.set(userId, clock() + delay);
+    await database.execute({ sql: "INSERT INTO poller_retries VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET retry_at = excluded.retry_at, error_code = excluded.error_code", args: [userId, clock() + delay, delay === 60000 ? "unknown_failure" : "rate_limited"] });
+    for (const row of (await database.execute({ sql: "SELECT id FROM phones WHERE user_id = ? AND state = 'booting' LIMIT 50", args: [userId] })).rows) {
+      await diagnostics.mark(await diagnostics.current(userId, String(row.id)), "poll_backoff", {
+        outcome: "failed", errorCode: delay === 60000 ? "unknown_failure" : "rate_limited", retryDelayMs: delay });
+    }
+  }
+
+  /** The /api/cron fallback: every part for every user, one after another. The VM scheduler calls the parts. */
+  async function tick() {
     if (running) return;
     running = true;
     try {
@@ -115,28 +136,18 @@ export function createStatePoller({ database, sync, autoStop, autoKeep, deliver,
         WHERE u.blocked = 0 AND p.state != 'deleted' AND p.codespace_name NOT LIKE 'pending:%'`, args: [] })).rows;
       for (const user of users) {
         const id = Number(user.user_id);
-        const saved = Number((await database.execute({ sql: "SELECT retry_at FROM poller_retries WHERE user_id = ?", args: [id] })).rows[0]?.retry_at ?? 0);
-        if (Math.max(saved, retryAt.get(id) ?? 0) > clock()) continue;
+        if (await backoffLeft(id)) continue;
         try {
           await sync(id);
           await protectBudget(id);
           await protectRetention(id);
-          retryAt.delete(id);
-          await database.execute({ sql: "DELETE FROM poller_retries WHERE user_id = ?", args: [id] });
+          await clearBackoff(id);
         }
-        catch (error) {
-          const delay = error instanceof GitHubError && [403, 429].includes(error.status) ? 5 * 60_000 : 60_000;
-          retryAt.set(id, clock() + delay);
-          await database.execute({ sql: "INSERT INTO poller_retries VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET retry_at = excluded.retry_at, error_code = excluded.error_code", args: [id, clock() + delay, delay === 60000 ? "unknown_failure" : "rate_limited"] });
-          for (const row of (await database.execute({ sql: "SELECT id FROM phones WHERE user_id = ? AND state = 'booting' LIMIT 50", args: [id] })).rows) {
-            await diagnostics.mark(await diagnostics.current(id, String(row.id)), "poll_backoff", {
-              outcome: "failed", errorCode: delay === 60000 ? "unknown_failure" : "rate_limited", retryDelayMs: delay });
-          }
-          // Do not log provider errors: they can contain credentials. Pages report sync failures.
-        }
+        catch (error) { await backOff(id, error); }
       }
       // Run even for users with no phones or a GitHub rate-limit backoff.
       await deliver?.();
     } finally { running = false; }
-  };
+  }
+  return Object.assign(tick, { protectBudget, protectRetention, backoffLeft, clearBackoff, backOff });
 }

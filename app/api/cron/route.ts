@@ -10,6 +10,9 @@ export async function GET(request: Request) {
   if (!secret || supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
     return new Response(null, { status: 401 });
   }
+  // The VM scheduler (scripts/scheduler.ts) does this work now. EMULY_CRON_OFF=1 turns this fallback off.
+  // With it on, the shared lease makes this answer 409 while the scheduler runs.
+  if (process.env.EMULY_CRON_OFF === "1") return Response.json({ ok: true, off: true }, { headers: { "Cache-Control": "no-store" } });
   try {
     await reconcile();
     return Response.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });

@@ -1,0 +1,26 @@
+# The long-running Emuly scheduler (scripts/scheduler.ts). A user unit: needs lingering for the user.
+# Install: deploy/vm/SCHEDULER.md.
+[Unit]
+Description=Emuly scheduler (sync, idle stop, budget, webhooks)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/emuly
+# Root-free secrets: mode 0600, owned by this user. Never print it.
+EnvironmentFile=%h/.config/emuly-scheduler/env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node --import ./scripts/node-resolve.mjs --conditions=react-server --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/scheduler.ts
+Restart=always
+RestartSec=5
+# SIGTERM: the scheduler gives running work 60 s, then exits.
+TimeoutStopSec=75
+KillMode=mixed
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+MemoryMax=512M
+
+[Install]
+WantedBy=default.target

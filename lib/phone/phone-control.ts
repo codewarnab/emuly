@@ -24,7 +24,8 @@ export function phoneControl() {
     database: asyncDb(), github: createGitHubClient({ database: asyncDb(), accessToken: getAccessToken }), encrypt: seal,
     setup: createPhoneSetup({ token: userId => getAccessToken(userId) }),
     collectProgress: createPhoneSetup({ token: userId => getAccessToken(userId) }).collect,
-    runner: runnerRequest, disconnect: closeRunner, dispatchBoot: SELF_HOST ? undefined : dispatchBoot,
+    runner: runnerRequest, disconnect: closeRunner, // Off Vercel (self-host, the VM scheduler) the process lives on, so a boot runs in it.
+    dispatchBoot: SELF_HOST || !process.env.VERCEL ? undefined : dispatchBoot,
     maxPhones: process.env.EMULY_MAX_PHONES ? Number(process.env.EMULY_MAX_PHONES) : undefined,
   });
 }
