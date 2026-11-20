@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createClient } from "../data/async-database.ts";
 import { migrateHosted } from "../data/hosted-migrations.ts";
-import { ANDROID_UNKNOWN_GRACE_MS, stopIdlePhones } from "./idle-stop.ts";
+import { ANDROID_UNKNOWN_GRACE_MS, IDLE_WARNING_MS, idleStopAt, stopIdlePhones } from "./idle-stop.ts";
+import type { OutgoingEvent } from "../data/events.ts";
 import { createActivity, androidIdleMs, ACTIVITY_WRITE_MS } from "./last-activity.ts";
 
 const NOW = Date.parse("2026-11-14T12:00:00Z");
@@ -113,4 +114,56 @@ test("activity writes at most once each 30 s for a phone, and recent() follows t
 test("androidIdleMs reads uptime and the last input time from the dump", () => {
   assert.equal(androidIdleMs("1234.50 900.00\n  mLastUserActivityTime=1200000 (34s ago)\n"), 34_500);
   assert.equal(androidIdleMs("no dump here"), null);
+});
+
+async function warnRun(client: ReturnType<typeof createClient>, android: number | null, now = NOW) {
+  const events: OutgoingEvent[] = []; const stops: string[] = [];
+  await stopIdlePhones({ database: client, clock: () => now, androidIdleMs: async () => android,
+    stop: async (_, id) => { stops.push(id); }, emit: event => { events.push(event); } });
+  return { events, stops };
+}
+
+test("5 min before the idle stop, the phone gets one phone.idle_warning with the stop time", async () => {
+  const client = await fixture(ago(27));
+  try {
+    const first = await warnRun(client, 27 * 60_000);
+    assert.deepEqual(first.stops, []);
+    assert.equal(first.events.length, 1);
+    assert.equal(first.events[0]!.type, "phone.idle_warning");
+    assert.equal(first.events[0]!.data.idle_stop_at, new Date(NOW + 3 * 60_000).toISOString());
+    // The next minute: the same idle period, so no second warning. Small Android read jitter is not use.
+    assert.equal((await warnRun(client, 28 * 60_000 - 2_000, NOW + 60_000)).events.length, 0);
+    // After the stop time the phone stops.
+    assert.deepEqual((await warnRun(client, 31 * 60_000, NOW + 4 * 60_000)).stops, ["p1"]);
+  } finally { client.close(); }
+});
+
+test("use after a warning starts a new idle period, which gets its own warning", async () => {
+  const client = await fixture(ago(26));
+  try {
+    assert.equal((await warnRun(client, 26 * 60_000)).events.length, 1);
+    await client.execute({ sql: "UPDATE phones SET last_activity_at = ?", args: [ago(0)] });
+    assert.equal((await warnRun(client, 26 * 60_000, NOW + 26 * 60_000)).events.length, 1);
+  } finally { client.close(); }
+});
+
+test("a phone not yet in the warning window gets no warning and Android is not asked", async () => {
+  const client = await fixture(new Date(NOW - (30 * 60_000 - IDLE_WARNING_MS) + 1_000).toISOString());
+  try {
+    let asked = false;
+    const events: OutgoingEvent[] = [];
+    await stopIdlePhones({ database: client, clock: () => NOW, androidIdleMs: async () => { asked = true; return null; },
+      stop: async () => {}, emit: event => { events.push(event); } });
+    assert.equal(asked, false);
+    assert.equal(events.length, 0);
+  } finally { client.close(); }
+});
+
+test("idleStopAt gives the stop time only for a running, not booting, not kept phone", () => {
+  const base = { state: "running", android_state: "ready", idle_timeout_min: 30, last_activity_at: ago(10), keeping: 0 };
+  assert.equal(idleStopAt(base), new Date(NOW + 20 * 60_000).toISOString());
+  assert.equal(idleStopAt({ ...base, last_activity_at: null, android_started_at: ago(5) }), new Date(NOW + 25 * 60_000).toISOString());
+  assert.equal(idleStopAt({ ...base, keeping: 1 }), null);
+  assert.equal(idleStopAt({ ...base, state: "stopped" }), null);
+  assert.equal(idleStopAt({ ...base, android_state: "booting" }), null);
 });

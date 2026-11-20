@@ -29,3 +29,4 @@ the user kept it, and `expired` means ask again.
 - Webhooks are optional. To get push notifications instead of polling, register one with
   `POST /v1/webhooks` and body `{"url":"https://example.com/emuly","events":"*"}`. List them
   with `GET /v1/webhooks`. An agent key cannot edit, test or delete webhooks.
+  `phone.idle_warning` comes 5 min before an idle stop and carries `idle_stop_at`.

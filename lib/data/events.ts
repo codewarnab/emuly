@@ -23,7 +23,7 @@ function safeText(value: string) {
 /** Explicit payload fields prevent accidental serialization of stored credentials. */
 function publicData(data: Record<string, unknown>) {
   const result: Record<string, unknown> = {};
-  for (const key of ["reason", "message", "threshold", "month", "estimated", "hours_left_at_current_rate", "days", "retention_at"]) {
+  for (const key of ["reason", "message", "threshold", "month", "estimated", "hours_left_at_current_rate", "days", "retention_at", "idle_stop_at"]) {
     const value = data[key];
     if (typeof value === "string") result[key] = safeText(value);
     else if (value === null || typeof value === "boolean" || typeof value === "number") result[key] = value;

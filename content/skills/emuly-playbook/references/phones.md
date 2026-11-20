@@ -1,7 +1,9 @@
 # Phones: choose, start, stop, hours
 
 List the user's phones with `GET /v1/phones` before doing anything else. Each phone has an
-`id`, a friendly `name`, `state`, `android_state`, `idle_timeout_min` and a `browser_url`.
+`id`, a friendly `name`, `state`, `android_state`, `idle_timeout_min`, `idle_stop_at` and a `browser_url`.
+`idle_stop_at` is the time Emuly stops a running phone if nothing uses it (null when no idle stop applies).
+Any phone call (adb, screenshot, input) moves it later.
 
 Use the first rule that fits:
 

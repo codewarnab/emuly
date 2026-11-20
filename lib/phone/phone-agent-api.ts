@@ -1,4 +1,5 @@
 import "server-only";
+import { idleStopAt } from "./idle-stop.ts";
 import { crossOrigin } from "../auth/origin.ts";
 import { RateLimitError } from "../data/rate-limit.ts";
 import { CoordinationBusyError } from "../data/coordination.ts";
@@ -12,7 +13,7 @@ import type { Phone } from "./phones.ts";
 import type { RecordingAction } from "./phone-link.ts";
 
 type Identity = { id: number; authKind?: "session" | "agent"; agentKeyId?: number };
-type PhoneView = Pick<Phone, "id" | "name" | "state" | "android_state" | "idle_timeout_min"> & { device_preset?: string };
+type PhoneView = Pick<Phone, "id" | "name" | "state" | "android_state" | "idle_timeout_min"> & Partial<Pick<Phone, "last_activity_at" | "android_started_at" | "last_started_at" | "keeping">> & { device_preset?: string };
 type AdbCall = { userId: number; phoneId: string; args: string[]; agentKeyId?: number; exitCode: number };
 
 const WAIT_STATES = new Set(["stopped", "running", "ready"]);
@@ -135,7 +136,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
     Response.json(body, { status, headers: { "Cache-Control": "private, no-store", ...headers } });
   const view = (stored: PhoneView) => ({
     id: stored.id, name: stored.name, state: stored.state, android_state: stored.android_state,
-    idle_timeout_min: stored.idle_timeout_min, device_preset: stored.device_preset ?? "generic",
+    idle_timeout_min: stored.idle_timeout_min, idle_stop_at: idleStopAt(stored), device_preset: stored.device_preset ?? "generic",
     browser_url: `${baseUrl().replace(/\/$/, "")}/app/phones/${encodeURIComponent(stored.id)}`,
   });
   const record = async (identity: Identity, id: string, args: string[], exitCode: number) => {
