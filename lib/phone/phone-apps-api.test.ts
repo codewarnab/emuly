@@ -113,3 +113,26 @@ test("Apps checks update and launch acknowledgements before reporting success", 
     assert.equal(update.status, valid ? 200 : 502);
   }
 });
+
+test("File fetch: bad input stops at Emuly; good input reaches the runner without the log host; the reply is checked", async () => {
+  const sent: { path: string; json?: Record<string, unknown> }[] = [];
+  const job = { id: "11111111-1111-4111-8111-111111111111", url_host: "files.example", dest: "/sdcard/Download/a.json", stage: "downloading",
+    bytes_received: 0, total_bytes: null, created_at: "2026-11-20T00:00:00Z", updated_at: "2026-11-20T00:00:00Z", can_cancel: true, extra: "dropped" };
+  const api = createPhoneAppsApi({ user: async () => ({ id: 3 }), phone: () => ({ state: "running", android_state: "ready" }),
+    runner: async (_user, _id, path, options) => { sent.push({ path, json: options.json }); return Response.json(job); } });
+  const key = "22222222-2222-4222-8222-222222222222";
+  for (const bad of [{ key, url: "http://files.example/a", dest: "/sdcard/a" }, { key, url: "https://files.example/a", dest: "/system/a" },
+    { key, url: "https://files.example/a", dest: "/sdcard/../data/a" }, { key, url: "https://files.example/a", dest: "/sdcard/a b" },
+    { key, url: "https://u:p@files.example/a", dest: "/sdcard/a" }, { key: "x", url: "https://files.example/a", dest: "/sdcard/a" }]) {
+    const response = await api(request("POST", JSON.stringify(bad)), "one", ["file-fetches"]);
+    assert.equal(response.status, 400, JSON.stringify(bad));
+  }
+  assert.equal(sent.length, 0);
+  const response = await api(request("POST", JSON.stringify({ key, url: "https://files.example/a.json?token=t", dest: "/sdcard/Download/a.json", extra: 1 })), "one", ["file-fetches"]);
+  assert.equal(response.status, 202);
+  assert.deepEqual(sent, [{ path: "/file-fetches", json: { key, url: "https://files.example/a.json?token=t", dest: "/sdcard/Download/a.json" } }]);
+  assert.equal("extra" in await response.json(), false, "unknown runner fields do not reach the agent");
+  const status = await api(request("GET"), "one", ["file-fetches", job.id]);
+  assert.equal(status.status, 200);
+  assert.equal((await api(request("PUT"), "one", ["file-fetches", job.id])).status, 404);
+});

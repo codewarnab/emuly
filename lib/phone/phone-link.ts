@@ -34,7 +34,7 @@ function safeErrorText(error: unknown, secret = "") {
 const BOOT_REQUEST_MS = process.env.VERCEL ? 240_000 : 1_200_000;
 export type RunnerPath = "/health" | "/boot" | "/stop" | "/screenshot" | "/tap" | "/key" | "/agent-device-info" | "/direct/revoke";
 export type LinksPath = "/links" | "/links/remove" | "/net-check" | "/link-hints";
-export type AppsPath = "/apps" | "/apps/open" | "/app-installs" | `/app-installs/${string}`;
+export type AppsPath = "/apps" | "/apps/open" | "/app-installs" | `/app-installs/${string}` | "/file-fetches" | `/file-fetches/${string}`;
 export type AppsRequest = { method: "GET" | "POST" | "PUT"; json?: Record<string, unknown>; bytes?: Uint8Array; offset?: number; digest?: string; signal?: AbortSignal };
 export type AdbRequest = { args: string[]; timeout_s: number; binary?: boolean; files?: { name: string; bytes: Uint8Array }[]; key?: string };
 export type RecordingAction = "start" | "stop" | "status" | "file" | "discard" | "grid";
@@ -118,7 +118,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
   return {
     close,
     async apps(phone: Owner, path: AppsPath, options: AppsRequest): Promise<Response> {
-      if (!/^\/(?:apps(?:\/open)?|app-installs(?:\/[0-9a-f-]{36}(?:\/(?:content|complete|cancel))?)?)$/.test(path)) throw new Error("Invalid Apps route");
+      if (!/^\/(?:apps(?:\/open)?|app-installs(?:\/[0-9a-f-]{36}(?:\/(?:content|complete|cancel))?)?|file-fetches(?:\/[0-9a-f-]{36}(?:\/cancel)?)?)$/.test(path)) throw new Error("Invalid Apps route");
       activity?.mark(phone);
       const { entry, release } = acquire(phone);
       try {

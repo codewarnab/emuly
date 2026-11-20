@@ -12,6 +12,7 @@ import { startAgentDeviceProxy } from "./agent-device-proxy.mjs";
 import { ADB_DOWNLOAD_MAX_BYTES, ADB_FILES_MAX, ADB_OUTPUT_MAX_BYTES, ADB_UPLOAD_MAX_BYTES,
   adbArguments, adbTimeout, isDownload, isScreencap } from "./adb-protocol.mjs";
 import { AppError } from "./apk-download.mjs";
+import { createFileFetches } from "./file-fetch.mjs";
 import { createLinks } from "./links.mjs";
 import { pasteText } from "./paste-text.mjs";
 import { createDirectServer } from "./direct-server.mjs";
@@ -287,6 +288,32 @@ async function adbKeyed(req) {
   }
 }
 const apps = await createApps({ root: join(ROOT, "data", "app-installs"), sdk: SDK, run, adb, exclusive, booted });
+
+/** Waits up to 60 s for the agent's adb slot, then holds it, so a fetch push and an agent adb call never overlap. */
+async function withAdbSlot(work) {
+  for (const until = Date.now() + 60_000; adbBusy;) {
+    if (Date.now() > until) throw new AppError(409, "adb_busy", "Another adb command ran for too long. Retry the fetch.");
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  adbBusy = true;
+  try { return await work(); } finally { adbBusy = false; }
+}
+// File fetch (file-fetch.mjs): a public HTTPS file goes from the internet to the phone with no stop on the way.
+// The dest passed fetchDest(): plain characters only, so it is safe inside the device shell quotes below.
+const fetches = await createFileFetches({ root: join(ROOT, "data", "file-fetches"), booted,
+  exists: dest => withAdbSlot(async () => {
+    const result = await adbCapture(["shell", `test -e '${dest}' && echo yes || echo no`], { timeout: 15_000 });
+    const answer = result.stdout.trim();
+    if (answer !== "yes" && answer !== "no") throw new AppError(502, "phone_check_failed", "The phone did not answer the file check.");
+    return answer === "yes";
+  }),
+  push: (local, dest) => withAdbSlot(async () => {
+    const result = await adbCapture(["push", local, dest], { timeout: 300_000 });
+    if (result.exitCode === 0) return;
+    const text = `${result.stderr} ${result.stdout}`;
+    if (/No space left|ENOSPC/i.test(text)) throw new AppError(507, "storage_full", "The phone does not have enough free storage.");
+    throw new AppError(502, "push_failed", `adb push failed: ${text.replace(/\s+/g, " ").trim().slice(0, 200)}`);
+  }) });
 // The agent-device proxy runs only while this process does; its token never reaches a log.
 // The runner owns SIGTERM (see the recorder below); the proxy stops in its exit handler.
 const agentDevice = startAgentDeviceProxy({ sdk: SDK, signals: false });
@@ -314,8 +341,8 @@ function screenshot() {
 }
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 19, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale"], avd: "t", api_level: 36, booted: await booted(),
-    busy: { viewers: scrcpy.viewers(), links: links.count(), work: requestsInFlight + lifecycleWork + (adbBusy ? 1 : 0) + (boot || stopping ? 1 : 0),
+  "GET /health": async () => ({ ok: true, version: 20, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale", "fileFetch"], avd: "t", api_level: 36, booted: await booted(),
+    busy: { viewers: scrcpy.viewers(), links: links.count(), work: requestsInFlight + lifecycleWork + fetches.active() + (adbBusy ? 1 : 0) + (boot || stopping ? 1 : 0),
       idle_ms: Date.now() - lastRequestAt } }),
 
   "POST /boot": ({ diagnosticOperation, attempt }) => {
@@ -387,6 +414,8 @@ const routes = {
   "POST /apps/open": ({ packageId }) => apps.open(packageId),
   "GET /app-installs": () => apps.list(),
   "POST /app-installs": body => apps.create(body),
+  "GET /file-fetches": () => fetches.list(),
+  "POST /file-fetches": body => fetches.create(body),
   "GET /agent-device-info": () => agentDevice.info(),
 
   // Links (docs/link-plan.html). The body of each call is small JSON; see links.mjs.
@@ -422,6 +451,13 @@ const server = createServer(async (req, res) => {
     if (path !== "/health") {
       requestsInFlight++; lastRequestAt = Date.now();
       res.once("close", () => { requestsInFlight--; lastRequestAt = Date.now(); });
+    }
+    const fetchJob = path.match(/^\/file-fetches\/([0-9a-f-]{36})(?:\/(cancel))?$/);
+    if (fetchJob) {
+      const [, id, action] = fetchJob;
+      if (req.method === "GET" && !action) return send(200, fetches.status(id));
+      if (req.method === "POST" && action === "cancel") return send(200, await fetches.cancel(id));
+      return send(405, { error: "Method not allowed." });
     }
     const install = path.match(/^\/app-installs\/([0-9a-f-]{36})(?:\/(content|complete|cancel))?$/);
     if (install) {

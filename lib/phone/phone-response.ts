@@ -94,6 +94,41 @@ export async function readPhoneResponse<T>(response: Response, parse: (value: un
 }
 
 /** Only call for routes that passed the Apps API's method and path checks. */
+export const FILE_FETCH_STAGES = ["downloading", "verifying", "pushing", "done", "failed", "cancelled"] as const;
+export type FileFetch = {
+  id: string; url_host: string; dest: string; stage: (typeof FILE_FETCH_STAGES)[number]; bytes_received: number;
+  total_bytes: number | null; sha256?: string; content_type?: string | null; error_code?: string; message?: string;
+  created_at: string; updated_at: string; can_cancel: boolean;
+};
+export const fileFetchFinished = (stage: string) => stage === "done" || stage === "failed" || stage === "cancelled";
+
+/** A file fetch job (runner file-fetch.mjs). Only known fields pass through to the agent. */
+export function parseFileFetch(value: unknown): FileFetch {
+  const r = object(value);
+  requireField(text(r.id, 36) && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(r.id));
+  requireField(text(r.url_host, 255) && text(r.dest, 255) && (FILE_FETCH_STAGES as readonly unknown[]).includes(r.stage));
+  requireField(bytes(r.bytes_received) && (r.total_bytes === null || bytes(r.total_bytes)));
+  requireField(r.sha256 === undefined || (typeof r.sha256 === "string" && /^[a-f0-9]{64}$/.test(r.sha256)));
+  requireField(r.content_type === undefined || r.content_type === null || (typeof r.content_type === "string" && r.content_type.length <= 200));
+  requireField(r.error_code === undefined || code(r.error_code));
+  requireField(r.message === undefined || text(r.message, 2048));
+  requireField(text(r.created_at, 64) && text(r.updated_at, 64) && typeof r.can_cancel === "boolean");
+  const out: FileFetch = { id: r.id, url_host: r.url_host, dest: r.dest, stage: r.stage as FileFetch["stage"],
+    bytes_received: r.bytes_received, total_bytes: r.total_bytes as number | null, created_at: r.created_at, updated_at: r.updated_at,
+    can_cancel: r.can_cancel };
+  if (r.sha256 !== undefined) out.sha256 = r.sha256 as string;
+  if (r.content_type !== undefined) out.content_type = r.content_type as string | null;
+  if (r.error_code !== undefined) out.error_code = r.error_code as string;
+  if (r.message !== undefined) out.message = r.message as string;
+  return out;
+}
+
+export function parseFileFetches(value: unknown): { fetches: FileFetch[] } {
+  const result = object(value);
+  requireField(Array.isArray(result.fetches));
+  return { fetches: result.fetches.map(parseFileFetch) };
+}
+
 export function parseAppsResponse(value: unknown, route: string, method: string) {
   if (route === "apps") return parseAppInventory(value);
   if (route === "apps/open") return parseAppOpened(value);

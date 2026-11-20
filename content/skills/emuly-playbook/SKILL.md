@@ -258,7 +258,7 @@ Topics (paths relative to this file):
 
 - `references/phones.md`: list, start, create, stop, hours, idle timeout.
 - `references/adb.md`: the adb route, allowed commands, screenshots, limits.
-- `references/apps.md`: push, pull, APK installs, the Apps endpoint.
+- `references/apps.md`: push, pull, download a URL to the phone, APK installs, the Apps endpoint.
 - `references/screenshots.md`: screenshots (with `?scale=`), screen recording (MP4), the frame grid, and how to show them in the chat.
 - `references/delete-and-errors.md`: delete approval, errors, settings, webhooks.
 - `references/native-adb.md`: native adb or scrcpy over `gh codespace ssh`.

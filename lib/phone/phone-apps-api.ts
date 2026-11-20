@@ -3,7 +3,7 @@ import { crossOrigin } from "../auth/origin.ts";
 import { APK_CHUNK_BYTES, APK_MAX_BYTES, installFinished } from "./phone-apps-contract.ts";
 import type { AppsPath, AppsRequest } from "./phone-link.ts";
 import type { sharedAppAdmission } from "./app-admission.ts";
-import { PhoneResponseError, parseAppsResponse, parsePhoneError, parseRunnerUpdate, readPhoneResponse } from "./phone-response.ts";
+import { PhoneResponseError, parseAppsResponse, parseFileFetch, parseFileFetches, parsePhoneError, parseRunnerUpdate, readPhoneResponse } from "./phone-response.ts";
 
 type Phone = { state: string; android_state: string };
 const global = globalThis as unknown as { __appAdmission?: Map<string, { userId: number; key: string; expires: number }>; __appTransfers?: number };
@@ -35,6 +35,28 @@ async function readBounded(request: Request, limit: number) {
   return Buffer.concat(chunks);
 }
 
+/**
+ * POST file-fetches input. The runner checks it again (file-fetch.mjs) and also checks DNS;
+ * this check only gives a quick, clear error. The URL is never logged in full.
+ */
+function fileFetchInput(input: unknown): Record<string, unknown> & { host: string } {
+  if (!input || typeof input !== "object" || Array.isArray(input)) bad(400, "Send JSON {key, url, dest}.");
+  const value = input as Record<string, unknown>;
+  if (typeof value.key !== "string" || !/^[0-9a-f-]{36}$/.test(value.key)) bad(400, "key must be a UUID.");
+  if (typeof value.url !== "string" || value.url.length > 4096) bad(400, "Enter a direct HTTPS download URL.");
+  let url: URL;
+  try { url = new URL(value.url); } catch { bad(400, "Enter a direct HTTPS download URL."); }
+  if (url.protocol !== "https:" || url.username || url.password || url.hash || (url.port && url.port !== "443")) bad(400, "Use HTTPS on port 443 without URL credentials or fragments.");
+  if (typeof value.dest !== "string" || value.dest.length > 255 || !/^\/(?:sdcard|data\/local\/tmp)\/[A-Za-z0-9._/-]+$/.test(value.dest)
+    || value.dest.split("/").some(part => part === ".." || part === ".") || value.dest.includes("//") || value.dest.endsWith("/"))
+    bad(400, "dest must be a file path under /sdcard/ or /data/local/tmp/ with letters, digits, '.', '_', '-' and '/' only.");
+  if (value.sha256 !== undefined && (typeof value.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(value.sha256))) bad(400, "sha256 must be 64 lowercase hex characters.");
+  if (value.overwrite !== undefined && typeof value.overwrite !== "boolean") bad(400, "overwrite must be true or false.");
+  // Only these fields reach the runner. The caller logs `host` and does not send it.
+  return { key: value.key, url: value.url, dest: value.dest, ...(value.sha256 ? { sha256: value.sha256 } : {}),
+    ...(value.overwrite !== undefined ? { overwrite: value.overwrite } : {}), host: url.hostname };
+}
+
 /** One authorization boundary for inventory, operations, binary upload and launch. */
 export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmission }: {
   user: () => Promise<{ id: number; authKind?: "session" | "agent" } | null>;
@@ -45,6 +67,7 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmissi
 }) {
   return async (request: Request, id: string, parts: string[]) => {
     let transfer = false;
+    let fetchHost = "";
     /** The account admission this request took, so a failed request can give it back. */
     let claimed: { userId: number; key: string } | null = null;
     try {
@@ -63,8 +86,9 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmissi
         return Response.json(parseRunnerUpdate(await upgrade(identity.id, id)), { headers });
       }
       const resource = /^app-installs\/([0-9a-f-]{36})(?:\/(content|complete|cancel))?$/.exec(route);
-      const allowed = (request.method === "GET" && (["apps", "app-installs"].includes(route) || (resource && !resource[2])))
-        || (request.method === "POST" && (["apps/open", "app-installs"].includes(route) || (resource && ["complete", "cancel"].includes(resource[2]))))
+      const fetchJob = /^file-fetches\/([0-9a-f-]{36})(?:\/(cancel))?$/.exec(route);
+      const allowed = (request.method === "GET" && (["apps", "app-installs", "file-fetches"].includes(route) || (resource && !resource[2]) || (fetchJob && !fetchJob[2])))
+        || (request.method === "POST" && (["apps/open", "app-installs", "file-fetches"].includes(route) || (resource && ["complete", "cancel"].includes(resource[2])) || fetchJob?.[2] === "cancel"))
         || (request.method === "PUT" && resource?.[2] === "content");
       if (!allowed) bad(404, "Apps route not found.");
       const options: AppsRequest = { method: request.method as AppsRequest["method"], signal: request.signal };
@@ -79,6 +103,13 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmissi
         if (!/^\d+$/.test(request.headers.get("x-upload-offset") ?? "") || !Number.isSafeInteger(options.offset) || !/^[a-f0-9]{64}$/.test(options.digest)) bad(400, "Invalid upload offset or digest.");
         options.bytes = await readBounded(request, APK_CHUNK_BYTES);
         if (!options.bytes.length) bad(400, "Empty upload chunk.");
+      } else if (request.method === "POST" && route === "file-fetches") {
+        if (!request.headers.get("content-type")?.startsWith("application/json")) bad(415, "Expected JSON.");
+        let input;
+        try { input = JSON.parse((await readBounded(request, 8192)).toString("utf8")); }
+        catch (error) { if (error instanceof InputError) throw error; bad(400, "Invalid JSON."); }
+        const { host, ...body } = fileFetchInput(input);
+        options.json = body; fetchHost = host;
       } else if (request.method === "POST" && ["apps/open", "app-installs"].includes(route)) {
         if (!request.headers.get("content-type")?.startsWith("application/json")) bad(415, "Expected JSON.");
         let input;
@@ -112,6 +143,14 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmissi
         }
       }
       const response = await runner(identity.id, id, `/${route}` as AppsPath, options);
+      if (route.startsWith("file-fetches")) {
+        const fetched = response.ok
+          ? await readPhoneResponse(response, value => route === "file-fetches" && request.method === "GET" ? parseFileFetches(value) : parseFileFetch(value))
+          : await readPhoneResponse(response, parsePhoneError);
+        // Host only: a query string can hold a token.
+        if (request.method === "POST" && route === "file-fetches") console.log(`[file-fetch] user=${identity.id} phone=${id} host=${fetchHost} status=${response.status}`);
+        return Response.json(fetched, { status: response.ok && route === "file-fetches" && request.method === "POST" ? 202 : response.status, headers });
+      }
       const payload = response.ok
         ? await readPhoneResponse(response, value => parseAppsResponse(value, route, request.method))
         : await readPhoneResponse(response, parsePhoneError);

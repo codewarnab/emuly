@@ -18,6 +18,8 @@ const handle = createPhoneAppsApi({ user: getUser, phone: findPhone, sharedAdmis
   const health = await runnerRequest(userId, id, "/health");
   const status = await health.json();
   if (!status.capabilities?.includes("apkUpload")) return Response.json({ error: "Update the phone runner to use Apps.", errorCode: "runner_update_required" }, { status: 503 });
+  if (path.startsWith("/file-fetches") && !status.capabilities?.includes("fileFetch"))
+    return Response.json({ error: `Update the phone runner to fetch files: POST /v1/phones/${id}/apps/update.`, errorCode: "runner_update_required" }, { status: 503 });
   return runnerApps(userId, id, path, options);
 }, upgrade: async (userId, id) => {
   const key = `${userId}:${id}`;
