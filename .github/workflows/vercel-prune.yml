@@ -1,0 +1,35 @@
+# Keep only the current production deployment of the Emuly Vercel project.
+# Why: Vercel keeps the last 10 production deployments, and each one counts toward the
+# 10 GB Function Storage of the free plan. Git has every commit, so a redeploy replaces a rollback.
+# Needs the repo secret VERCEL_TOKEN. Without it, this job does nothing.
+name: Prune old Vercel deployments
+
+on:
+  deployment_status:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  prune:
+    if: github.event_name == 'workflow_dispatch' || (github.event.deployment_status.state == 'success' && github.event.deployment.environment == 'Production')
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      TEAM: arnab-mondals-projects
+      PROJECT: emuly
+    steps:
+      - name: Delete every production deployment except the current one
+        run: |
+          set -euo pipefail
+          if [ -z "$VERCEL_TOKEN" ]; then echo "No VERCEL_TOKEN secret; skip."; exit 0; fi
+          api() { curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" "$@"; }
+          team=$(api https://api.vercel.com/v2/teams | jq -r --arg s "$TEAM" '.teams[] | select(.slug == $s) | .id')
+          project=$(api "https://api.vercel.com/v9/projects/$PROJECT?teamId=$team")
+          current=$(echo "$project" | jq -r '.targets.production.id // empty')
+          if [ -z "$current" ]; then echo "No current production deployment; skip."; exit 0; fi
+          ids=$(api "https://api.vercel.com/v6/deployments?teamId=$team&projectId=$(echo "$project" | jq -r .id)&limit=100" \
+            | jq -r --arg c "$current" '.deployments[] | select(.uid != $c and .state != "BUILDING" and .state != "QUEUED" and .state != "INITIALIZING") | .uid')
+          for id in $ids; do
+            api -X DELETE "https://api.vercel.com/v13/deployments/$id?teamId=$team" > /dev/null && echo "deleted $id"
+          done
