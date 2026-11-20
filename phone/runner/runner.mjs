@@ -49,7 +49,8 @@ function exclusive(work) {
 }
 
 class HttpError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
+  /** ran (adb errors only): false = adb did not start, true = it ran, "unknown" = it may have run. */
+  constructor(status, message, ran) { super(message); this.status = status; if (ran !== undefined) this.ran = ran; }
 }
 
 function run(cmd, args, { timeout = 60_000, binary = false, env = process.env } = {}) {
@@ -68,10 +69,10 @@ function adbCapture(args, { timeout, binary }) {
     execFile(ADB, ["-s", SERIAL, ...args], { timeout, maxBuffer: ADB_OUTPUT_MAX_BYTES, encoding: binary ? "buffer" : "utf8" },
       (error, stdout, stderr) => {
         if (error?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
-          return reject(new HttpError(413, "adb output was larger than 5 MB. Narrow the command."));
+          return reject(new HttpError(413, "adb output was larger than 5 MB. Narrow the command.", true));
         }
-        if (error?.killed) return reject(new HttpError(504, `adb timed out after ${Math.round(timeout / 1000)} s.`));
-        if (error?.code === "ENOENT") return reject(new HttpError(503, "adb is not available in this codespace."));
+        if (error?.killed) return reject(new HttpError(504, `adb timed out after ${Math.round(timeout / 1000)} s. The command may have run.`, "unknown"));
+        if (error?.code === "ENOENT") return reject(new HttpError(503, "adb is not available in this codespace.", false));
         resolve({ exitCode: error ? (typeof error.code === "number" ? error.code : 1) : 0,
           stdout, stderr: Buffer.isBuffer(stderr) ? stderr.toString("utf8") : stderr });
       });
@@ -200,7 +201,7 @@ async function readAdbRequest(req, ticket) {
 
 /** One file command or ordinary adb call. Temp files are removed in every path. */
 async function adbRoute(req, ticket) {
-  if (adbBusy) throw new HttpError(409, "Another adb command is running. Retry when it finishes.");
+  if (adbBusy) throw new HttpError(409, "Another adb command is running. Retry when it finishes.", false);
   let request;
   let directory;
   adbBusy = true;
@@ -208,7 +209,7 @@ async function adbRoute(req, ticket) {
     request = await readAdbRequest(req, ticket);
     directory = request.directory;
     if (!directory && isDownload(request.args)) directory = await mkdtemp(join(tmpdir(), "emuly-adb-"));
-    if (!(await booted())) throw new HttpError(409, "Android is not ready. Start the phone first.");
+    if (!(await booted())) throw new HttpError(409, "Android is not ready. Start the phone first.", false);
     if (request.args[0] === "text") {
       try { await pasteText({ adb, ADB, SERIAL, ROOT, text: request.args[1], timeoutMs: request.seconds * 1000 }); }
       catch (error) { return { exit_code: 1, stdout: "", stderr: String(error?.message ?? error).slice(0, 300) }; }
@@ -224,7 +225,7 @@ async function adbRoute(req, ticket) {
       const target = bugreport ? join(directory, "bugreport.zip") : join(directory, `pull${fileExtension(args[1], false)}`);
       const command = bugreport ? ["bugreport", target] : ["pull", args[1], target];
       const result = await adbCapture(command, { timeout: request.seconds * 1000 + 2000, binary: false });
-      if (result.exitCode !== 0) throw new HttpError(502, result.stderr || `adb ${bugreport ? "bugreport" : "pull"} failed.`);
+      if (result.exitCode !== 0) throw new HttpError(502, result.stderr || `adb ${bugreport ? "bugreport" : "pull"} failed.`, true);
       let path = target;
       if (bugreport) {
         try { await stat(path); }
@@ -241,14 +242,48 @@ async function adbRoute(req, ticket) {
     }
     const result = await adbCapture(args, { timeout: request.seconds * 1000 + 2000, binary: request.binary || isScreencap(args) });
     if ((request.binary || isScreencap(args)) && result.exitCode !== 0) {
-      throw new HttpError(502, result.stderr || "adb screenshot failed.");
+      throw new HttpError(502, result.stderr || "adb screenshot failed.", true);
     }
     return request.binary || isScreencap(args)
       ? { png: result.stdout }
       : { exit_code: result.exitCode, stdout: result.stdout, stderr: result.stderr };
+  } catch (error) {
+    // Errors before adb starts (bad input, a file over the limit) did not run the command.
+    if (error instanceof HttpError) { error.ran ??= false; throw error; }
+    const message = String(error?.message ?? error).replace(/\s+/g, " ").slice(0, 200);
+    throw new HttpError(500, `adb could not finish: ${message}`, "unknown");
   } finally {
     adbBusy = false;
     if (directory) await rm(directory, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+// Retry key: a call with an Idempotency-Key header that was seen in the last 10 minutes does
+// not run again. It gets the first call's result (or error), with "replayed": true.
+// So a retry of a `tap` whose reply was lost cannot tap twice.
+const ADB_KEY_MS = 10 * 60_000;
+const adbResults = new Map(); // key -> { at, promise }
+async function adbKeyed(req) {
+  const key = req.headers["idempotency-key"];
+  if (typeof key !== "string" || !/^[\w.:-]{1,100}$/.test(key)) return adbRoute(req);
+  for (const [old, entry] of adbResults) if (Date.now() - entry.at > ADB_KEY_MS) adbResults.delete(old);
+  const seen = adbResults.get(key);
+  if (seen) {
+    req.resume();
+    try {
+      const result = await seen.promise;
+      return result?.file || result?.png ? result : { ...result, replayed: true };
+    } catch (error) { error.replayed = true; throw error; }
+  }
+  const promise = adbRoute(req);
+  promise.catch(() => {});
+  adbResults.set(key, { at: Date.now(), promise });
+  while (adbResults.size > 200) adbResults.delete(adbResults.keys().next().value);
+  try { return await promise; }
+  catch (error) {
+    // Nothing ran: a retry with the same key may run it.
+    if (error.ran === false) adbResults.delete(key);
+    throw error;
   }
 }
 const apps = await createApps({ root: join(ROOT, "data", "app-installs"), sdk: SDK, run, adb, exclusive, booted });
@@ -408,7 +443,7 @@ const server = createServer(async (req, res) => {
       return send(405, { error: "Method not allowed." });
     }
     if (req.method === "POST" && path === "/adb") {
-      const result = await adbRoute(req);
+      const result = await adbKeyed(req);
       if (result?.file) {
         res.writeHead(200, { "content-type": result.type ?? "application/octet-stream",
           "content-disposition": `attachment; filename="${result.filename}"`,
@@ -456,7 +491,8 @@ const server = createServer(async (req, res) => {
     }
     send(200, result);
   } catch (error) {
-    send(error.status ?? 500, { error: error.status ? error.message : "Phone operation failed.", errorCode: error.code ?? "runner_error" });
+    send(error.status ?? 500, { error: error.status ? error.message : "Phone operation failed.", errorCode: error.code ?? "runner_error",
+      ...(error.ran !== undefined ? { ran: error.ran } : {}), ...(error.replayed ? { replayed: true } : {}) });
   }
 }).listen(PORT, "127.0.0.1", () => console.log(`runner listening on 127.0.0.1:${PORT}`));
 

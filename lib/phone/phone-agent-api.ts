@@ -127,7 +127,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
   phone: (userId: number, id: string) => Promise<PhoneView | undefined>;
   service: Pick<ReturnType<typeof createPhoneService>, "start" | "stop"> & Partial<Pick<ReturnType<typeof createPhoneService>, "requestStop">>;
   adb: (userId: number, id: string, input: { args: string[]; timeout_s: number; binary?: boolean;
-    files?: { name: string; bytes: Uint8Array }[] }) => Promise<Response>;
+    files?: { name: string; bytes: Uint8Array }[]; key?: string }) => Promise<Response>;
   /** A signed ticket for a direct upload to the phone, or undefined when the direct port is not available. */
   uploadTicket?: (userId: number, id: string, input: { args: string[]; timeout_s: number; files: { name: string; size: number; sha256: string }[] }) => Promise<UploadTicket | undefined>;
   agentDevice: (userId: number, id: string) => Promise<unknown>;
@@ -366,23 +366,28 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         const files = uploaded.length
           ? uploaded.map(file => ({ name: file.name, bytes: file.bytes }))
           : undefined;
-        const response = await adb(identity.id, id, { args, timeout_s, binary, ...(files ? { files } : {}) });
+        const key = request.headers.get("idempotency-key") ?? undefined;
+        if (key !== undefined && !/^[\w.:-]{1,100}$/.test(key)) bad(400, "Idempotency-Key must be 1 to 100 letters, digits, _ . : or -.");
+        const response = await adb(identity.id, id, { args, timeout_s, binary, ...(files ? { files } : {}), ...(key ? { key } : {}) });
         if (!response.ok) {
           await record(identity, id, args, -1);
-          let message = "adb could not run. Try again.";
+          let value: Record<string, unknown> = {};
           try {
-            const value: unknown = await response.json();
-            if (value && typeof value === "object" && typeof (value as Record<string, unknown>).error === "string") {
-              message = (value as Record<string, string>).error;
-            }
+            const parsed: unknown = await response.json();
+            if (parsed && typeof parsed === "object") value = parsed as Record<string, unknown>;
           } catch {}
           if (response.status === 404 || response.status === 405) {
-            return json({ error: "runner_update_required", message: "Update the phone runner before using adb." }, 503);
+            return json({ error: "runner_update_required", message: "Update the phone runner before using adb.", ran: false }, 503);
           }
-          const status = [400, 409, 413, 504].includes(response.status) ? response.status : 502;
-          const error = status === 409 ? "phone_conflict" : status === 413 ? "output_too_large"
-            : status === 504 ? "adb_timeout" : "adb_failed";
-          return json({ error, message }, status);
+          // ran: false = adb did not start, a retry is safe. true = it ran. "unknown" = it may have run:
+          // check the phone before a retry, or retry with the same Idempotency-Key.
+          const ran = value.ran === true || value.ran === false || value.ran === "unknown" ? value.ran : "unknown";
+          const message = typeof value.error === "string" ? value.error
+            : `The phone's reply was lost (HTTP ${response.status}). The command may have run.`;
+          const status = [400, 409, 413, 415, 503, 504].includes(response.status) ? response.status : 502;
+          const error = status === 409 ? "phone_conflict" : status === 413 ? "output_too_large" : status === 415 ? "invalid_input"
+            : status === 503 ? "adb_unavailable" : status === 504 ? "adb_timeout" : "adb_failed";
+          return json({ error, message, ran, ...(value.replayed === true ? { replayed: true } : {}) }, status === 415 ? 400 : status);
         }
         if (binary) {
           const bytes = await response.arrayBuffer();
@@ -410,8 +415,11 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
       } catch (error) {
         if (error instanceof InlineLimitError) return json(inlineLimitBody(id), 413);
         if (loggable) await record(identity, id, args, -1);
-        if (error instanceof InputError) return json({ error: "invalid_input", message: error.message }, error.status);
-        return fail(error, "The adb request could not be confirmed. Retry the command.");
+        if (error instanceof InputError) return json({ error: "invalid_input", message: error.message, ran: false }, error.status);
+        // A known refusal (busy, rate limit, bad input) came before adb. Any other failure may be after it.
+        const failed = fail(error, "The connection to the phone failed. The command may have run: check the phone, or retry with the same Idempotency-Key.");
+        const body = await failed.json() as Record<string, unknown>;
+        return json({ ...body, ran: body.error === "request_failed" ? "unknown" : false }, failed.status, Object.fromEntries(failed.headers));
       }
     },
     /**

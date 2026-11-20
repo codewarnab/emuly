@@ -36,7 +36,7 @@ export type RunnerPath = "/health" | "/boot" | "/stop" | "/screenshot" | "/tap" 
 export type LinksPath = "/links" | "/links/remove" | "/net-check" | "/link-hints";
 export type AppsPath = "/apps" | "/apps/open" | "/app-installs" | `/app-installs/${string}`;
 export type AppsRequest = { method: "GET" | "POST" | "PUT"; json?: Record<string, unknown>; bytes?: Uint8Array; offset?: number; digest?: string; signal?: AbortSignal };
-export type AdbRequest = { args: string[]; timeout_s: number; binary?: boolean; files?: { name: string; bytes: Uint8Array }[] };
+export type AdbRequest = { args: string[]; timeout_s: number; binary?: boolean; files?: { name: string; bytes: Uint8Array }[]; key?: string };
 export type RecordingAction = "start" | "stop" | "status" | "file" | "discard" | "grid";
 export type ProxyRequest = { method: string; headers: Headers; body?: ReadableStream<Uint8Array> | null; signal?: AbortSignal };
 
@@ -156,10 +156,12 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
         const files = input.files ?? [];
         const headers = new Headers({ "content-type": files.length ? "application/octet-stream" : "application/json" });
         if (connection.forwarded) headers.set("X-Github-Token", await token(phone.userId));
+        if (input.key) headers.set("Idempotency-Key", input.key);
         // The runner writes these bytes to its own temp directory; it never receives a path.
         if (files.length) headers.set("X-Emuly-Adb", JSON.stringify({ args: input.args, timeout_s: input.timeout_s,
           binary: input.binary === true, files: files.map(file => ({ name: file.name, size: file.bytes.length })) }));
-        const body = files.length ? Buffer.concat(files.map(file => Buffer.from(file.bytes))) : JSON.stringify(input);
+        const { key: _key, ...sent } = input;
+        const body = files.length ? Buffer.concat(files.map(file => Buffer.from(file.bytes))) : JSON.stringify(sent);
         const response = await request(`${connection.url}/adb`, { method: "POST", headers, body,
           redirect: "manual", cache: "no-store",
           // A file upload shares the same deadline as the command it feeds.

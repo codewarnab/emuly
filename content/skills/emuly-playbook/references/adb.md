@@ -60,6 +60,20 @@ retrying. The default timeout is 30 seconds. It is capped at 120 seconds, except
 is capped at 5 MB; narrow the command if it is larger. One adb call runs at a time per
 phone; a second one gets **409** and should be retried after the first finishes.
 
+**An error says whether the command ran.** Every adb error has `error`, `message` and `ran`:
+
+- `ran: false`: adb did not start (for example **409** `phone_conflict`, or bad input). A retry is safe.
+- `ran: true`: adb ran, but the result could not come back (for example **413** `output_too_large`).
+- `ran: "unknown"`: the command may have run (**504** `adb_timeout`, or a lost reply with
+  **502** `adb_failed`). Do not repeat an action blindly. Check the phone first, for example
+  with a screenshot, or retry with the same `Idempotency-Key`.
+
+**Retry key:** send an `Idempotency-Key` header (1 to 100 letters, digits, `_ . : -`) with an
+action that must not run twice, such as a `tap`, `swipe`, `text` or `install`. Use a new key
+for each new action. A retry with the same key within 10 minutes does not run the command
+again: it returns the first result with `"replayed": true`. A first call that did not start
+(`ran: false`) is not kept, so a retry with its key runs the command.
+
 The phone must be running with Android ready. Otherwise the route returns **409** with a
 message telling you to start it. A missing or stopped phone returns **404** or **409**;
 do not create a phone to work around it.

@@ -406,3 +406,35 @@ test("screenshot checks scale and says which scale came back", async () => {
   assert.deepEqual(scales, [0.5, undefined]);
   assert.equal((await api.screenshot(get(`${path}?scale=3`), stored.id)).status, 400);
 });
+
+test("an adb error says whether the command ran, and the Idempotency-Key reaches the runner", async () => {
+  const keys: unknown[] = [];
+  let reply: () => Response | Promise<Response> = () => Response.json({ exit_code: 0, stdout: "", stderr: "" });
+  const { api } = fixture({ user: async () => ({ id: 7, authKind: "agent" }),
+    adb: async (_userId, _id, input) => { keys.push(input.key); return reply(); } });
+  const tap = (headers: Record<string, string> = {}) =>
+    api.adb(post(`/v1/phones/${stored.id}/adb`, { args: ["shell", "input", "tap", "1", "2"] }, headers), stored.id);
+
+  assert.equal((await tap({ "idempotency-key": "tap-1" })).status, 200);
+  assert.deepEqual(keys, ["tap-1"]);
+  assert.equal((await tap({ "idempotency-key": "bad key!" })).status, 400);
+
+  reply = () => Response.json({ error: "Another adb command is running.", errorCode: "runner_error", ran: false }, { status: 409 });
+  assert.deepEqual(await (await tap()).json(), { error: "phone_conflict", message: "Another adb command is running.", ran: false });
+
+  reply = () => Response.json({ error: "adb timed out after 32 s. The command may have run.", ran: "unknown", replayed: true }, { status: 504 });
+  const timeout = await (await tap()).json();
+  assert.equal(timeout.error, "adb_timeout");
+  assert.equal(timeout.ran, "unknown");
+  assert.equal(timeout.replayed, true);
+
+  // A reply that is not JSON (a proxy page) or a dropped connection may come after the tap.
+  reply = () => new Response("<html>Bad gateway</html>", { status: 502 });
+  const lost = await (await tap()).json();
+  assert.equal(lost.ran, "unknown");
+  assert.match(lost.message, /may have run/);
+  reply = () => { throw new Error("socket hang up"); };
+  const dropped = await tap();
+  assert.equal(dropped.status, 502);
+  assert.equal((await dropped.json()).ran, "unknown");
+});
