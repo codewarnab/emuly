@@ -4,6 +4,7 @@ import ws from "./ws.cjs";
 import { openScrcpy } from "./scrcpy.mjs";
 import { createHub } from "./scrcpy-hub.mjs";
 import { createRecorder } from "./recording.mjs";
+import { createEvents } from "./events.mjs";
 import { qualities } from "./scrcpy-protocol.mjs";
 import { createApps, CHUNK_SIZE } from "./apps.mjs";
 import { startAgentDeviceProxy } from "./agent-device-proxy.mjs";
@@ -257,6 +258,13 @@ const links = createLinks({ adb, booted });
 // A new runner has no links, so any reverse rule on the phone is left from the last runner.
 void links.sweep().catch(() => {});
 
+// Push "boot.ready" or "boot.failed" to Emuly (events.mjs). Fire and forget: it retries on its own.
+const events = createEvents({ file: join(ROOT, ".events"), log: message => console.log(message) });
+let bootAttempt;
+function pushBoot(ok) {
+  if (bootAttempt) void events.send(ok ? "boot.ready" : "boot.failed", bootAttempt);
+}
+
 const SCREENSHOT_REUSE_MS = 1_000;
 let shot; // { at, png } or { pending }
 function screenshot() {
@@ -270,11 +278,13 @@ function screenshot() {
 }
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 17, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload"], avd: "t", api_level: 36, booted: await booted(),
+  "GET /health": async () => ({ ok: true, version: 18, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents"], avd: "t", api_level: 36, booted: await booted(),
     busy: { viewers: scrcpy.viewers(), links: links.count(), work: requestsInFlight + lifecycleWork + (adbBusy ? 1 : 0) + (boot || stopping ? 1 : 0),
       idle_ms: Date.now() - lastRequestAt } }),
 
-  "POST /boot": ({ diagnosticOperation }) => {
+  "POST /boot": ({ diagnosticOperation, attempt }) => {
+    // Emuly sends its boot attempt id; a retry that joins this boot sends the newer one.
+    if (typeof attempt === "string" && attempt.length <= 40) bootAttempt = attempt;
     return boot ??= exclusive(async () => {
       const start = Date.now();
       // A new emulator makes every open scrcpy session invalid.
@@ -286,7 +296,8 @@ const routes = {
       // A new emulator has no adb reverse rules. Put back the links of this runner.
       await links.reapply();
       return { booted: await booted(), seconds: Math.round((Date.now() - start) / 1000) };
-    }).finally(() => { boot = undefined; });
+    }).then(result => { pushBoot(result.booted); return result; }, error => { pushBoot(false); throw error; })
+      .finally(() => { boot = undefined; });
   },
 
   // GitHub's port forward ends a request after about 100 s, but stop.sh may wait 120 s for qemu.
