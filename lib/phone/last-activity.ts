@@ -37,11 +37,12 @@ export function createActivity(database: Client, clock: () => number = Date.now)
  */
 export function androidIdleMs(output: string): number | null {
   const uptime = /^\s*(\d+(?:\.\d+)?)\s/m.exec(output);
-  const last = /mLastUserActivityTime=(\d+)/.exec(output);
+  // Android 16 writes "mLastUserActivityTime(excludingAttention)="; older images write "mLastUserActivityTime=".
+  const last = /mLastUserActivityTime(?:\([^)]*\))?=(\d+)/.exec(output);
   if (!uptime || !last) return null;
   const idle = Math.round(Number(uptime[1]) * 1000) - Number(last[1]);
   return idle >= 0 ? idle : null;
 }
 
 /** The adb shell command whose output androidIdleMs reads: uptime first, then the power dump line. */
-export const ANDROID_IDLE_COMMAND = ["shell", "cat /proc/uptime; dumpsys power | grep mLastUserActivityTime="];
+export const ANDROID_IDLE_COMMAND = ["shell", "cat /proc/uptime; dumpsys power | grep mLastUserActivityTime"];

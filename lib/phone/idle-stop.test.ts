@@ -113,6 +113,8 @@ test("activity writes at most once each 30 s for a phone, and recent() follows t
 
 test("androidIdleMs reads uptime and the last input time from the dump", () => {
   assert.equal(androidIdleMs("1234.50 900.00\n  mLastUserActivityTime=1200000 (34s ago)\n"), 34_500);
+  // Android 16 (API 36) adds a suffix; measured on a phone 2026-11-20.
+  assert.equal(androidIdleMs("2383.86 4300.95\n mLastUserActivityTime(excludingAttention)=43582\n"), 2_340_278);
   assert.equal(androidIdleMs("no dump here"), null);
 });
 
