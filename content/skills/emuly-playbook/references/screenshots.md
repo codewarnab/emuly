@@ -121,3 +121,50 @@ Use the first way that you can.
 - Give the phone link too if the user may want to see the live screen:
   "Open this link to view the phone now: <browser_url>".
 - Never put the Emuly key or the agent-device token in a file name or a caption.
+
+## Put a video in a GitHub PR or issue
+
+Do this only when the user asks for the video in a PR or an issue. GitHub plays a video only
+from a link of the form `https://github.com/user-attachments/assets/<id>`. It removes a
+`<video>` tag, and it does not play a link to another site or a raw repository file. These
+steps need `gh` 2.99 or newer (`gh --version`), and they use GitHub only.
+
+1. **The user can push to the repository.** Attach the MP4 to the PR. `gh` uploads it and
+   puts the link in the body:
+
+   ```sh
+   gh pr edit <number> --attach <scratchpad path>/emuly-<id>-after.mp4
+   ```
+
+   `gh pr create`, `gh pr comment`, `gh issue create` and `gh issue comment` take `--attach`
+   too. In a `--body-file`, a reference such as `![after](./after.mp4)` becomes the uploaded
+   link. Paths are relative to the body file.
+
+2. **The user cannot push** (for example a PR from a fork). `--attach` then fails with
+   "attaching files requires write access to the repository". Upload the video to a public
+   repository of the user instead, then reuse the link:
+   1. Ask first. This opens an issue in the user's own repository, for example their fork.
+      If the fork has Issues off, `gh repo edit <owner>/<fork> --enable-issues` turns them on.
+   2. `gh issue create -R <owner>/<fork> --title "Media for PR <number>" --body "Video upload." --attach <file>.mp4`.
+      Do not write the upstream PR number as `owner/repo#n` in this issue, because GitHub
+      then adds a "mentioned this" line to the PR.
+   3. Read the links: `gh issue view <n> -R <owner>/<fork> --json body --jq .body`.
+   4. Put each link in the PR body with `gh pr edit <number> --body-file <file>`.
+   5. Close the issue, but do not delete it, because the videos belong to it.
+
+   The link has the same visibility as the repository that holds it. Use a public
+   repository, or people who cannot open that repository cannot play the video.
+
+3. **Placement.** A link plays when it is alone on its line, or alone in a table cell. In a
+   sentence it shows as a plain link. For before and after, use a table:
+
+   ```md
+   | Before | After |
+   | --- | --- |
+   | https://github.com/user-attachments/assets/<before-id> | https://github.com/user-attachments/assets/<after-id> |
+   ```
+
+4. **Check it.** `gh api repos/<owner>/<repo>/pulls/<number> -H "Accept: application/vnd.github.html+json" --jq .body_html`
+   shows a `<video` tag for each link that plays.
+
+Trim long still parts before the upload: the frame grid shows where the screen changes.
