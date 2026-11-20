@@ -51,17 +51,62 @@ link opens sign-in first and then returns to the phone page.
 Always offer both ways to see the phone. scrcpy comes first, marked "recommended": its video
 goes straight from the codespace to the user's computer over gh's SSH tunnel, and skips the
 Emuly server. Offer scrcpy even when gh, adb or scrcpy is not installed: do not check for
-the tools before the offer.
+the tools before the offer, and never install them before a yes.
 
-Fill in the template with real values before you send it:
+### Check the situation first
+
+Before you send the offer, find out where you run and where the user sits. Do not ask the
+user for this. Check it yourself, once per session:
+
+1. **Where you run.** Run the check in `references/remote.md` section 1. It tells you if
+   you are local or remote, if the link is over Tailscale, and the name and OS of the user's
+   computer.
+2. **The codespace name.** If `gh` works here, find the phone's codespace now
+   (`references/native-adb.md` step 2) and put the real name in the commands. If `gh` does
+   not work here, use the lookup form in case A below.
+3. **The port.** Use 5555. If it is in use where the tunnel runs, use 5556.
+
+Then pick exactly one case and give only its commands. Never give the commands of a case
+that does not match.
+
+**A. You run on the user's computer (local).** The user runs all 3 commands there. Use the
+syntax of their shell: PowerShell on Windows, sh on Linux and macOS.
+
+```powershell
+gh codespace ssh -c <codespace-name> -- -N -L 5555:127.0.0.1:5555
+adb connect 127.0.0.1:5555
+scrcpy -s 127.0.0.1:5555
+```
+
+If you do not know `<codespace-name>`, write this in its place. In sh, use `$(...)`:
+`(gh codespace list --json name,displayName -q '.[] | select(.displayName=="<id>") | .name')`
+
+**B. You run on a remote machine, over Tailscale.** You start the tunnel here
+(`references/remote.md` section 4, "Over Tailscale"). The user runs one command on
+`<computer name>`:
+
+```sh
+scrcpy --tcpip=<this machine's Tailscale name>:5555
+```
+
+**C. You run on a remote machine, over plain SSH.** You start the tunnel here on loopback.
+The user runs 2 commands on their computer, each in its own terminal:
+
+```sh
+ssh -N -L 5555:127.0.0.1:5555 <user>@<host>
+scrcpy --tcpip=127.0.0.1:5555
+```
+
+In B and C, the tunnel runs only after the user says yes, so write "Say yes and I will start
+the tunnel" above the user's commands. Add the scrcpy install line for the user's OS from
+`references/remote.md` section 4.
+
+### The offer
 
 - `<browser_url>` is the full phone link from `GET /v1/phones/<id>`, for example
   `https://emuly.vercel.app/app/phones/phone-copper-robin`. Never give only the base URL
   (`https://emuly.vercel.app`): it opens the phone list, not this phone.
-- `<id>` is the phone id, for example `phone-copper-robin`. The codespace display name is the
-  same id.
-- Give the commands as they are below, with `<id>` filled in, so the user can run them
-  without you. Put each command on its own line in a code block.
+- In remote cases, write "on your computer (<computer name>)" in option 1.
 
 ```text
 Two ways to see the phone:
@@ -69,11 +114,9 @@ Two ways to see the phone:
 1. scrcpy window on your computer (recommended)
    + Faster: the video skips the Emuly server. Smoother, with less delay.
    + Your keyboard, copy and paste, and file drag-and-drop work.
-   - Needs gh, adb and scrcpy. I will ask before I install anything.
-   Say yes and I will open it. To run it yourself, use 3 terminals:
-     gh codespace ssh -c (gh codespace list --json name,displayName -q '.[] | select(.displayName=="<id>") | .name') -- -N -L 5555:127.0.0.1:5555
-     adb connect 127.0.0.1:5555
-     scrcpy -s 127.0.0.1:5555
+   - Needs scrcpy (and gh and adb in case A). I will ask before I install anything.
+   Say yes and I will open it. To run it yourself:
+   <the commands of the one matching case, in a code block>
 
 2. Browser link (ready now):
    <browser_url>
@@ -81,9 +124,6 @@ Two ways to see the phone:
 
 Do you want me to open the scrcpy window?
 ```
-
-The first command uses PowerShell syntax. On Linux and macOS, write `$(...)` in place of
-`(...)`. If port 5555 is in use on the user's computer, use 5556 in all 3 commands.
 
 Offer it once per session. Do not set it up until the user says yes. The steps are in
 `references/native-adb.md`. On a remote machine, use the wording and steps in

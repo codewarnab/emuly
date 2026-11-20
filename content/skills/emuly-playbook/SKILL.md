@@ -110,8 +110,9 @@ Do not change the user's DNS or network settings yourself. Only tell the user.
 - Send `X-Emuly-Note: <3-10 words on what the call does>` with each adb, screenshot and
   recording call. The user reads it in the activity log. See `references/adb.md`.
 - When Android is ready, always offer both ways to see the phone: scrcpy first, marked
-  "recommended", with the commands to run it, then the browser link (see
-  `references/phones.md`). Offer scrcpy even when it is not installed.
+  "recommended", then the browser link (see `references/phones.md`). Offer scrcpy even when
+  it is not installed. First check where you run (local, remote over Tailscale, or plain
+  SSH). Then give only the scrcpy commands for that case, with real names filled in.
 - The browser link is always the full phone link in `browser_url`, such as
   `<base>/app/phones/<id>`. Never give only the base URL.
 - Install nothing for Emuly except what the OS file names.
