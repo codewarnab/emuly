@@ -32,6 +32,7 @@ export function agentPhoneApi() {
   return createPhoneAgentApi({ user: getUser, phones: listPhones, phone: findPhone, service: phoneControl(),
     adb: runnerAdb, uploadTicket: directUploadTicket, agentDevice: runnerAgentDevice, recording: runnerRecording,
     screenshot: (userId, id, scale) => runnerRequest(userId, id, "/screenshot", undefined, scale === undefined ? undefined : { scale: String(scale) }),
+    ui: (userId, id, all) => runnerRequest(userId, id, "/ui", undefined, all ? { all: "1" } : undefined),
     baseUrl: () => env.baseUrl, log: recordPhoneAdb, action: recordPhoneAgentAction,
     update: () => updateCheck().hint(env.baseUrl),
     skillUpdate: request => skillUpdate(request, skillVersion(), env.baseUrl, SKILL_NAME),

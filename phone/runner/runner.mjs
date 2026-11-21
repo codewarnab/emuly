@@ -5,6 +5,7 @@ import { openScrcpy } from "./scrcpy.mjs";
 import { createHub } from "./scrcpy-hub.mjs";
 import { createRecorder } from "./recording.mjs";
 import { gridOptions, makeGrid, scalePng, screenshotScale } from "./grid.mjs";
+import { createUiReader } from "./ui-tree.mjs";
 import { createEvents } from "./events.mjs";
 import { liveQualities, qualities } from "./scrcpy-protocol.mjs";
 import { createApps, CHUNK_SIZE } from "./apps.mjs";
@@ -340,8 +341,11 @@ function screenshot() {
   return pending;
 }
 
+// GET /ui (ui-tree.mjs): the UI tree as JSON, with retries for "null root node".
+const ui = createUiReader({ adb });
+
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 20, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale", "fileFetch"], avd: "t", api_level: 36, booted: await booted(),
+  "GET /health": async () => ({ ok: true, version: 20, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale", "fileFetch", "uiTree"], avd: "t", api_level: 36, booted: await booted(),
     busy: { viewers: scrcpy.viewers(), links: links.count(), work: requestsInFlight + lifecycleWork + fetches.active() + (adbBusy ? 1 : 0) + (boot || stopping ? 1 : 0),
       idle_ms: Date.now() - lastRequestAt } }),
 
@@ -504,6 +508,7 @@ const server = createServer(async (req, res) => {
         "x-grid-start-ms": String(Math.round(layout.startS * 1000)), "x-grid-fps": String(options.fps), "x-grid-cols": String(layout.cols) });
       return res.end(jpeg);
     }
+    if (req.method === "GET" && path === "/ui") return send(200, await ui.read({ all: url.searchParams.get("all") === "1" }));
     // A smaller screenshot (?scale=0.5) costs the agent fewer image tokens. No scale: the full PNG.
     if (req.method === "GET" && path === "/screenshot" && url.searchParams.has("scale")) {
       const scale = screenshotScale(url.searchParams);

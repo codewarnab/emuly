@@ -130,7 +130,7 @@ function gridQuery(query: URLSearchParams) {
   return body;
 }
 
-export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadTicket, agentDevice, recording, screenshot, baseUrl, log, action, update, skillUpdate, networkHint, waitStepMs = 1_000 }: {
+export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadTicket, agentDevice, recording, screenshot, ui, baseUrl, log, action, update, skillUpdate, networkHint, waitStepMs = 1_000 }: {
   user: () => Promise<Identity | null>;
   phones: (userId: number) => Promise<PhoneView[]>;
   phone: (userId: number, id: string) => Promise<PhoneView | undefined>;
@@ -144,6 +144,8 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
   recording?: (userId: number, id: string, action: RecordingAction, body?: Record<string, unknown>) => Promise<Response>;
   /** A PNG screenshot from the runner. scale (0.1 to 1) makes it smaller. Optional like recording. */
   screenshot?: (userId: number, id: string, scale?: number) => Promise<Response>;
+  /** The UI tree as JSON from the runner (phone/runner/ui-tree.mjs). all: every node. Optional like recording. */
+  ui?: (userId: number, id: string, all: boolean) => Promise<Response>;
   baseUrl: () => string;
   log?: (call: AdbCall) => void | Promise<void>;
   /** An activity row for an agent call that is not adb, such as a screenshot. Agent keys only. */
@@ -363,6 +365,41 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         return new Response(bytes, { headers: { "Content-Type": "image/png", "Cache-Control": "private, no-store",
           "X-Content-Type-Options": "nosniff", "X-Screenshot-Scale": response.headers.get("x-screenshot-scale") ?? "1" } });
       } catch (error) { return fail(error, "The screenshot failed. Retry."); }
+    },
+    /**
+     * GET ui: the UI tree as JSON. Each node has text, desc, id, class, bounds, tap [x, y] and flags.
+     * Only useful nodes by default; ?all=1 gives every node. The runner retries "null root node".
+     */
+    async ui(request: Request, id: string) {
+      const identity = await user();
+      if (!identity) return json({ error: "unauthorized" }, 401);
+      if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden" }, 403);
+      if (!ui) return json({ error: "not_available", message: "The UI tree is not available on this server." }, 503);
+      const raw = new URL(request.url).searchParams.get("all");
+      if (raw !== null && raw !== "0" && raw !== "1") return json({ error: "invalid_input", message: "all must be 0 or 1." }, 400);
+      const all = raw === "1";
+      try {
+        const stored = await phone(identity.id, id);
+        if (!stored) return json({ error: "not_found", message: "Phone not found." }, 404);
+        if (stored.state !== "running" || stored.android_state !== "ready") {
+          return json({ error: "phone_not_ready",
+            message: `The phone is ${stored.state} with Android ${stored.android_state}. Retry when GET /v1/phones/${id} shows running and ready.` }, 409);
+        }
+        const response = await ui(identity.id, id, all);
+        let value: Record<string, unknown> = {};
+        try { value = await response.json() as Record<string, unknown>; } catch {}
+        // A runner without /ui answers its generic 404 with no errorCode.
+        if (response.status === 404 && typeof value.errorCode !== "string") {
+          return json({ error: "runner_update_required", message: "Restart the phone to update its runner, then retry. GET /screenshot works now." }, 503);
+        }
+        if (!response.ok) {
+          const code = typeof value.errorCode === "string" ? value.errorCode : "ui_failed";
+          const message = typeof value.error === "string" ? value.error : "The UI tree could not be read. Retry, or use GET /screenshot.";
+          return json({ error: code, message }, response.status === 503 ? 503 : 502);
+        }
+        await act(identity, id, "Read the UI tree", `GET ui${all ? "?all=1" : ""}`, request);
+        return json(value);
+      } catch (error) { return fail(error, "The UI tree could not be read. Retry, or use GET /screenshot."); }
     },
     async adb(request: Request, id: string) {
       const note = readAgentNote(request);

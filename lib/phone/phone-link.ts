@@ -33,7 +33,7 @@ function safeErrorText(error: unknown, secret = "") {
  * (or the "still booting" check) is saved. Android keeps booting; the next sync joins the boot.
  */
 const BOOT_REQUEST_MS = process.env.VERCEL ? 240_000 : 1_200_000;
-export type RunnerPath = "/health" | "/boot" | "/stop" | "/screenshot" | "/tap" | "/key" | "/agent-device-info" | "/direct/revoke";
+export type RunnerPath = "/health" | "/boot" | "/stop" | "/screenshot" | "/ui" | "/tap" | "/key" | "/agent-device-info" | "/direct/revoke";
 export type LinksPath = "/links" | "/links/remove" | "/net-check" | "/link-hints";
 export type AppsPath = "/apps" | "/apps/open" | "/app-installs" | `/app-installs/${string}` | "/file-fetches" | `/file-fetches/${string}`;
 export type AppsRequest = { method: "GET" | "POST" | "PUT"; json?: Record<string, unknown>; bytes?: Uint8Array; offset?: number; digest?: string; signal?: AbortSignal };
@@ -396,27 +396,29 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
           signal: entry.abort.signal, release };
       } catch (error) { release(); throw error; }
     },
-    /** query is only for GET /screenshot (scale). */
+    /** query is only for GET /screenshot (scale) and GET /ui (all). */
     async request(phone: Owner, path: RunnerPath, body?: Record<string, unknown>, query?: Record<string, string>): Promise<Response> {
       if (!/^[\w-]{1,100}$/.test(phone.codespaceName)) throw new Error("Invalid codespace name");
-      if (!["/health", "/boot", "/stop", "/screenshot", "/tap", "/key", "/agent-device-info", "/direct/revoke"].includes(path)) throw new Error("Invalid runner route");
+      if (!["/health", "/boot", "/stop", "/screenshot", "/ui", "/tap", "/key", "/agent-device-info", "/direct/revoke"].includes(path)) throw new Error("Invalid runner route");
       const { entry, release } = acquire(phone);
       try {
         const connection = await entry.connection;
         const headers = new Headers({ "content-type": "application/json" });
         if (connection.forwarded) headers.set("X-Github-Token", await token(phone.userId));
-        const search = query && path === "/screenshot" ? `?${new URLSearchParams(query)}` : "";
+        const search = query && (path === "/screenshot" || path === "/ui") ? `?${new URLSearchParams(query)}` : "";
         const response = await request(`${connection.url}${path}${search}`, { method: body ? "POST" : "GET", headers,
           body: body ? JSON.stringify(body) : undefined, redirect: "manual", cache: "no-store",
           signal: AbortSignal.any([entry.abort.signal, AbortSignal.timeout(path === "/boot" ? BOOT_REQUEST_MS : path === "/stop" ? 180_000 : 20_000)]) });
         // Consume before releasing the lease: a slow image must not lose its bridge to the idle timer.
         const bytes = await response.arrayBuffer();
-        if (!response.ok) throw new RunnerResponseError(`Runner ${path} returned ${response.status}.`);
+        // /ui errors are JSON with a hint for the agent (ui-tree.mjs): pass them through.
+        const jsonError = path === "/ui" && response.headers.get("content-type")?.includes("application/json");
+        if (!response.ok && !jsonError) throw new RunnerResponseError(`Runner ${path} returned ${response.status}.`);
         if (path === "/tap" || path === "/key") { observations?.input(phone); activity?.mark(phone); }
         const forwarded: Record<string, string> = { "content-type": response.headers.get("content-type") ?? "application/json" };
         const scale = response.headers.get("x-screenshot-scale");
         if (scale) forwarded["x-screenshot-scale"] = scale;
-        return new Response(bytes, { headers: forwarded });
+        return new Response(bytes, { status: response.status, headers: forwarded });
       } catch (error) {
         // Log the kind of failure (timeout, abort, network code, HTTP status) without any runner output.
         const cause = error instanceof Error ? (error as Error & { cause?: { code?: string } }).cause?.code : undefined;

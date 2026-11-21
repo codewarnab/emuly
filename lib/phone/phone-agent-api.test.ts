@@ -430,6 +430,23 @@ test("screenshot checks scale and says which scale came back", async () => {
   assert.equal((await api.screenshot(get(`${path}?scale=3`), stored.id)).status, 400);
 });
 
+test("ui passes all=1, keeps the runner's hint, and asks an old runner to update", async () => {
+  const calls: boolean[] = [];
+  let reply = Response.json({ package: "com.example", count: 1, nodes: [{ text: "OK", tap: [1, 2] }] });
+  const { api } = fixture({ user: async () => ({ id: 7, authKind: "agent" }),
+    ui: async (_userId, _id, all) => { calls.push(all); return reply; } });
+  const path = `/v1/phones/${stored.id}/ui`;
+  assert.equal((await (await api.ui(get(`${path}?all=1`), stored.id)).json()).package, "com.example");
+  assert.deepEqual(calls, [true]);
+  assert.equal((await api.ui(get(`${path}?all=yes`), stored.id)).status, 400);
+  reply = Response.json({ error: "uiautomator found no window. Wait 1 s and retry.", errorCode: "ui_unavailable" }, { status: 503 });
+  const busy = await api.ui(get(path), stored.id);
+  assert.equal(busy.status, 503);
+  assert.deepEqual(await busy.json(), { error: "ui_unavailable", message: "uiautomator found no window. Wait 1 s and retry." });
+  reply = Response.json({ error: "not found" }, { status: 404 });
+  assert.equal((await (await api.ui(get(path), stored.id)).json()).error, "runner_update_required");
+});
+
 test("a screenshot that times out says timeout and when to retry", async () => {
   const { api } = fixture({ user: async () => ({ id: 7, authKind: "agent" }),
     screenshot: async () => { throw new RunnerTimeoutError("The phone did not answer /screenshot in time."); } });

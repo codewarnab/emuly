@@ -97,17 +97,37 @@ instead of JSON. Save them to a file. Sending `Accept: image/png` also asks for 
 use it only with screenshot calls. For a smaller image, use `GET /v1/phones/<id>/screenshot?scale=0.5`
 (see `references/screenshots.md`).
 
-**Read the screen as text:** dump the UI hierarchy, then read the file back.
+**Read the screen as text:** `GET <base>/v1/phones/<id>/ui` with the same header. It returns
+short JSON, not XML:
+
+```json
+{"package":"com.example","rotation":0,"count":2,"tries":1,"ms":900,"nodes":[
+  {"text":"Sign in","id":"com.example:id/login","class":"Button","bounds":[100,300,980,420],"tap":[540,360],"flags":["clickable"]},
+  {"desc":"Back","class":"ImageButton","bounds":[0,0,100,100],"tap":[50,50],"flags":["clickable"]}]}
+```
+
+- Each node has `text`, `desc` (content-desc), `id` (resource-id), `class`, `bounds`
+  `[x1,y1,x2,y2]` and `tap` `[x,y]`, the centre. Fields that are empty are left out.
+- `flags` can hold `clickable`, `long_clickable`, `scrollable`, `checkable`, `checked`,
+  `selected`, `focused`, `password` and `disabled`.
+- Only useful nodes come back: nodes with text, a description, an id or an action. `?all=1`
+  returns every node, with the layout containers.
+- Tap a node with `["shell","input","tap","<x>","<y>"]` and its `tap` values. Prefer this over
+  guessing coordinates from a screenshot. Read the tree again after the screen changes.
+- The first dump after a screen change often fails with "null root node", because the window
+  is not ready. The route retries up to 4 times (`tries` shows how many it needed).
+- A `503` with `ui_unavailable` means every try failed. The screen may still be changing, or
+  another UiAutomation tool (agent-device) runs. Wait 1 s and retry once, then use a screenshot.
+- A `503` with `runner_update_required` means the phone's runner is older than this route.
+  Use the adb recipe below, and restart the phone when the user agrees.
+
+The same data through the adb route, as XML (older runners). Retry the dump once if it prints
+"null root node":
 
 ```json
 ["shell","uiautomator","dump","/sdcard/ui.xml"]
 ["exec-out","cat","/sdcard/ui.xml"]
 ```
-
-It returns XML with one node per element, each carrying `text`, `resource-id`,
-`content-desc` and `bounds="[x1,y1][x2,y2]"`. Tap the center of a node's bounds with
-`["shell","input","tap","<x>","<y>"]`. Prefer this over guessing coordinates from a
-screenshot. Dump again after the screen changes, because the old XML goes stale.
 
 `uiautomator dump` does not show the buttons of a Jetpack Compose dialog. The dialog's
 nodes are missing from the XML, so a tap on them is a guess from a screenshot. For a

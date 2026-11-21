@@ -222,8 +222,8 @@ Try these steps in order. Ask the user only when all of them fail.
 The first time a task needs to see or tap the app, call
 `GET <base>/v1/phones/<id>/agent-device` with the same header.
 
-- **404**: never mention agent-device again. Use the uiautomator dump recipe in
-  `references/adb.md`.
+- **404**: never mention agent-device again. Use `GET <base>/v1/phones/<id>/ui` (the UI tree
+  as JSON with tap points, `references/adb.md`).
 - **Otherwise**: run `agent-device --version`. If it prints `{{AGENT_DEVICE_VERSION}}`, use it;
   the recipes are in `references/tools/agent-device.md`. If it prints another version, say in
   one line that another copy shadows it, then use adb. Do not reinstall.
@@ -242,7 +242,7 @@ The first time a task needs to see or tap the app, call
 
 - Never install without an explicit yes, and never `npx -y`. Remember a "no" yourself for
   the rest of the session, because Emuly cannot. Reply: "No problem. I will read the screen
-  with Android's own UI dump instead." Then use adb.
+  with Android's own UI dump instead." Then use `GET <base>/v1/phones/<id>/ui`.
 - **After a yes**: Node first if it is missing or old, through the version manager the user
   already has (nvm, fnm, volta, mise, asdf), else the OS package manager (winget, brew, apt),
   else give https://nodejs.org/en/download and wait. Then run `node --version` again.
@@ -266,7 +266,7 @@ The first time a task needs to see or tap the app, call
 Topics (paths relative to this file):
 
 - `references/phones.md`: list, start, create, stop, hours, idle timeout.
-- `references/adb.md`: the adb route, allowed commands, screenshots, limits.
+- `references/adb.md`: the adb route, allowed commands, screenshots, the UI tree (`GET /ui`), limits.
 - `references/apps.md`: push, pull, download a URL to the phone, APK installs, the Apps endpoint.
 - `references/screenshots.md`: screenshots (with `?scale=`), screen recording (MP4, with `native` quality for full size), recording notes (step times and a `.vtt` file), the frame grid, how to show them in the chat, and how to put a video in a GitHub PR or issue.
 - `references/annotate.md`: trim a recording and add polished step captions. Use it whenever
