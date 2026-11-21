@@ -5,7 +5,7 @@ export const OPERATING_SYSTEMS = [
   { id: "windows", name: "Windows", ready: true },
   { id: "linux", name: "Linux", ready: true },
   { id: "remote", name: "Remote Linux (SSH)", ready: true },
-  { id: "macos", name: "macOS", ready: false },
+  { id: "macos", name: "macOS", ready: true },
 ] as const;
 export type OsId = (typeof OPERATING_SYSTEMS)[number]["id"];
 
@@ -38,6 +38,11 @@ export const AGENT_DOCS: AgentDoc[] = [
         { title: "Start it in a folder", text: "Open a new terminal. Go to any folder and start the agent. Sign in when it asks.", code: "claude" },
         PASTE,
       ],
+      macos: [
+        { title: "Install Claude Code", text: "Open Terminal and run this command. It works on Apple Silicon and Intel Macs.", code: "curl -fsSL https://claude.ai/install.sh | bash" },
+        { title: "Start it in a folder", text: "Open a new terminal. Go to any folder and start the agent. Sign in when it asks.", code: "claude" },
+        PASTE,
+      ],
     },
   },
   {
@@ -46,6 +51,12 @@ export const AGENT_DOCS: AgentDoc[] = [
       windows: [
         { title: "Install Node.js", text: "Install Node.js 20 or later from nodejs.org. Codex installs with npm." },
         { title: "Install Codex", text: "Open PowerShell and run this command.", code: "npm install -g @openai/codex" },
+        { title: "Start it in a folder", text: "Go to any folder and start the agent. Sign in with your ChatGPT account when it asks.", code: "codex" },
+        CODEX_NETWORK,
+        PASTE,
+      ],
+      macos: [
+        { title: "Install Codex", text: "Open Terminal and run this command. With Node.js 20 or later, npm install -g @openai/codex works too.", code: "brew install --cask codex" },
         { title: "Start it in a folder", text: "Go to any folder and start the agent. Sign in with your ChatGPT account when it asks.", code: "codex" },
         CODEX_NETWORK,
         PASTE,
@@ -70,6 +81,11 @@ export const AGENT_DOCS: AgentDoc[] = [
       ],
       linux: [
         { title: "Install OpenCode", text: "Open a terminal and run this command.", code: "curl -fsSL https://opencode.ai/install | bash" },
+        { title: "Start it in a folder", text: "Open a new terminal. Go to any folder and start the agent. Connect a model provider when it asks.", code: "opencode" },
+        PASTE,
+      ],
+      macos: [
+        { title: "Install OpenCode", text: "Open Terminal and run this command. It works on Apple Silicon and Intel Macs.", code: "curl -fsSL https://opencode.ai/v2/install | bash" },
         { title: "Start it in a folder", text: "Open a new terminal. Go to any folder and start the agent. Connect a model provider when it asks.", code: "opencode" },
         PASTE,
       ],
@@ -103,7 +119,7 @@ export function setupMarkdown(agentId?: string | null, osId?: string | null) {
     "Find the user's operating system first. On Windows, run `$env:OS` in PowerShell. On Linux or macOS, run `uname -s`.",
     "On Linux with `SSH_CONNECTION` set, use the Remote Linux section: the user sits at another computer.",
     "Then follow only the section for your agent and that operating system.",
-    "Fetch one section: /docs/setup.md?agent=<claude-code|codex|opencode>&os=<windows|linux|remote>",
+    "Fetch one section: /docs/setup.md?agent=<claude-code|codex|opencode>&os=<windows|linux|macos|remote>",
   ].join("\n");
   const body = agents.flatMap(agent => systems.map(os => {
     const steps = agent.steps[os.id];

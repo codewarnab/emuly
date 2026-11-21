@@ -37,7 +37,8 @@ if (Get-Command tailscale -ErrorAction SilentlyContinue) { tailscale status --se
 
 - **Local:** no SSH connection. Links open on this computer.
 - **Remote:** \`SSH_CONNECTION\` is set, or there is no display. On Windows, no display
-  means \`SESSIONNAME\` is empty or \`Services\`; \`Console\` and \`RDP-Tcp#N\` have one. I sit at another computer, so
+  means \`SESSIONNAME\` is empty or \`Services\`; \`Console\` and \`RDP-Tcp#N\` have one. On macOS
+  (\`Darwin\`), \`DISPLAY\` is not used: only \`SSH_CONNECTION\` means remote. I sit at another computer, so
   every link is for me to open there, and nothing here can open a window for me.
 - **Over Tailscale:** remote, and the first address in \`SSH_CONNECTION\` is a Tailscale
   address (100.64.0.0/10). \`tailscale whois <that address>\` names my computer.
@@ -57,11 +58,7 @@ Tailscale from <computer>, so I will give you links to open there." The skill us
 
 Fetch the setup commands for the OS you run on. If none matches, adapt the closest one.
 
-**macOS is not supported yet.** If \`uname -s\` prints \`Darwin\`, stop here and install nothing.
-Tell me: "Emuly does not support macOS yet. The work is tracked here:" and print
-https://github.com/codewarnab/emuly/issues/27 on its own line. Then ask me if I want to
-contribute macOS support there. This applies only when you run on macOS. A Linux machine
-that I reach over SSH from a Mac is fine.
+If \`uname -s\` prints \`Darwin\`, you run on macOS: use the macos file.
 
 ${osLinks}
 

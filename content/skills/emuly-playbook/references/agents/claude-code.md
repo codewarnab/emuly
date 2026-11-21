@@ -2,9 +2,9 @@
 
 These notes apply only to Claude Code. The rest of the playbook still applies.
 
-- **Shell:** your Bash tool runs Git Bash on Windows and bash on Linux. Each call starts a
-  new shell, so read the saved key again and set `base`, `auth` and `id` at the start of
-  each call. PowerShell works too if your session has a PowerShell tool.
+- **Shell:** your Bash tool runs Git Bash on Windows, bash on Linux, and your login shell
+  (usually zsh) on macOS. Each call starts a new shell, so read the saved key again and set
+  `base`, `auth` and `id` at the start of each call. PowerShell works too if your session has a PowerShell tool.
 - **Remote:** Claude Code often runs on a VM over SSH or Tailscale, or as a remote session
   in the desktop app. Then follow `references/remote.md`. `SendUserFile` reaches the user
   from a remote session too, so prefer it for screenshots.

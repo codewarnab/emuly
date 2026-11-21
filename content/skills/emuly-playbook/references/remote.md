@@ -13,7 +13,8 @@ echo "ssh=${SSH_CONNECTION:-none} display=${DISPLAY:-}${WAYLAND_DISPLAY:-}"
 command -v tailscale >/dev/null && tailscale status --self --peers=false
 ```
 
-- **Remote:** `SSH_CONNECTION` is set, or there is no display.
+- **Remote:** `SSH_CONNECTION` is set, or there is no display. On macOS, `DISPLAY` is not
+  used: a Mac is remote only when `SSH_CONNECTION` is set.
 - **Over Tailscale:** the first address in `SSH_CONNECTION` is in 100.64.0.0/10. Then:
   - `tailscale whois <that address>` gives the user's computer name (first label of
     `Name`, for example `my-pc`).

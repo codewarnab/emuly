@@ -26,12 +26,10 @@ user asks you to.
    A self-hosted Emuly writes that file, for example `http://localhost:4321`. Use this base
    for every call in this skill and its references. If a localhost base does not answer,
    ask the user to start Emuly (`pnpm emuly up`, or `docker compose up -d` in `deploy/selfhost/`).
-2a. If you run on macOS (`uname -s` prints `Darwin`), stop. Say that Emuly does not support
-   macOS yet, print https://github.com/codewarnab/emuly/issues/27 on its own line, and ask
-   whether the user wants to contribute macOS support there.
 3. Read the OS file and the agent file that match you (see References). Read the topic
    files only when the task needs them.
 4. If you run over SSH or Tailscale, or with no display, also read `references/remote.md`.
+   On macOS, `DISPLAY` is not used: a Mac is remote only when `SSH_CONNECTION` is set.
    It changes how you give links, scrcpy and screenshots.
 5. Check for T3 Code every time, not only at setup. See "T3 Code" below.
 
@@ -170,8 +168,8 @@ switches to another environment, set that one up too.
 
 To set it up:
 
-1. Follow `references/t3code.md` (Linux) or `references/t3code-windows.md` (Windows).
-   On macOS, keep the browser link.
+1. Follow `references/t3code.md` (Linux), `references/t3code-windows.md` (Windows) or
+   `references/t3code-macos.md` (macOS).
 2. Turn on devices. Open `~/.t3/userdata/settings.json` (or `$T3CODE_HOME/userdata/settings.json`).
    Set `enableDeviceSupport` and `enableAgentDeviceAccess` to `true`. Keep every other key.
    Create the file with only these 2 keys if it does not exist. Then tell the user in
@@ -274,11 +272,13 @@ Topics (paths relative to this file):
   screenshots for a user at another computer.
 - `references/t3code.md`: show an Emuly phone in T3 Code (Linux).
 - `references/t3code-windows.md`: show an Emuly phone in T3 Code (Windows).
+- `references/t3code-macos.md`: show an Emuly phone in T3 Code (macOS).
 
 Commands for one OS (pick yours; adapt the closest one if none matches):
 
 - `references/os/windows.md`
 - `references/os/linux.md`
+- `references/os/macos.md`
 
 Notes for one agent (pick yours; skip if none matches):
 
