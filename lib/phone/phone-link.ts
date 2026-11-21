@@ -38,7 +38,7 @@ export type LinksPath = "/links" | "/links/remove" | "/net-check" | "/link-hints
 export type AppsPath = "/apps" | "/apps/open" | "/app-installs" | `/app-installs/${string}` | "/file-fetches" | `/file-fetches/${string}`;
 export type AppsRequest = { method: "GET" | "POST" | "PUT"; json?: Record<string, unknown>; bytes?: Uint8Array; offset?: number; digest?: string; signal?: AbortSignal };
 export type AdbRequest = { args: string[]; timeout_s: number; binary?: boolean; files?: { name: string; bytes: Uint8Array }[]; key?: string };
-export type RecordingAction = "start" | "stop" | "status" | "file" | "discard" | "grid";
+export type RecordingAction = "start" | "stop" | "status" | "file" | "discard" | "grid" | "mark" | "notes";
 export type ProxyRequest = { method: string; headers: Headers; body?: ReadableStream<Uint8Array> | null; signal?: AbortSignal };
 
 /** One connection per owned phone. Only a read-only probe may fall back; never replay a mutation. */
@@ -337,7 +337,8 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
      */
     async recording(phone: Owner, action: RecordingAction, body?: Record<string, unknown>): Promise<Response> {
       const routes: Record<RecordingAction, [string, string]> = { start: ["POST", "/recording/start"], stop: ["POST", "/recording/stop"],
-        discard: ["POST", "/recording/discard"], status: ["GET", "/recording"], file: ["GET", "/recording/file"], grid: ["GET", "/recording/grid"] };
+        discard: ["POST", "/recording/discard"], status: ["GET", "/recording"], file: ["GET", "/recording/file"], grid: ["GET", "/recording/grid"],
+        mark: ["POST", "/recording/mark"], notes: ["GET", "/recording/notes"] };
       const [method, route] = routes[action];
       // grid sends its options (fps, cols, width, count, page) as the query.
       const path = action === "grid" && body ? `${route}?${new URLSearchParams(Object.entries(body).map(([k, v]) => [k, String(v)]))}` : route;

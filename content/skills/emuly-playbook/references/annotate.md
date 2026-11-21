@@ -17,9 +17,11 @@ Ask before you install any of them. The script downloads the Inter font once int
 
 ## Steps
 
-1. Record with the recording route (`references/screenshots.md`). Pause about 1 second on
-   each screen, so each step has a clear moment.
-2. Find the moments to keep. Get a frame grid (`/recording/grid?fps=2`), or run
+1. Record with the recording route (`references/screenshots.md`). Use `{"quality":"native"}`,
+   so the text in the video is sharp. Add a note after each step with `recording/mark`. Pause
+   about 1 second on each screen, so each step has a clear moment.
+2. Find the moments to keep. If you added notes while you recorded, `GET .../recording/notes`
+   gives each step's time in the video; start each step at its note time. Otherwise, get a frame grid (`/recording/grid?fps=2`), or run
    `ffmpeg -i in.mp4 -vf freezedetect=n=0.003:d=1 -map 0:v -f null -` to find still parts.
    Keep 2 to 4 seconds per step. Cut the waits between steps.
 3. Save the script below as `emuly-annotate.py` in the scratchpad, then run it:

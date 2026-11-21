@@ -32,17 +32,19 @@ repository. Use a clear name, for example `emuly-<phone id>-login.png`.
 
 ## Video: the recording route
 
-Use this for a video. It needs no install and works on every phone. The phone records the
-same video stream that the browser shows, so it adds almost no load. The MP4 has the phone's
+Use this for a video. It needs no install and works on every phone. With `auto`, `sharp` or
+`saver`, the phone records the same video stream that the browser shows, so it adds almost no load. The MP4 has the phone's
 sound as an Opus track. Send the same
 `Authorization` header as for the other routes.
 
 1. `POST <base>/v1/phones/<id>/recording/start` before the steps. The JSON body is optional:
    `{"max_s":600}` stops it after that many seconds (1 to 1800, default 600), and
-   `{"quality":"saver"}` makes a smaller file (`auto`, `sharp` or `saver`).
+   `{"quality":"native"}` records at the phone's real screen size, at up to 60 fps.
+   The values are `auto` (default), `sharp`, `saver` and `native`; see "Recording quality" below.
    The reply comes when the first frame is recorded (`first_frame_ms`), up to 20 s after a
    cold boot. If `first_frame_ms` is `null`, check that Android is ready before the steps.
-2. Do the steps.
+2. Do the steps. After each step, `POST <base>/v1/phones/<id>/recording/mark` with
+   `{"text":"Tap Submit"}` to add a note at that moment of the video (see "Notes" below).
 3. `POST <base>/v1/phones/<id>/recording/stop`. The reply gives `frames`, `audio_packets` and `duration_ms`.
 4. `GET <base>/v1/phones/<id>/recording/file` returns the MP4. Save it to the scratchpad, for
    example `emuly-<id>-task.mp4`, then show it as described below.
@@ -50,6 +52,41 @@ sound as an Opus track. Send the same
 `audio_packets` counts 20 ms Opus packets; 0 means the phone's runner or boot is older than audio
 support (a phone restart updates both). To check that an app plays a sound without a recording,
 run `["shell","dumpsys","audio"]` through the adb route and look for `state:started` players.
+
+### Notes: step times that match the video
+
+Do not use your own clock to find a step in the video. The video starts at the first frame,
+which comes `first_frame_ms` after the start request (often about 1 s). Use notes instead.
+
+- `POST <base>/v1/phones/<id>/recording/mark` with `{"text":"..."}` (1 to 500 characters) while
+  the recording runs. The reply gives `t_s`, the note's time in seconds of the MP4. The phone
+  stamps the time when the call reaches it, usually less than 0.5 s after you send it. Send it
+  right after the step, then wait about 1 s before the next step.
+- `GET <base>/v1/phones/<id>/recording/notes` returns `{"video_start_at", "duration_ms", "notes":[{"t_s","text"}]}`.
+- `GET <base>/v1/phones/<id>/recording/notes?format=vtt` returns a WebVTT file. Each note shows
+  until the next note. Save it next to the MP4 with the same name, for example
+  `emuly-<id>-task.vtt`, so a video player shows the notes as captions.
+- `video_start_at` is also in the start, status and stop replies after the first frame.
+
+Use the note times as the `start` of each step in `references/annotate.md`.
+
+### Recording quality
+
+| quality | Size | fps | Use it for |
+| --- | --- | --- | --- |
+| `auto` (default) | Long side 1080 px, about 500x1080 on a tall phone | up to 30 | Most checks; shares the browser's stream |
+| `sharp` | Same size as `auto`, higher bit rate | up to 30 | Less blur on fast motion |
+| `saver` | Long side 720 px | up to 15 | Long recordings, small files |
+| `native` | The phone's real screen size, for example 1080x2400 | up to 60 | Demos, and videos where people must read small text |
+
+The size limit is on the **long** side, so `auto` is not 1080p. Use `native` when the video must
+be sharp. It starts a second video encoder on the phone, so the phone works harder while it
+records, and the file is bigger. A very long `native` recording can reach the 1 GiB file limit
+and stop with `stop_reason: "max_bytes"`. On some emulators the encoder cannot make a full-size
+video; then scrcpy makes a smaller one, and the recording still works.
+
+The frame rate is a maximum. The phone sends a frame only when the screen changes, so a
+still screen gives few frames.
 
 ### Frame grid: see short UI changes in one image
 

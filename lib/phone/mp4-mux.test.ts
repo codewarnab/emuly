@@ -395,3 +395,34 @@ test("start does not wait past a stream that closes before the first frame", asy
   await assert.rejects(recorder.file(), { code: "recording_failed" });
   hub.closeAll();
 });
+
+test("recorder note times count from the first frame, not the start request, and survive a restart", async t => {
+  const f = await recorderFixture();
+  t.after(() => rm(f.dir, { recursive: true, force: true }));
+  await f.recorder.start({});
+  await assert.rejects(f.recorder.mark({ text: "" }), { status: 400 });
+  // Before the first frame, a note is at 0.
+  assert.deepEqual(await f.recorder.mark({ text: "early" }), { t_s: 0, text: "early" });
+  // The first frame comes 1.07 s after the start request (the delay an agent saw).
+  f.tick(1070);
+  await flush();
+  f.session.video(2, 0, config(BASE));
+  f.session.video(1, 0, annexB(slice(true)));
+  f.tick(1500);
+  assert.deepEqual(await f.recorder.mark({ text: " Tap Submit " }), { t_s: 1.5, text: "Tap Submit" });
+  const status = await f.recorder.status() as Record<string, unknown>;
+  assert.equal(status.video_start_at, new Date(1000 + 1070).toISOString());
+  assert.equal(status.notes, 2);
+  f.tick(500);
+  await f.recorder.stop();
+  await assert.rejects(f.recorder.mark({ text: "late" }), { status: 409, code: "not_recording" });
+  const notes = await f.recorder.notes();
+  assert.deepEqual(notes.notes, [{ t_s: 0, text: "early" }, { t_s: 1.5, text: "Tap Submit" }]);
+  assert.equal(notes.duration_ms, 2000);
+  f.hub.closeAll();
+  // A new runner loads the notes from the .json file.
+  const again = await recorderFixture(undefined, f.dir);
+  assert.deepEqual((await again.recorder.notes()).notes, notes.notes);
+  assert.equal((await again.recorder.notes()).video_start_at, notes.video_start_at);
+  again.hub.closeAll();
+});

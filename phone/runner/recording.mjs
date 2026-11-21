@@ -17,7 +17,11 @@ import { createMp4Muxer, HEAD_SIZE, readPacket, restoreMp4Muxer } from "./mp4-mu
 // Crash safety. The MP4 tables (moov) are written at stop. A runner that is killed first
 // (codespace stop, OOM kill) would leave a file that no player opens. So each recording also has:
 //   <id>.journal  one line per video or audio sample (size, time, keyframe), appended while it records
-//   <id>.json     id, quality, start time and state
+//   <id>.json     id, quality, start time, state and notes
+//
+// Notes: POST /recording/mark {text} while it records. Each note gets t_s, its time in the MP4.
+// The MP4 starts at the first frame (video_start_at), not at the start request, so a note
+// time is right in the video. An agent's own clock times would be off by first_frame_ms.
 // recover() runs when the runner starts: it rebuilds the tables of a recording that has a journal,
 // so GET /recording/file returns the video up to the last frame that reached the disk.
 
@@ -28,6 +32,8 @@ export const MAX_FILE_BYTES = 1024 * 1024 * 1024;
 // start() waits for it, so a caller that acts right after start() is on the video.
 // The runner's HTTP calls get 40 s (phone-link.ts), so 20 s leaves room.
 export const FIRST_FRAME_WAIT_MS = 20_000;
+export const MAX_NOTES = 1000;
+export const MAX_NOTE_CHARS = 500;
 const OPEN = 1;
 const FILE_PATTERN = /^emuly-recording-([0-9a-f-]{36})\.json$/;
 
@@ -51,15 +57,17 @@ export function createRecorder({ attach, dir = tmpdir(), now = Date.now, maxByte
 
   function view(recording) {
     if (!recording) return { state: "none" };
-    const { id, state, quality, startedAt, endedAt, reason, result, muxer, error } = recording;
+    const { id, state, quality, startedAt, endedAt, reason, result, muxer, error, videoStartAt, notes = [] } = recording;
     return { id, state, quality, started_at: new Date(startedAt).toISOString(),
+      ...(videoStartAt ? { video_start_at: new Date(videoStartAt).toISOString() } : {}), notes: notes.length,
       duration_ms: result?.durationMs ?? (endedAt ?? now()) - startedAt,
       frames: result?.frames ?? muxer?.frames ?? 0, audio_packets: result?.audioSamples ?? muxer?.audioSamples ?? 0, bytes: result?.bytes ?? muxer?.bytes ?? 0,
       ...(recording.firstFrameMs !== undefined ? { first_frame_ms: recording.firstFrameMs } : {}),
       ...(reason ? { stop_reason: reason } : {}), ...(error ? { error } : {}) };
   }
 
-  const saveMeta = recording => writeFile(recording.metaPath, JSON.stringify({ ...view(recording), max_s: recording.maxS }));
+  const saveMeta = recording => writeFile(recording.metaPath, JSON.stringify({ ...view(recording), max_s: recording.maxS,
+    video_start_ms: recording.videoStartAt ?? null, note_list: recording.notes ?? [] }));
 
   async function start({ quality = "auto", max_s = DEFAULT_DURATION_S } = {}) {
     if (!Object.hasOwn(qualities, quality)) throw new RecordingError(400, "invalid_input", `quality must be one of: ${Object.keys(qualities).join(", ")}.`);
@@ -74,7 +82,7 @@ export function createRecorder({ attach, dir = tmpdir(), now = Date.now, maxByte
     const muxer = createMp4Muxer({ journal: line => journal.write(`${line}\n`) });
     const recording = current = { id, ...paths(dir, id), file, journal, muxer, quality, maxS: max_s, state: "recording",
       startedAt: now(), endedAt: null, reason: null, result: null, error: null, done: null, timer: null, socket: null,
-      doneSet: null, firstFrameMs: null };
+      doneSet: null, firstFrameMs: null, videoStartAt: null, notes: [] };
     recording.doneSet = new Promise(resolve => { recording.onDone = resolve; });
     let sawFrame;
     const firstFrame = new Promise(resolve => { sawFrame = resolve; });
@@ -95,7 +103,10 @@ export function createRecorder({ attach, dir = tmpdir(), now = Date.now, maxByte
         catch (error) { return void finish(recording, "bad_video", error); }
         if (!sample) return;
         file.write(sample);
-        if (recording.firstFrameMs === null) { recording.firstFrameMs = now() - recording.startedAt; sawFrame(); }
+        if (recording.firstFrameMs === null) {
+          // The MP4's time 0 is this frame (mp4-mux.mjs: the first sample's arrival time).
+          recording.videoStartAt = now(); recording.firstFrameMs = recording.videoStartAt - recording.startedAt; sawFrame();
+        }
         if (muxer.bytes >= maxBytes) void finish(recording, "max_bytes");
       },
       close() {
@@ -184,7 +195,8 @@ export function createRecorder({ attach, dir = tmpdir(), now = Date.now, maxByte
       const recording = { id, ...paths(dir, id), quality: meta.quality, maxS: meta.max_s, startedAt: Date.parse(meta.started_at),
         state: meta.state, endedAt: Date.parse(meta.started_at) + (meta.duration_ms ?? 0), reason: meta.stop_reason ?? null,
         result: meta.state === "done" ? { durationMs: meta.duration_ms, frames: meta.frames, bytes: meta.bytes } : null,
-        error: meta.error ?? null, muxer: null, done: Promise.resolve(), socket: null };
+        error: meta.error ?? null, muxer: null, done: Promise.resolve(), socket: null,
+        videoStartAt: meta.video_start_ms ?? null, notes: Array.isArray(meta.note_list) ? meta.note_list : [] };
       current = recording;
       if (meta.state === "done" || meta.state === "failed") return;
       // The runner died while it recorded or wrote the tables.
@@ -241,6 +253,31 @@ export function createRecorder({ attach, dir = tmpdir(), now = Date.now, maxByte
     return { state: "none" };
   }
 
+  /** Add a note at the current time in the video. Only while the recording runs. */
+  async function mark({ text } = {}) {
+    await recover();
+    if (typeof text !== "string" || !text.trim() || text.length > MAX_NOTE_CHARS) {
+      throw new RecordingError(400, "invalid_input", `text must be 1 to ${MAX_NOTE_CHARS} characters.`);
+    }
+    if (current?.state !== "recording") throw new RecordingError(409, "not_recording", "No recording runs. Start one first.");
+    if (current.notes.length >= MAX_NOTES) throw new RecordingError(409, "too_many_notes", `A recording keeps up to ${MAX_NOTES} notes.`);
+    // Before the first frame, the note is at time 0.
+    const note = { t_s: current.videoStartAt ? Math.max(0, now() - current.videoStartAt) / 1000 : 0, text: text.trim() };
+    current.notes.push(note);
+    await saveMeta(current);
+    return note;
+  }
+
+  /** The notes of the last recording, with the video's start time. */
+  async function notes() {
+    await recover();
+    if (!current) throw new RecordingError(404, "no_recording", "No recording exists. Start one first.");
+    const duration = current.result?.durationMs;
+    return { id: current.id, state: current.state,
+      video_start_at: current.videoStartAt ? new Date(current.videoStartAt).toISOString() : null,
+      ...(duration !== undefined ? { duration_ms: duration } : {}), notes: current.notes };
+  }
+
   async function status() {
     await recover();
     return view(current);
@@ -252,5 +289,5 @@ export function createRecorder({ attach, dir = tmpdir(), now = Date.now, maxByte
     else await current?.done;
   }
 
-  return { start, stop, file, discard, status, recover, close };
+  return { start, stop, file, discard, status, mark, notes, recover, close };
 }

@@ -6,7 +6,7 @@ import { createHub } from "./scrcpy-hub.mjs";
 import { createRecorder } from "./recording.mjs";
 import { gridOptions, makeGrid, scalePng, screenshotScale } from "./grid.mjs";
 import { createEvents } from "./events.mjs";
-import { qualities } from "./scrcpy-protocol.mjs";
+import { liveQualities, qualities } from "./scrcpy-protocol.mjs";
 import { createApps, CHUNK_SIZE } from "./apps.mjs";
 import { startAgentDeviceProxy } from "./agent-device-proxy.mjs";
 import { ADB_DOWNLOAD_MAX_BYTES, ADB_FILES_MAX, ADB_OUTPUT_MAX_BYTES, ADB_UPLOAD_MAX_BYTES,
@@ -430,6 +430,8 @@ const routes = {
   "POST /recording/stop": () => recorder.stop(),
   "POST /recording/discard": () => recorder.discard(),
   "GET /recording": () => recorder.status(),
+  "POST /recording/mark": body => recorder.mark(body),
+  "GET /recording/notes": () => recorder.notes(),
 
   // Private: closes direct (port 8791) sockets. Emuly calls it on logout, stop, and delete.
   "POST /direct/revoke": ({ userId }) => {
@@ -548,7 +550,7 @@ for (const [signal, code] of [["SIGTERM", 143], ["SIGINT", 130]]) process.once(s
 });
 // The public direct port (direct-server.mjs). The key file is written by the server's private setup.
 const direct = createDirectServer({ ws, keyFile: join(ROOT, ".direct-key"), port: Number(process.env.DIRECT_PORT ?? 8791),
-  qualities, log: message => console.log(message),
+  qualities: liveQualities, log: message => console.log(message),
   // Direct upload: the ticket carries the args. Only file commands get a ticket, so the result is JSON.
   upload: (req, ticket) => adbRoute(req, ticket),
   attach: (client, quality, options) => scrcpy.attach(client, quality, options) });
@@ -566,6 +568,6 @@ server.on("upgrade", (req, socket, head) => {
   if (url.pathname !== "/stream" || (SECRET && req.headers["x-phone-secret"] !== SECRET)) return socket.destroy();
   streams.handleUpgrade(req, socket, head, client => {
     const quality = url.searchParams.get("quality") ?? "auto";
-    scrcpy.attach(client, Object.hasOwn(qualities, quality) ? quality : "auto", { audio: url.searchParams.get("audio") === "1" });
+    scrcpy.attach(client, Object.hasOwn(liveQualities, quality) ? quality : "auto", { audio: url.searchParams.get("audio") === "1" });
   });
 });

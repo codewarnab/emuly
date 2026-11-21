@@ -268,7 +268,7 @@ Topics (paths relative to this file):
 - `references/phones.md`: list, start, create, stop, hours, idle timeout.
 - `references/adb.md`: the adb route, allowed commands, screenshots, limits.
 - `references/apps.md`: push, pull, download a URL to the phone, APK installs, the Apps endpoint.
-- `references/screenshots.md`: screenshots (with `?scale=`), screen recording (MP4), the frame grid, how to show them in the chat, and how to put a video in a GitHub PR or issue.
+- `references/screenshots.md`: screenshots (with `?scale=`), screen recording (MP4, with `native` quality for full size), recording notes (step times and a `.vtt` file), the frame grid, how to show them in the chat, and how to put a video in a GitHub PR or issue.
 - `references/annotate.md`: trim a recording and add polished step captions. Use it whenever
   the user asks for annotations, and for before/after videos in a PR.
 - `references/delete-and-errors.md`: delete approval, errors, settings, webhooks.

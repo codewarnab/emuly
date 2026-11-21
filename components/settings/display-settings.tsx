@@ -16,8 +16,8 @@ export function DisplaySettings({ initial }: { initial: StreamQuality }) {
       <div className={s.idleChoices}>
         {([
           ["auto", "Auto", "Recommended · adapts to your connection"],
-          ["sharp", "Sharp", "1080p · sharper detail"],
-          ["saver", "Saver", "720p · 15 fps · lower bandwidth"],
+          ["sharp", "Sharp", "Higher bit rate · sharper detail"],
+          ["saver", "Saver", "Smaller picture · 15 fps · lower bandwidth"],
         ] as const).map(([value, label, detail]) => <label key={value} className={s.idleChip} title={detail}>
           <input type="radio" name="stream-quality" value={value} checked={quality === value}
             aria-label={`${label}: ${detail}`} onChange={() => {
@@ -32,7 +32,7 @@ export function DisplaySettings({ initial }: { initial: StreamQuality }) {
             }} /><span>{label}</span>
         </label>)}
       </div>
-      <p className={s.settingHint}>{quality === "auto" ? "Auto · recommended" : quality === "sharp" ? "Sharp · 1080p" : "Saver · 720p at 15 fps"}</p>
+      <p className={s.settingHint}>{quality === "auto" ? "Auto · recommended" : quality === "sharp" ? "Sharp · higher bit rate" : "Saver · smaller picture at 15 fps"}</p>
     </fieldset>
     <p role="status" className={s.saveStatus}>{status}</p>
   </div>;

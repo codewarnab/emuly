@@ -4,7 +4,12 @@
 export const AUDIO = 4;
 // 64 kbit/s Opus: clear speech and music, about 2% of the "auto" video bit rate.
 export const AUDIO_BIT_RATE = 64_000;
-export const qualities = { auto: [1080, 30, 4_000_000], sharp: [1080, 30, 8_000_000], saver: [720, 15, 1_500_000] };
+// [max_size, max_fps, video_bit_rate]. scrcpy's max_size limits the LONG side, so 1080 on a
+// 1080x2400 phone gives about 486x1080. That is right for the live view (less bandwidth and delay).
+export const liveQualities = { auto: [1080, 30, 4_000_000], sharp: [1080, 30, 8_000_000], saver: [720, 15, 1_500_000] };
+// native (recordings only): max_size=0 keeps the phone's real screen size, at up to 60 fps.
+// It starts its own encoder, because no live viewer uses it.
+export const qualities = { ...liveQualities, native: [0, 60, 12_000_000] };
 const keys = {
   ...Object.fromEntries(Array.from({ length: 26 }, (_, i) => ["Key" + String.fromCharCode(65 + i), 29 + i])),
   ...Object.fromEntries(Array.from({ length: 10 }, (_, i) => ["Digit" + i, 7 + i])), wakeup: 224, home: 3, back: 4, recent: 187, volumeUp: 24, volumeDown: 25,

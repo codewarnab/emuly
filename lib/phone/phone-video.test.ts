@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { issueStreamTicket, takeStreamTicket } from "./phone-stream-ticket.ts";
 import { avcCodec, screenPoint, videoPacket } from "./phone-video.ts";
-import { controlMessage, DeviceMessages, ScrcpyPackets } from "../../phone/runner/scrcpy-protocol.mjs";
+import { controlMessage, DeviceMessages, liveQualities, qualities, ScrcpyPackets } from "../../phone/runner/scrcpy-protocol.mjs";
 
 const binding = { userId: 7, phoneId: "phone-a", origin: "http://localhost:4321", cookie: "session=synthetic",
   open: async () => { throw new Error("not used"); } };
@@ -72,4 +72,11 @@ test("screen coordinates use the displayed image bounds and clamp captured drags
   const rect = { left: 10, top: 20, width: 180, height: 320 };
   assert.deepEqual(screenPoint(100, 180, rect, 720, 1280), { x: 360, y: 640, width: 720, height: 1280 });
   assert.deepEqual(screenPoint(-1, 900, rect, 720, 1280), { x: 0, y: 1279, width: 720, height: 1280 });
+});
+
+test("native records at the real screen size; live viewers cannot ask for it", () => {
+  // scrcpy max_size=0 means no size limit. The live view keeps its 1080 px limit.
+  assert.deepEqual(qualities.native, [0, 60, 12_000_000]);
+  assert.equal(Object.hasOwn(liveQualities, "native"), false);
+  assert.deepEqual(Object.keys(liveQualities), ["auto", "sharp", "saver"]);
 });

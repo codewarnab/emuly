@@ -13,10 +13,13 @@ import { RunnerTimeoutError } from "./runner-errors.ts";
 import { agentDeviceBaseUrl, agentDeviceInfo, agentDeviceSession, agentDeviceUnavailable } from "./agent-device.ts";
 import type { Phone } from "./phones.ts";
 import type { RecordingAction } from "./phone-link.ts";
+import { notesVtt, type RecordingNote } from "./recording-notes.ts";
 
 type Identity = { id: number; authKind?: "session" | "agent"; agentKeyId?: number };
 type PhoneView = Pick<Phone, "id" | "name" | "state" | "android_state" | "idle_timeout_min"> & Partial<Pick<Phone, "last_activity_at" | "android_started_at" | "last_started_at" | "keeping">> & { device_preset?: string };
-const RECORDING_LABELS: Record<Exclude<RecordingAction, "status">, string> = {
+// status, mark and notes are frequent and change nothing outside the recording: no Activity line.
+const QUIET_RECORDING_ACTIONS = new Set<RecordingAction>(["status", "mark", "notes"]);
+const RECORDING_LABELS: Record<Exclude<RecordingAction, "status" | "mark" | "notes">, string> = {
   start: "Started a screen recording", stop: "Stopped the screen recording", discard: "Discarded the screen recording",
   file: "Downloaded the screen recording", grid: "Made a frame grid of the recording" };
 type AgentCall = { userId: number; phoneId: string; agentKeyId: number; label: string; command: string; note: string | null };
@@ -256,7 +259,8 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
       } catch { return agentDeviceUnavailable(); }
     },
     /**
-     * Screen recording: POST start ({quality?, max_s?}), POST stop, GET status, GET file (MP4), POST discard.
+     * Screen recording: POST start ({quality?, max_s?}), POST stop, GET status, GET file (MP4), POST discard,
+     * POST mark ({text}) and GET notes (?format=vtt for WebVTT).
      * The runner muxes the H.264 stream the viewers already get, so a recording starts no second encoder.
      */
     async recording(request: Request, id: string, action: string) {
@@ -266,12 +270,13 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
       const methods: Record<string, { method: string; action: RecordingAction }> = {
         start: { method: "POST", action: "start" }, stop: { method: "POST", action: "stop" },
         discard: { method: "POST", action: "discard" }, status: { method: "GET", action: "status" },
-        file: { method: "GET", action: "file" }, grid: { method: "GET", action: "grid" } };
+        file: { method: "GET", action: "file" }, grid: { method: "GET", action: "grid" },
+        mark: { method: "POST", action: "mark" }, notes: { method: "GET", action: "notes" } };
       // file?format=grid is the same as grid.
       const query = new URL(request.url).searchParams;
       const named = action === "file" && query.get("format") === "grid" ? "grid" : action;
       const route = Object.hasOwn(methods, named) ? methods[named] : undefined;
-      if (!route) return json({ error: "not_found", message: "Use recording/start, recording/stop, recording/status, recording/file, recording/grid or recording/discard." }, 404);
+      if (!route) return json({ error: "not_found", message: "Use recording/start, recording/stop, recording/status, recording/file, recording/grid, recording/mark, recording/notes or recording/discard." }, 404);
       if (route.method !== request.method) return json({ error: "method_not_allowed", message: `Use ${route.method} for recording/${action}.` }, 405, { Allow: route.method });
       if (!recording) return json({ error: "not_available", message: "Recording is not available on this server." }, 503);
       try {
@@ -288,10 +293,14 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
           if (raw.quality !== undefined) body.quality = raw.quality;
           if (raw.max_s !== undefined) body.max_s = raw.max_s;
         }
+        if (route.action === "mark") {
+          const raw = await readJson(request, 4 * 1024);
+          body = { text: raw.text };
+        }
         if (route.action === "grid") body = gridQuery(query);
         const response = await recording(identity.id, id, route.action, body);
-        if (response.ok && route.action !== "status") {
-          await act(identity, id, RECORDING_LABELS[route.action], `${route.method} recording/${route.action}`, request);
+        if (response.ok && !QUIET_RECORDING_ACTIONS.has(route.action)) {
+          await act(identity, id, RECORDING_LABELS[route.action as keyof typeof RECORDING_LABELS], `${route.method} recording/${route.action}`, request);
         }
         if (response.headers.get("content-type")?.startsWith("video/mp4")) {
           const headers = new Headers({ "Content-Type": "video/mp4", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" });
@@ -313,6 +322,11 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
           const code = typeof value.errorCode === "string" ? value.errorCode : "recording_failed";
           const message = typeof value.error === "string" ? value.error : "The recording request failed. Retry.";
           return json({ error: code, message }, [400, 404, 409, 413, 503].includes(response.status) ? response.status : 502);
+        }
+        if (route.action === "notes" && query.get("format") === "vtt") {
+          const notes = Array.isArray(value.notes) ? value.notes as RecordingNote[] : [];
+          return new Response(notesVtt(notes, typeof value.duration_ms === "number" ? value.duration_ms : undefined), {
+            headers: { "Content-Type": "text/vtt; charset=utf-8", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
         }
         return json(value);
       } catch (error) {

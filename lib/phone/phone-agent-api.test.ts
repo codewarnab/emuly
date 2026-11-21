@@ -317,6 +317,28 @@ test("recording routes check the method, pass only known options and stream the 
   assert.deepEqual(Array.from(new Uint8Array(await file.arrayBuffer())), [0, 0, 0, 24]);
 });
 
+test("recording mark passes only the text, and notes?format=vtt returns WebVTT", async () => {
+  const sent: unknown[] = [];
+  const { api } = fixture({
+    user: async () => ({ id: 7, authKind: "agent" }),
+    recording: async (_userId, _id, action, body) => {
+      sent.push([action, body]);
+      if (action === "notes") return Response.json({ state: "done", video_start_at: "2026-11-21T00:00:00.000Z", duration_ms: 3000,
+        notes: [{ t_s: 1, text: "Tap Submit" }] });
+      return Response.json({ t_s: 1, text: "Tap Submit" });
+    },
+  });
+  const path = `/v1/phones/${stored.id}/recording`;
+  assert.equal((await api.recording(post(`${path}/mark`, { text: "Tap Submit", t_s: 99 }), stored.id, "mark")).status, 200);
+  assert.deepEqual(sent[0], ["mark", { text: "Tap Submit" }]);
+  assert.equal((await api.recording(get(`${path}/mark`), stored.id, "mark")).status, 405);
+  const json = await api.recording(get(`${path}/notes`), stored.id, "notes");
+  assert.deepEqual((await json.json()).notes, [{ t_s: 1, text: "Tap Submit" }]);
+  const vtt = await api.recording(get(`${path}/notes?format=vtt`), stored.id, "notes");
+  assert.equal(vtt.headers.get("content-type"), "text/vtt; charset=utf-8");
+  assert.equal(await vtt.text(), "WEBVTT\n\n1\n00:00:01.000 --> 00:00:03.000\nTap Submit\n");
+});
+
 test("recording asks for a runner update when the runner has no recording routes", async () => {
   const { api } = fixture({ user: async () => ({ id: 7, authKind: "agent" }),
     recording: async () => Response.json({ error: "not found" }, { status: 404 }) });

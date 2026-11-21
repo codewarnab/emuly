@@ -253,6 +253,9 @@ Current quality settings are:
 | Auto | 1080 px | 30 | 4 Mbps |
 | Sharp | 1080 px | 30 | 8 Mbps |
 | Saver | 720 px | 15 | 1.5 Mbps |
+| Native (recordings only, added 2026-11-21) | No limit | 60 | 12 Mbps |
+
+The maximum encoded edge is the **long** side. On a 1080×2400 phone, 1080 px gives a picture of about 486×1080.
 
 These are encoder limits, not guaranteed observed performance. Lower encoded resolution does not lower Android's underlying 2560×1600 rendering resolution. scrcpy documents variable frame production when content changes. [scrcpy 3.3.4 video documentation](https://github.com/Genymobile/scrcpy/blob/v3.3.4/doc/video.md).
 
