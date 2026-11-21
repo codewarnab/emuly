@@ -182,7 +182,7 @@ test("a slow screenshot does not close the connection that a video stream uses",
     tunnel: async () => ({ url: "http://127.0.0.1:10002", close: () => { closes++; } }) });
   try {
     const stream = await links.stream(phone);
-    await assert.rejects(links.request(phone, "/screenshot"), /Phone connection failed/);
+    await assert.rejects(links.request(phone, "/screenshot"), { name: "RunnerTimeoutError", retryAfter: 5 });
     assert.equal(stream.signal.aborted, false);
     assert.equal(closes, 0);
     stream.release();

@@ -19,6 +19,9 @@ user asks you to.
 1. Read the key: the `EMULY_KEY` user variable on Windows; `EMULY_KEY`, then
    `~/.config/emuly/key` on Linux and macOS. If it is empty, stop and ask the user to click
    **Copy prompt** in the Emuly console. Key setup is not part of this skill.
+   On a self-hosted Emuly (a localhost base), the key is optional. The local server accepts
+   any key, also one from another Emuly server, and acts as the `gh` account that runs it.
+   Without a key, send `Origin: <base URL>` with each call.
 2. Find the Emuly base URL. The first match wins:
    - the `EMULY_BASE_URL` variable (on Windows, the user variable);
    - the one-line file `~/.config/emuly/base-url` (on Windows, `%USERPROFILE%\.config\emuly\base-url`);
@@ -102,7 +105,10 @@ Do not change the user's DNS or network settings yourself. Only tell the user.
   it, log it, put it in a URL, or write it to a file (the one exception is the saved key
   file `~/.config/emuly/key` on Linux and macOS).
 - If a call returns **401**, clear the saved key (the OS file says how) and ask the user for
-  a new **Copy prompt**.
+  a new **Copy prompt**. On a self-hosted (localhost) base, never clear the key: the same key
+  can still work on another Emuly server. Ask the user to restart the local server instead.
+- A **504** with `"error": "timeout"` means the phone was slow, often just after boot. Wait
+  `retry_after` seconds (also in the `Retry-After` header), then try again. Do not stop the phone.
 - Reuse a running or stopped phone. Create one only when none exists or the user asks.
 - Drive the phone with the HTTP adb route. Use native adb only when the user asks for it.
 - Send `X-Emuly-Note: <3-10 words on what the call does>` with each adb, screenshot and

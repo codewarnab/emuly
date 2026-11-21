@@ -2,6 +2,7 @@ import "server-only";
 import { measure } from "../diagnostics/diagnostics.ts";
 import { ADB_DOWNLOAD_MAX_BYTES } from "./phone-adb-contract.ts";
 import type { phoneObservations } from "./phone-observation.ts";
+import { RunnerTimeoutError } from "./runner-errors.ts";
 
 type Bridge = { url: string; close: () => void };
 type Owner = { userId: number; id: string; codespaceName: string };
@@ -425,6 +426,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
         // the video stream too, and the stream closes it.
         const slow = error instanceof Error && error.name === "TimeoutError";
         if (!(error instanceof RunnerResponseError) && !slow && entries.get(key(phone)) === entry) close(phone, `request_failed:${path}`);
+        if (slow) throw new RunnerTimeoutError(`The phone did not answer ${path} in time. It is often slow just after boot.`);
         throw new Error(`Phone connection failed (${path}). Try again.`);
       } finally {
         release();

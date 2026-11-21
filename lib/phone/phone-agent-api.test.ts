@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createPhoneAgentApi } from "./phone-agent-api.ts";
 import { PhoneInputError } from "./phone-mutations.ts";
+import { RunnerTimeoutError } from "./runner-errors.ts";
 
 const stored = { id: "phone-quiet-falcon", name: "Quiet Falcon", state: "running", android_state: "ready", idle_timeout_min: 240 };
 
@@ -405,6 +406,18 @@ test("screenshot checks scale and says which scale came back", async () => {
   assert.equal(full.headers.get("x-screenshot-scale"), "1");
   assert.deepEqual(scales, [0.5, undefined]);
   assert.equal((await api.screenshot(get(`${path}?scale=3`), stored.id)).status, 400);
+});
+
+test("a screenshot that times out says timeout and when to retry", async () => {
+  const { api } = fixture({ user: async () => ({ id: 7, authKind: "agent" }),
+    screenshot: async () => { throw new RunnerTimeoutError("The phone did not answer /screenshot in time."); } });
+  const response = await api.screenshot(get(`/v1/phones/${stored.id}/screenshot?scale=0.5`), stored.id);
+  assert.equal(response.status, 504);
+  assert.equal(response.headers.get("retry-after"), "5");
+  const body = await response.json() as { error: string; retry_after: number; message: string };
+  assert.equal(body.error, "timeout");
+  assert.equal(body.retry_after, 5);
+  assert.match(body.message, /Retry in 5 s\./);
 });
 
 test("an adb error says whether the command ran, and the Idempotency-Key reaches the runner", async () => {

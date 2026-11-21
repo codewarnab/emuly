@@ -159,6 +159,9 @@ manage (and delete) the surviving Codespaces directly in GitHub.
   behind a public URL stays unauthenticated, so front it with your own auth.
 - **One user.** Every request resolves to the gh-signed-in account; agent keys
   you create still work, but there is no second account and no sign-up page.
+  An agent key that this server does not know (for example one from
+  emuly.vercel.app) also works: the call acts as the gh account. A call with no
+  key must send `Origin: <base URL>`, which blocks other web pages.
 - **Unauthenticated API.** Anyone who can reach the port can drive your phones.
   Publish on loopback, or put your own front (VPN, Tailscale, reverse proxy with
   auth) in front of it.
