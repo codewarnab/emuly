@@ -69,7 +69,7 @@ test("setup packages an Apps runner that loads with plain Node outside the repos
       const { createApps, MAX_APK, CHUNK_SIZE } = await import("./runner/apps.mjs");
       console.log(JSON.stringify({ createApps: typeof createApps, MAX_APK, CHUNK_SIZE }));
     `], { cwd: root, encoding: "utf8", timeout: 10_000 });
-    assert.deepEqual(JSON.parse(output), { createApps: "function", MAX_APK: 250 * 1024 * 1024, CHUNK_SIZE: 4 * 1024 * 1024 });
+    assert.deepEqual(JSON.parse(output), { createApps: "function", MAX_APK: 1024 * 1024 * 1024, CHUNK_SIZE: 4 * 1024 * 1024 });
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

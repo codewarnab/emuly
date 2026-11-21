@@ -150,7 +150,7 @@ async function streamFiles(req, directory, files, install) {
         hash?.update(part);
         remaining -= part.length;
         total += part.length;
-        if (total > ADB_UPLOAD_MAX_BYTES) throw new HttpError(413, "Uploads are larger than 200 MB.");
+        if (total > ADB_UPLOAD_MAX_BYTES) throw new HttpError(413, "Uploads are larger than 1 GiB.");
       }
     } finally { await handle.close(); }
     if (hash && hash.digest("hex") !== files[index].sha256) throw new HttpError(400, `file${index} does not match its SHA-256 in the ticket.`);
@@ -180,7 +180,7 @@ async function readAdbRequest(req, ticket) {
       if (!file || typeof file.name !== "string" || file.name.length > 255
         || !Number.isSafeInteger(file.size) || file.size < 0) throw new HttpError(400, "invalid file part");
       declared += file.size;
-      if (declared > ADB_UPLOAD_MAX_BYTES) throw new HttpError(413, "Uploads are larger than 200 MB.");
+      if (declared > ADB_UPLOAD_MAX_BYTES) throw new HttpError(413, "Uploads are larger than 1 GiB.");
     }
     const args = adbArguments(meta.args, files.length);
     if (ticket && !["install", "install-multiple", "push"].includes(args[0])) throw new HttpError(400, "A direct upload runs only install, install-multiple or push.");

@@ -14,7 +14,7 @@ first file. The runner picks a temporary path, uses it for one command, and dele
 Limits: 4 MB of files on this route, 100 MB per pull or bugreport. A `@fileN` that was not
 uploaded, or an uploaded file that args never references, is rejected before adb runs.
 
-## Large files (over 4 MB, up to 200 MB)
+## Large files (over 4 MB, up to 1 GiB)
 
 The `/adb` route cannot take more than 4 MB: the host refuses a larger body with an HTML page.
 Check the file size first. For a larger `install`, `install-multiple` or `push`, use two steps:
@@ -50,7 +50,7 @@ Rules:
   with `private_url`. No cookies or auth headers are sent, so a URL that needs a login fails.
 - `dest`: a file path under `/sdcard/` or `/data/local/tmp/`, with only letters, digits,
   `.`, `_`, `-` and `/`. No `..`, and not a folder.
-- Limits: 200 MiB, 10 minutes, one fetch at a time per phone, 6 starts a minute.
+- Limits: 1 GiB, 10 minutes, one fetch at a time per phone, 6 starts a minute.
   A compressed (`Content-Encoding: gzip`) answer fails with `encoded_download`.
 - A runner restart forgets fetches: `404 not_found` on a poll means start again with a new key.
 - The same `key` with the same input returns the same fetch, so a retry is safe.

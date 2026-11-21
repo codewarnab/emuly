@@ -12,7 +12,7 @@ export const ADB_OUTPUT_MAX_BYTES = 5 * 1024 * 1024;
 /** Pull and bugreport stream from the runner's temporary directory. */
 export const ADB_DOWNLOAD_MAX_BYTES = 100 * 1024 * 1024;
 /** Total size of files attached to one multipart adb call. */
-export const ADB_UPLOAD_MAX_BYTES = 200 * 1024 * 1024;
+export const ADB_UPLOAD_MAX_BYTES = 1024 * 1024 * 1024;
 export const ADB_ARGS_MAX = 64;
 export const ADB_ARG_MAX_CHARS = 4096;
 export const ADB_FILES_MAX = 20;

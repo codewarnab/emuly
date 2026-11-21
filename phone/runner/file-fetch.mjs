@@ -11,7 +11,7 @@ import { AppError, fail, httpsUrl, safeDownload } from "./safe-download.mjs";
 // Limits: one active job per phone, 6 starts a minute, 200 MiB, 10 minutes. Jobs live in memory:
 // a runner restart forgets them and deletes their temp files.
 
-export const FETCH_MAX_BYTES = 200 * 1024 * 1024;
+export const FETCH_MAX_BYTES = 1024 * 1024 * 1024;
 const TOTAL_MS = 10 * 60_000;
 const RESERVE = 512 * 1024 * 1024;
 const KEEP = 20;

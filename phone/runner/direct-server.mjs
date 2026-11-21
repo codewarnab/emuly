@@ -56,7 +56,7 @@ export function createDirectServer({ ws, keyFile, port = 8791, host = "127.0.0.1
     const send = (status, value, close = false) => {
       res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", ...(close ? { connection: "close" } : {}) });
       res.end(JSON.stringify(value));
-      // A refused body is not read: close the socket instead of taking up to 200 MB.
+      // A refused body is not read: close the socket instead of taking up to 1 GiB.
       if (close) res.once("finish", () => req.destroy());
     };
     if (!allowUpload(clientAddress(req))) return send(429, { error: "rate_limited", message: "Too many uploads. Wait one minute." }, true);
