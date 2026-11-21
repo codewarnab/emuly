@@ -1,10 +1,9 @@
 import Link from "next/link";
-import { Suspense } from "react";
-import { getSession } from "../../lib/auth/session";
 import type { Metadata } from "next";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
 import { Brand } from "@/components/shell/topbar";
 import { CopyButton } from "@/components/ui/copy-button";
+import { NavAuth } from "@/components/marketing/nav-auth";
 import { KeyboardTools } from "@/components/shell/keyboard-tools";
 import { SkillInstall } from "@/components/marketing/skill-install";
 import { HeroPhone } from "@/components/marketing/hero-phone";
@@ -58,7 +57,7 @@ export default function LandingPage() {
   const base = SELF_HOST ? env.baseUrl : undefined;
   return <div className={s.root}>
     <KeyboardTools />
-    <nav className={s.nav} aria-label="Main"><Brand /><div><ThemeToggle /><Suspense fallback={<NavAuthPlaceholder />}><NavAuth /></Suspense></div></nav>
+    <nav className={s.nav} aria-label="Main"><Brand /><div><ThemeToggle /><NavAuth selfHost={SELF_HOST} /></div></nav>
     <main id="main-content" tabIndex={-1} className={s.wrap}>
       <section className={s.hero}>
         <div>
@@ -95,13 +94,3 @@ export default function LandingPage() {
   </div>;
 }
 
-/** Holds the space while the session streams in. It never shows "Sign in", because the
-    session is not known yet and a signed-in user must not see a wrong link. */
-function NavAuthPlaceholder() {
-  return <span aria-hidden="true" style={{ visibility: "hidden" }}>Console</span>;
-}
-
-async function NavAuth() {
-  const session = await getSession();
-  return session ? <Link href="/app">Console</Link> : <Link href="/login">Sign in</Link>;
-}

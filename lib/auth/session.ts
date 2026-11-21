@@ -3,7 +3,7 @@ import { connection } from "next/server";
 import { cookies } from "next/headers";
 import { asyncDb } from "../data/async-db.ts";
 import { transaction } from "../data/async-database.ts";
-import { cookieName, cookieOptions } from "./auth-cookies";
+import { cookieName, cookieOptions, SIGNED_IN_HINT, hintCookieOptions } from "./auth-cookies";
 import { insertSession, readSession, deleteSession, SESSION_MAX_AGE } from "./session-store.ts";
 import { SELF_HOST, selfHostUser } from "../selfhost.ts";
 
@@ -15,6 +15,7 @@ export async function createSession(userId: number) {
     return insertSession(queries, userId);
   });
   store.set(cookieName("session"), session.value, cookieOptions(SESSION_MAX_AGE));
+  store.set(SIGNED_IN_HINT, "1", hintCookieOptions(SESSION_MAX_AGE));
 }
 
 export async function getSession() {
@@ -34,4 +35,5 @@ export async function destroySession() {
   const store = await cookies();
   await deleteSession(asyncDb(), store.get(cookieName("session"))?.value);
   store.set(cookieName("session"), "", cookieOptions(0));
+  store.set(SIGNED_IN_HINT, "", hintCookieOptions(0));
 }

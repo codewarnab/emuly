@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { cookieName } from "./lib/auth/auth-cookies";
+import { cookieName, SIGNED_IN_HINT, hintCookieOptions } from "./lib/auth/auth-cookies";
+import { SESSION_MAX_AGE } from "./lib/auth/session-store.ts";
 import { asyncDb } from "./lib/data/async-db.ts";
 import { readSession } from "./lib/auth/session-store.ts";
 import { env } from "./lib/env";
@@ -20,10 +21,13 @@ export async function proxy(request: NextRequest) {
     login.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
     const response = NextResponse.redirect(login);
     response.headers.set("Cache-Control", "no-store");
+    if (request.cookies.has(SIGNED_IN_HINT)) response.cookies.set(SIGNED_IN_HINT, "", hintCookieOptions(0));
     return response;
   }
   const response = NextResponse.next();
   response.headers.set("Cache-Control", "private, no-store");
+  // Sessions made before the hint existed get it on their next console visit.
+  if (!request.cookies.has(SIGNED_IN_HINT)) response.cookies.set(SIGNED_IN_HINT, "1", hintCookieOptions(SESSION_MAX_AGE));
   return response;
 }
 
