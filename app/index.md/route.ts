@@ -6,5 +6,5 @@ import { homeMarkdown } from "../../lib/site-content";
 /** The landing page as Markdown. GET / with Accept: text/markdown also lands here. */
 export async function GET() {
   if (SELF_HOST) await connection();
-  return new Response(homeMarkdown(env.baseUrl), { headers: { "content-type": "text/markdown; charset=utf-8", vary: "Accept" } });
+  return new Response(homeMarkdown(env.baseUrl), { headers: { "cache-control": "public, s-maxage=3600", "content-type": "text/markdown; charset=utf-8", vary: "Accept" } });
 }

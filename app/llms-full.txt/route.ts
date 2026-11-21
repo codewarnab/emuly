@@ -11,5 +11,5 @@ export async function GET() {
   if (SELF_HOST) await connection();
   const b = env.baseUrl;
   const parts = [homeMarkdown(b), "# Agent setup prompt\n\n" + buildDevicePrompt(b), skillFile("SKILL.md", b) ?? "", selfHostMarkdown(b, SELF_HOST_SETUP_PROMPT)];
-  return new Response(parts.join("\n\n---\n\n"), { headers: { "content-type": "text/plain; charset=utf-8" } });
+  return new Response(parts.join("\n\n---\n\n"), { headers: { "cache-control": "public, s-maxage=3600", "content-type": "text/plain; charset=utf-8" } });
 }

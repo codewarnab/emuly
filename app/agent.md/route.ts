@@ -9,5 +9,5 @@ export async function GET() {
   // override never reaches it. Opting into per-request rendering there keeps hosted
   // prerendering (and its byte-for-byte output) unchanged.
   if (SELF_HOST) await connection();
-  return new Response(buildDevicePrompt(env.baseUrl), { headers: { "content-type": "text/markdown; charset=utf-8" } });
+  return new Response(buildDevicePrompt(env.baseUrl), { headers: { "cache-control": "public, s-maxage=3600", "content-type": "text/markdown; charset=utf-8" } });
 }
