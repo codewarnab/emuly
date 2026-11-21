@@ -383,7 +383,7 @@ test("adb/upload checks the files and args, then returns a direct PUT with the t
 
   assert.equal((await api.adbUpload(up({ args: ["shell", "ls"], files: [file] }), stored.id)).status, 400);
   assert.equal((await api.adbUpload(up({ args: ["install", "@file0"], files: [{ ...file, sha256: "x" }] }), stored.id)).status, 400);
-  const huge = await api.adbUpload(up({ args: ["install", "@file0"], files: [{ ...file, size: 201 * 1024 * 1024 }] }), stored.id);
+  const huge = await api.adbUpload(up({ args: ["install", "@file0"], files: [{ ...file, size: 1024 * 1024 * 1024 + 1 }] }), stored.id);
   assert.equal(huge.status, 413);
   assert.equal((await api.adbUpload(up({ args: ["install", "@file0"], files: [file] }), "phone-other")).status, 404);
   assert.equal(tickets.length, 1);

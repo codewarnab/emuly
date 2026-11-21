@@ -5,6 +5,8 @@ import { homedir, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { daemonPolicy, daemonStateDir, findOnPath, forwardHeaders, info, policyJson,
   proxyArguments, proxyEnv, sdkPathEntries } from "../../phone/runner/agent-device-proxy.mjs";
+// These tests need POSIX paths, file modes or a shell script, so they skip on Windows.
+const posixOnly = { skip: process.platform === "win32" };
 
 test("the daemon policy allows one emulator and denies device lifecycle commands", () => {
   assert.deepEqual(JSON.parse(policyJson()), {
@@ -34,7 +36,7 @@ test("the proxy reports disabled before it is started", () => {
   assert.equal(state.version, process.env.AGENT_DEVICE_VERSION?.trim() || null);
 });
 
-test("the proxy gets its own daemon state directory", () => {
+test("the proxy gets its own daemon state directory", posixOnly, () => {
   assert.equal(daemonStateDir("/home/ubuntu"), "/home/ubuntu/.emuly-agent-device");
   // The default is our own directory, not the ~/.agent-device every other CLI shares.
   assert.equal(daemonStateDir(), join(homedir(), ".emuly-agent-device"));
@@ -46,7 +48,7 @@ test("the proxy is spawned with a private state dir and the runner token", () =>
     "--state-dir", "/home/ubuntu/.emuly-agent-device", "--daemon-auth-token", "t0ken"]);
 });
 
-test("the daemon sees the SDK on PATH, the SDK roots, and no idle reap", () => {
+test("the daemon sees the SDK on PATH, the SDK roots, and no idle reap", posixOnly, () => {
   const env = proxyEnv("/opt/android-sdk", { PATH: "/usr/bin", HOME: "/home/ubuntu" });
   assert.deepEqual(sdkPathEntries("/opt/android-sdk"), ["/opt/android-sdk/platform-tools", "/opt/android-sdk/emulator"]);
   assert.equal(env.PATH, ["/opt/android-sdk/platform-tools", "/opt/android-sdk/emulator", "/usr/bin"].join(delimiter));
@@ -59,7 +61,7 @@ test("the daemon sees the SDK on PATH, the SDK roots, and no idle reap", () => {
   assert.equal(proxyEnv("/sdk", {}).PATH, ["/sdk/platform-tools", "/sdk/emulator"].join(delimiter));
 });
 
-test("PATH lookup finds only executable files", async () => {
+test("PATH lookup finds only executable files", posixOnly, async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-device-path-"));
   try {
     assert.equal(findOnPath("agent-device", root), null);

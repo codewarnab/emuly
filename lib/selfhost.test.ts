@@ -105,7 +105,7 @@ test("selfHostUser rejects a user blocked in the local database", async () => {
   } finally { await f.close(); }
 });
 
-test("selfHostTokenKey validates and memoizes the key, and repairs a bad file", async () => {
+test("selfHostTokenKey validates and memoizes the key, and repairs a bad file", { skip: process.platform === "win32" }, async () => {
   const directory = mkdtempSync(join(tmpdir(), "emuly-selfhost-key-"));
   process.env.EMULY_DB = join(directory, "test.db");
   try {

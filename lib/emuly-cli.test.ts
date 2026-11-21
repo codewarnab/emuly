@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
-test("doctor distinguishes granted scopes, missing scope and API errors", () => {
+test("doctor distinguishes granted scopes, missing scope and API errors", { skip: process.platform === "win32" }, () => {
   const directory = mkdtempSync(join(tmpdir(), "emuly-cli-"));
   try {
     writeFileSync(join(directory, "gh"), `#!/bin/sh
