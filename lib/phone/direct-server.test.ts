@@ -11,7 +11,7 @@ import { createDirectServer } from "../../phone/runner/direct-server.mjs";
 const require = createRequire(import.meta.url);
 const ws = require("next/dist/compiled/ws");
 const SECRET = "s".repeat(40);
-const ORIGIN = "https://emuly.vercel.app";
+const ORIGIN = "https://emuly.xyz";
 const base = { codespaceName: "phone-a", phoneId: "ph_a", userId: 7, sessionId: "s", quality: "auto", origin: ORIGIN };
 
 async function start(options: { key?: boolean; maxViewers?: number; upgradesPerMinute?: number } = {}) {

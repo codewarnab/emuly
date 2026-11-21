@@ -104,8 +104,8 @@ the tunnel" above the user's commands. Add the scrcpy install line for the user'
 ### The offer
 
 - `<browser_url>` is the full phone link from `GET /v1/phones/<id>`, for example
-  `https://emuly.vercel.app/app/phones/phone-copper-robin`. Never give only the base URL
-  (`https://emuly.vercel.app`): it opens the phone list, not this phone.
+  `https://emuly.xyz/app/phones/phone-copper-robin`. Never give only the base URL
+  (`https://emuly.xyz`): it opens the phone list, not this phone.
 - In remote cases, write "on your computer (<computer name>)" in option 1.
 
 ```text

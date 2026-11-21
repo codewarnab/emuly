@@ -3,7 +3,7 @@
 // "ready", and its sync loop still finds every boot if an event is lost.
 //
 // ~/emuly/.events is written by setup through private SSH input:
-//   line 1: the events URL, for example https://emuly.vercel.app/api/runner/events
+//   line 1: the events URL, for example https://emuly.xyz/api/runner/events
 //   line 2: the phone key (HMAC key, from the server's secret and the codespace name)
 //   line 3: the codespace name
 // The file is read again for each event, and each answer from Emuly carries its current URL.

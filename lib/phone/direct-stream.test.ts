@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { directStream, directStreamEnabled, ensureDirectPort } from "./direct-stream.ts";
 import { parseStreamTicket } from "./phone-response.ts";
 
-const input = { userId: 7, phoneId: "ph", codespaceName: "phone-a", sessionId: "s", quality: "auto", origin: "https://emuly.vercel.app" };
+const input = { userId: 7, phoneId: "ph", codespaceName: "phone-a", sessionId: "s", quality: "auto", origin: "https://emuly.xyz" };
 function env(t: { after: (fn: () => void) => void }, values: Record<string, string | undefined>) {
   const old = Object.fromEntries(Object.keys(values).map(key => [key, process.env[key]]));
   for (const [key, value] of Object.entries(values)) value === undefined ? delete process.env[key] : process.env[key] = value;

@@ -6,7 +6,7 @@ const require = createRequire(import.meta.url);
 const WebSocket = require("next/dist/compiled/ws");
 const [codespace, secret, ip] = process.argv.slice(2);
 const host = `${codespace}-8791.app.github.dev`;
-const ORIGIN = "https://emuly.vercel.app";
+const ORIGIN = "https://emuly.xyz";
 const lookup = ip ? (_h, o, cb) => o?.all ? cb(null, [{ address: ip, family: 4 }]) : cb(null, ip, 4) : undefined;
 const base = { codespaceName: codespace, phoneId: "ph_test", userId: 1, sessionId: "s", quality: "auto", origin: ORIGIN };
 const t = (over = {}, opts = {}) => encodeURIComponent(issueDirectTicket({ ...base, ...over }, { secret, ...opts }));

@@ -5,7 +5,7 @@ import { createNonceStore, createRateLimiter, signTicket, verifyTicket } from ".
 
 const SECRET = "s".repeat(40);
 const NOW = 1_800_000_000_000;
-const input = { codespaceName: "phone-a", phoneId: "ph_a", userId: 7, sessionId: "sess", quality: "auto", origin: "https://emuly.vercel.app" };
+const input = { codespaceName: "phone-a", phoneId: "ph_a", userId: 7, sessionId: "sess", quality: "auto", origin: "https://emuly.xyz" };
 const key = phoneDirectKey("phone-a", SECRET)!;
 const check = (ticket: string | undefined, over: Partial<{ codespace: string; origin: string; now: number; nonces: ReturnType<typeof createNonceStore> }> = {}) =>
   verifyTicket(key, ticket, { codespace: "phone-a", origin: input.origin, nonces: createNonceStore(), now: NOW, ...over });

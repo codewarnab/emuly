@@ -52,7 +52,7 @@ export function PhoneScreen({ id, live, resting, quality = "auto", aspect = 0.5 
   const [clipboardEmpty, setClipboardEmpty] = useState(false);
   const [desktopOpen, setDesktopOpen] = useState(false);
   const [desktopOs, setDesktopOs] = useState<DesktopOs>("windows");
-  const [origin, setOrigin] = useState("https://emuly.vercel.app");
+  const [origin, setOrigin] = useState("https://emuly.xyz");
   useEffect(() => {
     // userAgentData is newer and exact (Chromium); the user agent string covers Safari and Firefox.
     const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform || navigator.userAgent;

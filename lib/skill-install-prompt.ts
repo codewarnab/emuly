@@ -1,7 +1,7 @@
 /** Client-safe. The prompt behind "Install the skill" on the home page: it installs only the
     emuly-playbook skill, with no key setup. Paths come from the vercel-labs/skills agent list
     and the vendors' docs (checked 2026-11-14). The prompt tells the agent to trust its own docs first. */
-const HOSTED = "https://emuly.vercel.app";
+const HOSTED = "https://emuly.xyz";
 const SKILL = "emuly-playbook";
 
 export type SkillAgent = { name: string; id?: string; path?: string; docs?: string; note?: string; light: string; dark: string };

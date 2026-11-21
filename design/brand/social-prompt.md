@@ -10,7 +10,7 @@ Exact text (spell every word exactly; no other words):
 - Top label: "ANDROID • CLOUD • AI AGENTS • FREE" (dots in orange)
 - Headline: "An Android phone in the cloud." with the word "Free." on its own line in orange.
 - Bottom-left label (two lines): "RUNS IN YOUR OWN GITHUB CODESPACE." / "DRIVEN BY YOUR AI AGENT."
-- Bottom-right small label: "emuly.vercel.app"
+- Bottom-right small label: "emuly.xyz"
 - Vertical small label on the right edge: "TAP • TYPE • SCREENSHOT"
 - Logo: icon.png at small size, top-left or top-right, with the wordmark "Emuly" next to it in the same grotesk, medium weight.
 

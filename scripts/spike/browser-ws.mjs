@@ -1,7 +1,7 @@
 // Spike only: open a page on the Emuly origin in headless Chrome, then open a WebSocket to a
 // public codespace port from that page and time 30 pings. Usage: node browser-ws.mjs <wss-url> [page-url]
 import { chromium } from "playwright";
-const [url, page = "https://emuly.vercel.app/"] = process.argv.slice(2);
+const [url, page = "https://emuly.xyz/"] = process.argv.slice(2);
 const browser = await chromium.launch();
 const tab = await browser.newPage();
 await tab.goto(page);

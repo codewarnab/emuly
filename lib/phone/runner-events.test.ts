@@ -110,7 +110,7 @@ test("signature: another phone's key, a changed body or a bad header is refused;
 });
 
 test("the events URL comes from the base URL, so a new domain needs only a new EMULY_BASE_URL", () => {
-  assert.equal(runnerEventsUrl("https://emuly.vercel.app/"), "https://emuly.vercel.app/api/runner/events");
+  assert.equal(runnerEventsUrl("https://emuly.xyz/"), "https://emuly.xyz/api/runner/events");
   assert.equal(runnerEventsUrl("https://phones.example.com"), "https://phones.example.com/api/runner/events");
   assert.equal(runnerEventsUrl("http://localhost:4321"), undefined, "a codespace cannot reach a laptop");
   assert.equal(runnerEventsUrl(undefined), undefined);

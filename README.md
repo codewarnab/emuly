@@ -9,7 +9,7 @@
 <p>It runs in your own GitHub Codespace, on the hours your GitHub plan already includes.<br />Paste one prompt into your coding agent. It does the rest.</p>
 
 <p>
-  <a href="https://emuly.vercel.app">Website</a>
+  <a href="https://emuly.xyz">Website</a>
   &nbsp;·&nbsp;
   <a href="docs/SELF-HOST.md">Self-host</a>
   &nbsp;·&nbsp;

@@ -13,7 +13,7 @@ Required text, spelled exactly:
 - Headline: "Android emulator in the cloud."
 - Accent word in periwinkle: "Free."
 - Subline: "Runs in your own GitHub Codespace."
-- Small footer: "emuly.vercel.app"
+- Small footer: "emuly.xyz"
 - Wordmark "Emuly" with a small mark, top-left.
 
 Quality bar: Awwwards / Linear / Vercel / Raycast launch-image level. Premium geometric sans typography (like Inter Display, Geist, or SF Pro Display), tight tracking on the headline, clear hierarchy, generous margins (at least 72px), crisp edges, no blur on text. One realistic, beautifully lit modern Android phone (no brand logos on it) showing the green Studio app with the orange agent cursor mid-tap, with subtle reflections and a soft floor shadow. Subtle background detail only: faint grid or soft radial glow. No clutter, no stock-photo look, no fake UI text gibberish, no extra words. All text must be sharp and spelled correctly.
