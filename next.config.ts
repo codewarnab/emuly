@@ -16,7 +16,20 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // / and /self-host serve HTML or Markdown by Accept, so caches must key on it.
+      { source: "/", headers: [{ key: "Vary", value: "Accept" }] },
+      { source: "/self-host", headers: [{ key: "Vary", value: "Accept" }] },
+    ];
+  },
+  // AI agents that send Accept: text/markdown get the Markdown copy of the page.
+  async rewrites() {
+    const md = [{ type: "header" as const, key: "accept", value: ".*text/markdown.*" }];
+    return { beforeFiles: [
+      { source: "/", has: md, destination: "/index.md" },
+      { source: "/self-host", has: md, destination: "/self-host.md" },
+    ] };
   },
   // OAuth callback URLs contain one-time codes. Never write request URLs to dev logs.
   logging: { incomingRequests: false },

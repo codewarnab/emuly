@@ -11,13 +11,16 @@ import { HeroPhone } from "@/components/marketing/hero-phone";
 import { AGENT_PROMPT } from "../../lib/agent-prompt-text";
 import { SELF_HOST } from "../../lib/selfhost";
 import { env } from "../../lib/env";
+import { FAQS, SITE_DESCRIPTION, SITE_TITLE, jsonLd } from "../../lib/site-content";
 import s from "./landing.module.css";
 
 const logo = (f: string) => `/agents/${f.includes(".") ? f : `${f}.svg`}`;
 
 export const metadata: Metadata = {
-  title: "Emuly — a free Android emulator in the cloud",
-  description: "Run an Android emulator in the cloud, for free. Use the Codespaces hours included in your GitHub plan. Paste one prompt into your coding agent.",
+  title: SITE_TITLE,
+  description: SITE_DESCRIPTION,
+  keywords: ["Android emulator in the cloud", "free Android emulator", "online Android emulator", "Android emulator for AI agents", "GitHub Codespaces Android", "cloud phone for testing"],
+  alternates: { canonical: "/", types: { "text/markdown": "/index.md" } },
 };
 
 const AGENTS = [
@@ -83,15 +86,11 @@ export default function LandingPage() {
       <section className={s.faq} aria-label="Common questions">
         <h2>A few things to know</h2>
         <div>
-          <details><summary>Is it really free?</summary><p>Yes. You bring the compute through the Codespaces hours included in your GitHub plan. Emuly never bills you or resells GitHub. Stay within your included hours to avoid GitHub charges.</p></details>
-          <details><summary>What does it need from GitHub?</summary><p>One permission: Codespaces. No repo access. Your agent asks you to sign in when it needs approval.</p></details>
-          <details><summary>What happens when I stop it?</summary><p>Your codespace keeps the phone. Waking it boots Android fresh, which takes a few minutes. Only deleting the codespace erases it. GitHub deletes a stopped phone after its retention period. New phones get 30 days after the last stop. The console shows each phone&apos;s countdown.</p></details>
-          <details><summary>Is it fast?</summary><p>Yes. Android runs with hardware acceleration (KVM) on the codespace machine. It is not slow software emulation, so apps open and respond quickly.</p></details>
-          <details><summary>Limits?</summary><p>Running phones share your hours. GitHub decides how many codespaces you can have and run. GitHub stops an idle phone after 30 minutes or 4 hours, your choice. Cold boot takes about 2 minutes. Hours shown in the console are estimates.</p></details>
-          <details><summary>Can I host it myself?</summary><p>Yes. One Docker container runs the whole app on your machine, with your own GitHub account. Your agent does the setup from one prompt. You only sign in to GitHub. <Link href="/self-host">See how self-hosting works</Link>.</p></details>
+          {FAQS.map(f => <details key={f.q}><summary>{f.q}</summary><p>{f.a}{f.link && <> <Link href={f.link.href}>{f.link.text}</Link>.</>}</p></details>)}
         </div>
       </section>
     </main>
+    <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd(env.baseUrl)).replace(/</g, "\\u003c") }} />
     <footer className={s.footer}>Emuly — your codespace, your phone.</footer>
   </div>;
 }
