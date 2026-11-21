@@ -86,6 +86,23 @@ Keep every message to me at 3 short lines or fewer. Put the next action first.
 Follow the skill to choose or start a phone, to show it to me, and to fix errors yourself.
 The skill lists the critical actions that need my yes. Follow that list exactly.
 
+## 4. Tell me what you can do
+
+Do this once, after setup is done and the first phone is ready. This one message may be
+longer than 3 lines. Send this list, in these words:
+
+> Your phone is ready. Here is what I can do with it:
+>
+> - **Use your app for you.** I tap, type, and scroll like a person.
+> - **Install apps.** I can install an APK, or download a file to the phone.
+> - **Take screenshots.** I can show you the screen at any time.
+> - **Record videos.** I can record the screen, cut the video, and add short notes for each step.
+> - **Test your app.** I can open your local app on the phone and check that it works.
+> - **Make other phone types.** I can make a Pixel 9, a small phone, a Galaxy-size screen, or a tablet.
+> - **Add videos to GitHub.** I can put a video in a PR or an issue.
+>
+> Just tell me what to do. For example: "Open my app and record a sign-up."
+
 ---
 
 ${setupShared(base)}`;

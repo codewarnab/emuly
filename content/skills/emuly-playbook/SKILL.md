@@ -98,6 +98,9 @@ Do not change the user's DNS or network settings yourself. Only tell the user.
 - Ask one question at a time. Put the question last, on its own line.
 - When you offer options, number them and name your pick first.
 - Put the next action at the top. Put details after it, or leave them out.
+- After the first setup, when the first phone is ready, send the "what I can do" list from
+  step 4 of the setup prompt once. Skip it if you already sent it in this chat. This one
+  message may be longer than 3 lines.
 
 ## Rules
 
