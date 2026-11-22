@@ -31,7 +31,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
   && dpkg -i /tmp/gh.deb && rm /tmp/gh.deb \
   && apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 COPY --from=build /runtime/node_modules ./node_modules
-COPY --from=build /app/.next ./.next
+# The runtime writes .next/server/route-cache (and image-optimizer caches under
+# .next/cache) as node, so the copied tree must be node-owned. Root-owned, the server
+# logs EACCES on every prerender-cache update and never writes the cache.
+COPY --chown=node:node --from=build /app/.next ./.next
 COPY package.json pnpm-lock.yaml next.config.ts tsconfig.json instrumentation.ts ./
 COPY bin ./bin
 # lib/ source must ship: the stream proxy dynamically imports ./phone-control.ts outside
