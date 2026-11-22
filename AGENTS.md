@@ -12,6 +12,15 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 Emuly runs Android phones (emulators) in each user's own GitHub Codespaces. People use them in the browser. Agents use them through the `/v1` API and the `emuly` CLI.
 
+## Product rules
+
+Judge every change by these rules, in this order:
+
+1. **Security.** Never trade security for speed or ease. Keep secrets encrypted, keys scoped and tickets short-lived.
+2. **The user decides. The agent does the work.** Ask the user only for real decisions and approvals, such as deleting a phone. Agents do every other step.
+3. **Minimal user effort.** Use good defaults and detect what you can, such as the region from the IP. Each extra click, field or setup step needs a strong reason.
+4. **Speed.** Low latency is a feature. Count the network trips (browser → Vercel `bom1` → Turso → codespace) and remove the ones you can. Measure before and after.
+
 ## Where things are
 
 | Path | What it holds |
