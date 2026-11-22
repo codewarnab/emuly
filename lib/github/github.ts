@@ -53,6 +53,8 @@ export type Codespace = {
   machine?: { name: string; cpus: number } | null;
   retention_expires_at?: string | null;
   last_used_at?: string;
+  /** GitHub region, for example "CentralIndia". */
+  location?: string;
 };
 export type Machine = { name: string; display_name: string; cpus: number; memory_in_bytes: number };
 /**
@@ -67,6 +69,8 @@ export type CreateCodespace = {
   devcontainer_path?: string;
   idle_timeout_minutes: number;
   retention_period_minutes: number;
+  /** The public IP of the person or agent. GitHub creates the codespace in the region closest to it. */
+  client_ip?: string;
 };
 
 export function createGitHubClient({ database, accessToken, fetch: fetcher = fetch }: {

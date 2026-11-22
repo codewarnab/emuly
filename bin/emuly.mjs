@@ -184,7 +184,7 @@ async function doctor() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Links (docs/link-plan.html). The laptop always opens the connection outward:
+// Links. The laptop always opens the connection outward:
 // Route A (ssh): `gh codespace ssh -- -R`, the bytes go through GitHub only.
 // Route B (relay): one websocket to the Emuly control plane, which relays it to the runner.
 // Each TCP connection from the app is one numbered stream inside the tunnel.

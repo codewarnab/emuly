@@ -16,7 +16,7 @@ import type { RecordingAction } from "./phone-link.ts";
 import { notesVtt, type RecordingNote } from "./recording-notes.ts";
 
 type Identity = { id: number; authKind?: "session" | "agent"; agentKeyId?: number };
-type PhoneView = Pick<Phone, "id" | "name" | "state" | "android_state" | "idle_timeout_min"> & Partial<Pick<Phone, "last_activity_at" | "android_started_at" | "last_started_at" | "keeping">> & { device_preset?: string };
+type PhoneView = Pick<Phone, "id" | "name" | "state" | "android_state" | "idle_timeout_min"> & Partial<Pick<Phone, "last_activity_at" | "android_started_at" | "last_started_at" | "keeping">> & { device_preset?: string; location?: string | null };
 // status, mark and notes are frequent and change nothing outside the recording: no Activity line.
 const QUIET_RECORDING_ACTIONS = new Set<RecordingAction>(["status", "mark", "notes"]);
 const RECORDING_LABELS: Record<Exclude<RecordingAction, "status" | "mark" | "notes">, string> = {
@@ -164,6 +164,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
   const view = (stored: PhoneView) => ({
     id: stored.id, name: stored.name, state: stored.state, android_state: stored.android_state,
     idle_timeout_min: stored.idle_timeout_min, idle_stop_at: idleStopAt(stored), device_preset: stored.device_preset ?? "generic",
+    location: stored.location ?? null,
     browser_url: `${baseUrl().replace(/\/$/, "")}/app/phones/${encodeURIComponent(stored.id)}`,
   });
   const record = async (identity: Identity, id: string, args: string[], exitCode: number, note: string | null) => {

@@ -8,6 +8,7 @@ import { eventRow, type StoredEvent } from "./event-row.ts";
 
 import type { PhoneRow } from "@/lib/shared/fixtures";
 import type { LogRow } from "@/components/ui/log-feed";
+import { regionLabel } from "../shared/regions.ts";
 
 export type Phone = {
   id: string;
@@ -34,10 +35,12 @@ export type Phone = {
   last_activity_at?: string | null;
   /** Screen preset id (lib/shared/device-presets.ts). */
   device_preset: string;
+  /** GitHub region, for example "CentralIndia". NULL until the first sync after create. */
+  location?: string | null;
 };
 
 const columns = `id, codespace_name, machine, state, state_detail, created_at, retention_at, idle_timeout_min,
-  last_started_at, last_stopped_at, cores, retention_min, android_state, android_started_at, android_error, device_preset, last_activity_at,
+  last_started_at, last_stopped_at, cores, retention_min, android_state, android_started_at, android_error, device_preset, last_activity_at, location,
   EXISTS(SELECT 1 FROM phone_keeps WHERE phone_id = phones.id) AS keeping,
   EXISTS(SELECT 1 FROM phone_setup_attempts WHERE phone_id = phones.id AND failed = 1) AS setup_failed`;
 
@@ -55,6 +58,7 @@ export async function findPhone(userId: number, id: string): Promise<Phone | und
 
 export function phoneCard(phone: Phone): PhoneRow {
   const status = phoneStatus(phone);
+  const region = regionLabel(phone.location);
   return {
     id: phone.id,
     name: phone.name,
@@ -67,6 +71,7 @@ export function phoneCard(phone: Phone): PhoneRow {
     meta: [
       ["Status", status.title],
       ["Machine", "4-core · 16 GB"],
+      ...(region ? [["Region", region] as [string, string]] : []),
     ],
     foot: { ghost: "Stop", primary: "Open phone" },
   };

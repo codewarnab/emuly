@@ -2,7 +2,7 @@ import { linksApi } from "../../../../../lib/api";
 
 type Context = { params: Promise<{ id: string }> };
 
-/** Links from the phone to a server the laptop can reach. See docs/link-plan.html. */
+/** Links from the phone to a server the laptop can reach. */
 export async function GET(request: Request, context: Context) {
   return linksApi().list(request, (await context.params).id);
 }

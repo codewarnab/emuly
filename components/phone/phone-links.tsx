@@ -5,7 +5,7 @@ import { Mini } from "@/components/ui/mini";
 type Link = { port: number; route: string; listening: boolean; relay_connected: boolean };
 
 /**
- * The links of this phone (docs/link-plan.html, section 8). Shown only when a link exists, so
+ * The links of this phone. Shown only when a link exists, so
  * the user can see each port that apps on the phone can reach on their computer.
  */
 export function PhoneLinks({ id, running }: { id: string; running: boolean }) {

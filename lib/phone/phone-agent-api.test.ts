@@ -47,7 +47,7 @@ test("phone list and read require authentication, scope to the caller and build 
   assert.equal(list.status, 200);
   assert.equal(list.headers.get("cache-control"), "private, no-store");
   assert.deepEqual(await list.json(), { phones: [{
-    id: stored.id, name: stored.name, state: "running", android_state: "ready", idle_timeout_min: 240, idle_stop_at: null, device_preset: "generic",
+    id: stored.id, name: stored.name, state: "running", android_state: "ready", idle_timeout_min: 240, idle_stop_at: null, device_preset: "generic", location: null,
     browser_url: `https://emuly.test/app/phones/${stored.id}`,
   }] });
 

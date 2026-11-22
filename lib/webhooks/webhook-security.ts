@@ -9,7 +9,8 @@ export type ResolveHost = (host: string) => Promise<{ address: string; family: n
 export type WebhookTarget = { url: URL; addresses: { address: string; family: number }[] };
 export const resolveHost: ResolveHost = host => lookup(host, { all: true, verbatim: true });
 
-function publicAddress(address: string): boolean {
+/** Public unicast IPv4 or global IPv6 only. Shared with the codespace region hint. */
+export function publicAddress(address: string): boolean {
   if (isIP(address) === 4) {
     const [a, b] = address.split(".").map(Number) as [number, number];
     return !(a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127)

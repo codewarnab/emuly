@@ -115,6 +115,43 @@ test("create records intent before HTTP, chooses an available machine, sends tim
   } finally { await f.close(); }
 });
 
+test("create sends a public caller IP as client_ip, never a private one, and stores the region GitHub returns", async () => {
+  const bodies: Record<string, unknown>[] = [];
+  let creates = 0;
+  const f = fixture(async (url, init) => {
+    if (String(url).endsWith("/machines")) return Response.json({ machines: [machine] });
+    bodies.push(JSON.parse(String(init?.body)));
+    return Response.json({ ...space(`github-region-${++creates}`, "Provisioning"), id: creates, location: "EastUs" });
+  });
+  try {
+    const ips = ["203.0.113.9", "2a00:1450:4001:80b::200e", "10.0.0.5", "127.0.0.1", "::1", "unknown", undefined];
+    const ids: string[] = [];
+    for (const clientIp of ips) {
+      ids.push(await f.service.create(1, { ...input, clientIp }));
+      f.advance(60_000);
+      f.database.prepare("DELETE FROM phones").run();
+    }
+    assert.deepEqual(bodies.map(body => body.client_ip), ["203.0.113.9", "2a00:1450:4001:80b::200e", undefined, undefined, undefined, undefined, undefined]);
+    assert.equal(ids.length, ips.length);
+  } finally { await f.close(); }
+});
+
+test("sync stores the codespace region and keeps it when GitHub omits it", async () => {
+  const f = fixture(async () => Response.json({ machines: [machine] }));
+  try {
+    const fake = createGitHubClient({ database: f.asyncDatabase, accessToken: async () => "synthetic-1",
+      fetch: async url => String(url).endsWith("/machines") ? Response.json({ machines: [machine] })
+        : Response.json({ ...space("github-sync-1", "Provisioning"), id: 7, location: "WestEurope" }) });
+    const service = createPhoneService({ database: f.asyncDatabase, github: fake, encrypt: (plain, context) => seal(plain, key, context), clock: () => Date.now() });
+    const id = await service.create(1, input);
+    assert.equal(f.database.prepare("SELECT location FROM phones WHERE id = ?").get(id)?.location, "WestEurope");
+    await service.observeCodespace(1, id, { ...space("github-sync-1", "Available"), id: 7 });
+    assert.equal(f.database.prepare("SELECT location FROM phones WHERE id = ?").get(id)?.location, "WestEurope");
+    await service.observeCodespace(1, id, { ...space("github-sync-1", "Shutdown"), id: 7, location: "EastUs" });
+    assert.equal(f.database.prepare("SELECT location FROM phones WHERE id = ?").get(id)?.location, "EastUs");
+  } finally { await f.close(); }
+});
+
 test("GitHub refusal preserves its message, records the failure, and does not retry creation", async () => {
   let posts = 0;
   const f = fixture(async (url) => {

@@ -327,7 +327,7 @@ export const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS events_user ON events(user_id);`,
   // Screen preset id from lib/shared/device-presets.ts. boot.sh applies it to the AVD.
   `ALTER TABLE phones ADD COLUMN device_preset TEXT NOT NULL DEFAULT 'generic';`,
-  // One-use tickets for a Route B link relay (docs/link-plan.html). Only the sha256 of the ticket is stored.
+  // One-use tickets for a Route B link relay. Only the sha256 of the ticket is stored.
   `CREATE TABLE IF NOT EXISTS link_tickets (
     hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     phone_id TEXT NOT NULL REFERENCES phones(id) ON DELETE CASCADE, ports TEXT NOT NULL, expires_at INTEGER NOT NULL
@@ -415,4 +415,6 @@ export const MIGRATIONS = [
     ${bumpDashboardVersion("NEW.user_id")}
     ${bumpDashboardVersion("OLD.user_id", "OLD.user_id IS NOT NEW.user_id")}
   END;`,
+  // GitHub region of the codespace, for example "CentralIndia". Filled from GitHub on create and on each sync.
+  `ALTER TABLE phones ADD COLUMN location TEXT;`,
 ];

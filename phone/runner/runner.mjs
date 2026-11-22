@@ -422,7 +422,7 @@ const routes = {
   "POST /file-fetches": body => fetches.create(body),
   "GET /agent-device-info": () => agentDevice.info(),
 
-  // Links (docs/link-plan.html). The body of each call is small JSON; see links.mjs.
+  // Links. The body of each call is small JSON; see links.mjs.
   "GET /links": () => links.list(),
   "POST /links": body => links.add(body),
   "POST /links/remove": body => links.remove(body),

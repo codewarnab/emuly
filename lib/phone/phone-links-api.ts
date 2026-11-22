@@ -8,7 +8,7 @@ type PhoneView = { id: string; state: string; android_state: string };
 type LogcatHint = { kind: string; line: string; hint: string; target?: string };
 
 /**
- * Links (docs/link-plan.html): GET/POST/DELETE /v1/phones/<id>/links and
+ * Links: GET/POST/DELETE /v1/phones/<id>/links and
  * GET /v1/phones/<id>/net-check. The runner holds the links; this layer checks input and owner.
  */
 export function createPhoneLinksApi({ user, phone, runner, issue, baseUrl, owner }: {

@@ -7,12 +7,14 @@ import { RateLimitError } from "../data/rate-limit.ts";
 import type { Usage } from "../data/usage.ts";
 
 /** HTTP boundary shared by route handlers. Identity always comes from the session. */
-export function createPhoneApi({ user, service, template, usage, defaults }: {
+export function createPhoneApi({ user, service, template, usage, defaults, clientIp }: {
   user: () => Promise<{ id: number } | null>;
   service: Pick<ReturnType<typeof createPhoneService>, "create" | "keep">;
   template: () => { repository: string; repositoryId: number; devcontainerPath?: string };
   usage: (userId: number) => Usage | Promise<Usage>;
   defaults: (userId: number) => { default_machine: string | null; default_idle_min: number } | Promise<{ default_machine: string | null; default_idle_min: number }>;
+  /** The caller IP. GitHub creates the codespace in the region closest to it. */
+  clientIp?: (request: Request) => string;
 }) {
   const json = (body: unknown, status = 200, headers?: Record<string, string>) =>
     Response.json(body, { status, headers: { "Cache-Control": "private, no-store", ...headers } });
@@ -61,7 +63,8 @@ export function createPhoneApi({ user, service, template, usage, defaults }: {
         if (!devicePreset(preset)) {
           throw new PhoneInputError(`Choose device_preset from: ${DEVICE_PRESETS.map(p => p.id).join(", ")}.`);
         }
-        const id = await service.create(identity.id, { ...template(), machine, idleTimeoutMin: idle, devicePreset: preset as string });
+        const id = await service.create(identity.id, { ...template(), machine, idleTimeoutMin: idle, devicePreset: preset as string,
+          clientIp: clientIp?.(request) });
         return json({ id }, 201);
       } catch (error) {
         if (error instanceof GitHubError) return json({ error: "github_refused", message: redact(error.message) }, 409);

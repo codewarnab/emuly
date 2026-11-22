@@ -6,6 +6,7 @@ import { env } from "./env";
 import { phoneControl, templateRepository } from "./phone/phone-control";
 import { createPhoneApi } from "./phone/phone-api";
 import { createPhoneAgentApi } from "./phone/phone-agent-api";
+import { clientIp } from "./auth/agent";
 import { findPhone, listPhones } from "./phone/phones";
 import { runnerAdb, runnerAgentDevice, runnerLinks, runnerRecording, runnerRequest } from "./phone/phone-runner";
 import { createPhoneLinksApi } from "./phone/phone-links-api";
@@ -24,7 +25,7 @@ export function webhookApi() { return createWebhookApi({ user: getUser, service:
 
 export function phoneApi() {
   return createPhoneApi({ user: getUser, service: phoneControl(), template: templateRepository,
-    usage: async id => (await readUsage(asyncDb(), id)), defaults: async id => (await userSettings(asyncDb(), id)) });
+    usage: async id => (await readUsage(asyncDb(), id)), defaults: async id => (await userSettings(asyncDb(), id)), clientIp });
 }
 
 /** List/read/start/stop/adb share the agent-facing surface and the same origin rule. */

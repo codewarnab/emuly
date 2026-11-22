@@ -14,6 +14,7 @@ import type { Client } from "@libsql/client";
 import { decidePhoneTransition, decideRunChanges, START_PENDING_DETAIL } from "./phone-lifecycle.ts";
 import { candidatePhoneName, PHONE_ID } from "../shared/phone-name.ts";
 import { createDiagnostics, measure, newDiagnosticId } from "../diagnostics/diagnostics.ts";
+import { publicAddress } from "../webhooks/webhook-security.ts";
 
 type GitHub = ReturnType<typeof createGitHubClient>;
 type StoredPhone = {
@@ -357,7 +358,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       await queries.execute({ sql: "UPDATE phones SET android_state = 'idle', android_error = NULL WHERE id = ?", args: [id] });
     }
     await queries.execute({ sql: `UPDATE phones SET state = ?, state_detail = ?, last_started_at = ?, last_stopped_at = ?,
-      retention_at = ?, cores = COALESCE(?, cores) WHERE user_id = ? AND id = ?`, args: [state, detail, lastStarted, lastStopped, retention, codespace.machine?.cpus ?? null, userId, id] });
+      retention_at = ?, cores = COALESCE(?, cores), location = COALESCE(?, location) WHERE user_id = ? AND id = ?`,
+      args: [state, detail, lastStarted, lastStopped, retention, codespace.machine?.cpus ?? null, codespace.location || null, userId, id] });
     if (previous.state !== state) {
       await event(userId, id, "step", `Codespace ${codespace.state}`, queries);
       // A requested start already emitted before HTTP. Reconciliation catches external starts.
@@ -701,7 +703,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     remove,
     autoKeep: (userId: number, id: string) => keep(userId, id, true),
     machines: (userId: number, repository: string) => github.machines(userId, repository),
-    async create(userId: number, input: { repository: string; repositoryId: number; machine?: string; idleTimeoutMin: number; devcontainerPath?: string; devicePreset?: string }) {
+    async create(userId: number, input: { repository: string; repositoryId: number; machine?: string; idleTimeoutMin: number; devcontainerPath?: string; devicePreset?: string; clientIp?: string }) {
       if (input.devicePreset !== undefined && !devicePreset(input.devicePreset)) throw new PhoneInputError("Choose a valid phone type.");
       if (!/^[\w.-]+\/[\w.-]+$/.test(input.repository) || !Number.isSafeInteger(input.repositoryId)
         || input.repositoryId <= 0 || !validIdle(input.idleTimeoutMin)
@@ -748,6 +750,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
           // GitHub's timer does not count API calls, so it gets the maximum. Emuly's idle check
           // enforces input.idleTimeoutMin (lib/phone/idle-stop.ts). See PROVIDER_IDLE_MIN.
           idle_timeout_minutes: PROVIDER_IDLE_MIN, retention_period_minutes: 43200,
+          // Without it GitHub uses the IP of this server (Vercel bom1), so every phone lands in India.
+          ...(input.clientIp && publicAddress(input.clientIp) ? { client_ip: input.clientIp } : {}),
         })));
         await database.execute({ sql: "UPDATE phones SET last_started_at = ? WHERE user_id = ? AND id = ?", args: [iso(), userId, id] });
         await confirmCreation(userId, id, result, "emuly");

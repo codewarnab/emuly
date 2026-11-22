@@ -1,6 +1,8 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+import { clientIp } from "../../lib/auth/agent";
 import { requireUser } from "../../lib/auth/auth";
 import { phoneControl, templateRepository } from "../../lib/phone/phone-control";
 import { PHONE_MACHINE } from "../../lib/github/github";
@@ -39,6 +41,7 @@ export async function mutatePhone(_previous: MutationResult, form: FormData): Pr
       id = await phoneControl().create(user.id, {
         ...templateRepository(), machine: PHONE_MACHINE.name, idleTimeoutMin: minutes,
         devicePreset: devicePreset(form.get("devicePreset"))?.id ?? DEFAULT_DEVICE_PRESET,
+        clientIp: clientIp(new Request("http://action", { headers: await headers() })),
       });
       message = "Phone created. GitHub is preparing the codespace.";
     } else if (operation === "start" || operation === "stop" || operation === "keep" || operation === "retryBoot") {
