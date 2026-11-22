@@ -16,10 +16,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
 async function AuthenticatedShell({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const disabledWebhooks = (await webhookControl().list(user.id)).filter(hook => !hook.enabled && hook.failing_since);
+  const [hooks, autoStops] = await Promise.all([webhookControl().list(user.id), unreadAutoStops(asyncDb(), user.id)]);
+  const disabledWebhooks = hooks.filter(hook => !hook.enabled && hook.failing_since);
   return (
     <div className={s.app}>
-      <AutoStopNotice notices={await unreadAutoStops(asyncDb(), user.id)} />
+      <AutoStopNotice notices={autoStops} />
       {disabledWebhooks.length > 0 && <aside className={s.hoursBanner} role="status">
         {disabledWebhooks.length} webhook endpoint{disabledWebhooks.length === 1 ? " is" : "s are"} disabled after 3 days of only failures.{" "}
         <Link href="/app/settings/webhooks">Review Webhooks</Link>

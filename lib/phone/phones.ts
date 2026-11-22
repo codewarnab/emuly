@@ -1,4 +1,5 @@
 import { asyncDb } from "../data/async-db.ts";
+import type { DatabaseQueries } from "../data/async-database.ts";
 import "server-only";
 import { shortMessage } from "../shared/short-message.ts";
 import { phoneName } from "../shared/phone-name.ts";
@@ -40,8 +41,8 @@ const columns = `id, codespace_name, machine, state, state_detail, created_at, r
   EXISTS(SELECT 1 FROM phone_keeps WHERE phone_id = phones.id) AS keeping,
   EXISTS(SELECT 1 FROM phone_setup_attempts WHERE phone_id = phones.id AND failed = 1) AS setup_failed`;
 
-export async function listPhones(userId: number): Promise<Phone[]> {
-  const rows = (await asyncDb().execute({ sql: `SELECT ${columns} FROM phones WHERE user_id = ? AND state != 'deleted'
+export async function listPhones(userId: number, database: DatabaseQueries = asyncDb()): Promise<Phone[]> {
+  const rows = (await database.execute({ sql: `SELECT ${columns} FROM phones WHERE user_id = ? AND state != 'deleted'
     ORDER BY CASE WHEN state = 'running' THEN 0 WHEN state IN ('booting', 'pending', 'stopping') THEN 1 ELSE 2 END,
       COALESCE(last_started_at, last_stopped_at, created_at) DESC, id`, args: [userId] })).rows as unknown as Omit<Phone, "name">[];
   return rows.map(row => ({ ...row, name: phoneName(row.id) }));

@@ -1,3 +1,5 @@
+export const HEARTBEAT = Symbol("SSE heartbeat");
+
 /** One bounded connection. EventSource reconnects after rotation or transport failure. */
 export function eventStream(request: Request, read: () => Promise<unknown | undefined>, options: { intervalMs?: number } = {}) {
   const intervalMs = options.intervalMs ?? 1500;
@@ -12,7 +14,7 @@ export function eventStream(request: Request, read: () => Promise<unknown | unde
           const value = await read();
           if (value === undefined) break;
           if (signal.aborted || (controller.desiredSize ?? 0) <= 0) break;
-          const next = JSON.stringify(value);
+          const next = value === HEARTBEAT ? previous : JSON.stringify(value);
           if (next !== previous) { controller.enqueue(encoder.encode(`data: ${next}\n\n`)); previous = next; }
           else controller.enqueue(encoder.encode(": heartbeat\n\n"));
           await new Promise<void>(resolve => {

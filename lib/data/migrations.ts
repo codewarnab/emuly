@@ -1,3 +1,21 @@
+// Frozen column list for the dashboard change-counter migration. Keep future
+// changes to the dashboard projection in a new migration.
+const dashboardPhoneColumns = [
+  "id", "user_id", "codespace_name", "machine", "state", "state_detail", "created_at", "retention_at",
+  "idle_timeout_min", "last_started_at", "last_stopped_at", "cores", "retention_min", "android_state",
+  "android_started_at", "android_error", "device_preset", "last_activity_at",
+];
+
+function bumpDashboardVersion(owner: string, when = "1") {
+  // Events have no user foreign key. Cascading deletes can also run after the owner is gone.
+  return `INSERT INTO user_changes (user_id, version)
+    SELECT id, 1 FROM users WHERE id = (${owner}) AND (${when})
+    ON CONFLICT(user_id) DO UPDATE SET version = user_changes.version + 1;`;
+}
+
+const oldPhoneOwner = "SELECT user_id FROM phones WHERE id = OLD.phone_id";
+const newPhoneOwner = "SELECT user_id FROM phones WHERE id = NEW.phone_id";
+
 /** Ordered migrations. Index + 1 = PRAGMA user_version after it runs. Append only. */
 export const MIGRATIONS = [
   `
@@ -331,4 +349,70 @@ export const MIGRATIONS = [
   // The idle timeout GitHub got for this codespace (PROVIDER_IDLE_MIN in lib/shared/idle.ts).
   // NULL for older phones: GitHub got idle_timeout_min for those.
   `ALTER TABLE phones ADD COLUMN provider_idle_min INTEGER;`,
+  `CREATE TABLE user_changes (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL
+  );
+  CREATE TRIGGER dashboard_phone_insert AFTER INSERT ON phones BEGIN
+    ${bumpDashboardVersion("NEW.user_id")}
+  END;
+  CREATE TRIGGER dashboard_phone_delete AFTER DELETE ON phones BEGIN
+    ${bumpDashboardVersion("OLD.user_id")}
+  END;
+  CREATE TRIGGER dashboard_phone_update AFTER UPDATE OF ${dashboardPhoneColumns.join(", ")} ON phones
+    WHEN ${dashboardPhoneColumns.map(column => `OLD.${column} IS NOT NEW.${column}`).join(" OR ")}
+  BEGIN
+    ${bumpDashboardVersion("NEW.user_id")}
+    ${bumpDashboardVersion("OLD.user_id", "OLD.user_id IS NOT NEW.user_id")}
+  END;
+
+  CREATE TRIGGER dashboard_keep_insert AFTER INSERT ON phone_keeps BEGIN
+    ${bumpDashboardVersion(newPhoneOwner)}
+  END;
+  CREATE TRIGGER dashboard_keep_delete AFTER DELETE ON phone_keeps BEGIN
+    ${bumpDashboardVersion(oldPhoneOwner)}
+  END;
+  CREATE TRIGGER dashboard_keep_move AFTER UPDATE OF phone_id ON phone_keeps WHEN OLD.phone_id IS NOT NEW.phone_id BEGIN
+    ${bumpDashboardVersion(newPhoneOwner)}
+    ${bumpDashboardVersion(oldPhoneOwner, `(${oldPhoneOwner}) IS NOT (${newPhoneOwner})`)}
+  END;
+
+  CREATE TRIGGER dashboard_setup_insert AFTER INSERT ON phone_setup_attempts WHEN NEW.failed = 1 BEGIN
+    ${bumpDashboardVersion(newPhoneOwner)}
+  END;
+  CREATE TRIGGER dashboard_setup_delete AFTER DELETE ON phone_setup_attempts WHEN OLD.failed = 1 BEGIN
+    ${bumpDashboardVersion(oldPhoneOwner)}
+  END;
+  CREATE TRIGGER dashboard_setup_update AFTER UPDATE OF phone_id, failed ON phone_setup_attempts
+    WHEN (OLD.failed = 1) IS NOT (NEW.failed = 1) OR OLD.phone_id IS NOT NEW.phone_id
+  BEGIN
+    ${bumpDashboardVersion(newPhoneOwner, "NEW.failed = 1")}
+    ${bumpDashboardVersion(oldPhoneOwner, `OLD.failed = 1 AND (NEW.failed <> 1 OR (${oldPhoneOwner}) IS NOT (${newPhoneOwner}))`)}
+  END;
+
+  CREATE TRIGGER dashboard_sync_insert AFTER INSERT ON user_syncs WHEN NEW.error IS NOT NULL BEGIN
+    ${bumpDashboardVersion("NEW.user_id")}
+  END;
+  CREATE TRIGGER dashboard_sync_delete AFTER DELETE ON user_syncs WHEN OLD.error IS NOT NULL BEGIN
+    ${bumpDashboardVersion("OLD.user_id")}
+  END;
+  CREATE TRIGGER dashboard_sync_update AFTER UPDATE OF user_id, error ON user_syncs
+    WHEN OLD.error IS NOT NEW.error OR OLD.user_id IS NOT NEW.user_id
+  BEGIN
+    ${bumpDashboardVersion("NEW.user_id", "NEW.error IS NOT NULL OR OLD.error IS NOT NULL AND OLD.user_id = NEW.user_id")}
+    ${bumpDashboardVersion("OLD.user_id", "OLD.error IS NOT NULL AND OLD.user_id IS NOT NEW.user_id")}
+  END;
+
+  CREATE TRIGGER dashboard_event_insert AFTER INSERT ON events BEGIN
+    ${bumpDashboardVersion("NEW.user_id")}
+  END;
+  CREATE TRIGGER dashboard_event_delete AFTER DELETE ON events BEGIN
+    ${bumpDashboardVersion("OLD.user_id")}
+  END;
+  CREATE TRIGGER dashboard_event_update AFTER UPDATE OF user_id, id ON events
+    WHEN OLD.user_id IS NOT NEW.user_id OR OLD.id IS NOT NEW.id
+  BEGIN
+    ${bumpDashboardVersion("NEW.user_id")}
+    ${bumpDashboardVersion("OLD.user_id", "OLD.user_id IS NOT NEW.user_id")}
+  END;`,
 ];

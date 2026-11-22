@@ -53,8 +53,13 @@ export function monthStart(now: number) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)).toISOString();
 }
 
+export async function readMonthlyRuns(database: DatabaseQueries, userId: number, now: number): Promise<Run[]> {
+  return (await database.execute({ sql: `SELECT r.phone_id, r.cores, r.started_at, r.stopped_at FROM runs r
+    JOIN phones p ON p.id = r.phone_id WHERE p.user_id = ? AND (r.stopped_at IS NULL OR r.stopped_at >= ?)`, args: [userId, monthStart(now)] })).rows as unknown as Run[];
+}
+
 export async function readUsage(database: DatabaseQueries, userId: number, clock: () => number = Date.now) {
-  const runs = (await database.execute({ sql: `SELECT r.phone_id, r.cores, r.started_at, r.stopped_at FROM runs r
-    JOIN phones p ON p.id = r.phone_id WHERE p.user_id = ? AND (r.stopped_at IS NULL OR r.stopped_at >= ?)`, args: [userId, monthStart(clock())] })).rows as unknown as Run[];
-  return estimateUsage(runs, (await userSettings(database, userId)).allowance_core_hours, clock);
+  const now = clock();
+  const [runs, settings] = await Promise.all([readMonthlyRuns(database, userId, now), userSettings(database, userId)]);
+  return estimateUsage(runs, settings.allowance_core_hours, () => now);
 }

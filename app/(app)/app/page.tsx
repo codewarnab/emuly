@@ -11,7 +11,6 @@ import { lastSyncError, syncPhoneStateLater } from "../../../lib/phone/phone-con
 import { SyncNotice } from "@/components/shell/sync-notice";
 import { Topbar, Avatar } from "@/components/shell/topbar";
 import { asyncDb } from "../../../lib/data/async-db";
-import { readUsage, userSettings } from "../../../lib/data/usage";
 import { readAccountUsage } from "../../../lib/github/billing";
 import { chosenPlan } from "../../../lib/data/settings";
 import { redirect } from "next/navigation";
@@ -32,11 +31,12 @@ async function Dashboard({ clock = Date.now }: { clock?: () => number }) {
   if (!(await chosenPlan(asyncDb(), user.id))) redirect("/app/welcome");
   // Render the stored state now. GitHub syncs after the response; SSE refreshes the page on a change.
   syncPhoneStateLater(user.id);
-  const syncError = await lastSyncError(user.id);
-  const phones = (await listPhones(user.id));
-  const usage = await readAccountUsage(user, clock);
-  const settings = await userSettings(asyncDb(), user.id);
-  const warning = hoursWarning(await readUsage(asyncDb(), user.id, clock), settings.auto_stop_before_empty);
+  const [syncError, phones, { usage, localEstimate, autoStop }] = await Promise.all([
+    lastSyncError(user.id),
+    listPhones(user.id),
+    readAccountUsage(user, clock),
+  ]);
+  const warning = hoursWarning(localEstimate, autoStop);
   const defaultCores = 4;
   const now = clock();
   const cards = phones.map(phone => ({ card: phoneCard(phone), state: phone.keeping ? "keeping" : phone.state,

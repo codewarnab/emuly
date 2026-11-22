@@ -31,10 +31,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const display = await readDisplay(session.userId, id);
   let after = await latestEventId(session.userId, id);
   return eventStream(request, async () => {
-    const valid = (await asyncDb().execute({ sql: `SELECT 1 FROM sessions s JOIN users u ON u.id = s.user_id
-      WHERE s.id = ? AND u.blocked = 0 AND s.expires_at > ?`, args: [session.id, new Date().toISOString()] })).rows.length;
-    if (!valid) return undefined;
-    const actions = await readAgentActions(session.userId, id, after);
+    const actions = await readAgentActions(asyncDb(), session, id, after);
+    if (!actions) return undefined;
     if (actions.length > 0) after = actions[actions.length - 1].id;
     return { display, actions };
   }, { intervalMs: 400 });

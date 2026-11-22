@@ -23,17 +23,13 @@ test("request connections require explicit migrations and never advance the sche
 
 test("migrate applies a migration added after the connection was opened", () => {
   const dir = mkdtempSync(join(tmpdir(), "emuly-db-"));
-  const database = openDatabase(join(dir, "app.db"));
+  const database = new DatabaseSync(join(dir, "app.db"));
   try {
-    const { user_version: latest } = database.prepare("PRAGMA user_version").get() as { user_version: number };
-    // Simulate a connection opened before the agent login migrations existed.
-    database.exec(`DROP TABLE IF EXISTS agent_keys; DROP TABLE IF EXISTS agent_setup_codes;
-      DROP TABLE IF EXISTS agent_device_codes; ALTER TABLE user_settings DROP COLUMN agent_delete_phones;
-      ALTER TABLE phones DROP COLUMN agent_device_token_hash;
-      ALTER TABLE phones ADD COLUMN runner_secret BLOB; ALTER TABLE phones DROP COLUMN last_activity_at;
-      ALTER TABLE phones DROP COLUMN device_preset; DROP TABLE IF EXISTS user_network;
-      ALTER TABLE phones DROP COLUMN provider_idle_min;
-      PRAGMA user_version = 11`);
+    database.exec("PRAGMA foreign_keys = ON");
+    // Open a real v11 schema and upgrade it on the same connection.
+    for (const migration of MIGRATIONS.slice(0, 11)) database.exec(migration);
+    database.exec("PRAGMA user_version = 11");
+    const latest = MIGRATIONS.length;
     migrate(database);
     assert.equal((database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, latest);
     assert.equal(database.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name IN ('agent_setup_codes', 'agent_keys', 'agent_device_codes')").get()?.n, 3);
@@ -49,12 +45,11 @@ test("migration 5 preserves saved allowances from v4 as explicit overrides", () 
   const filename = join(directory, "test.db");
   let database = new DatabaseSync(filename);
   try {
-    database.exec(`CREATE TABLE users (id INTEGER PRIMARY KEY);
-      CREATE TABLE user_settings (user_id INTEGER PRIMARY KEY REFERENCES users(id), allowance_core_hours REAL NOT NULL DEFAULT 120);
-      CREATE TABLE phones (id TEXT PRIMARY KEY, codespace_name TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL, runner_secret BLOB);
-      CREATE TABLE events (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL);
-      INSERT INTO users VALUES (1), (2);
-      INSERT INTO user_settings VALUES (1, 120), (2, 200);
+    for (const migration of MIGRATIONS.slice(0, 4)) database.exec(migration);
+    database.exec(`INSERT INTO users (id, github_id, login, token_cipher, token_scopes, created_at, last_seen_at)
+      VALUES (1, 11, 'free', X'00', '', '2026-11-01', '2026-11-01'),
+        (2, 22, 'custom', X'00', '', '2026-11-01', '2026-11-01');
+      INSERT INTO user_settings (user_id, allowance_core_hours) VALUES (1, 120), (2, 200);
       PRAGMA user_version = 4;`);
     database.close();
     database = openDatabase(filename);
