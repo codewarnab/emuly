@@ -52,6 +52,8 @@ const AGENTS = [
   { name: "Replit", light: "replit", dark: "replit" },
 ];
 
+const faqItem = (f: (typeof FAQS)[number]) => <details key={f.q}><summary>{f.q}</summary><p>{f.a}{f.link && <> <Link href={f.link.href}>{f.link.text}</Link>.</>}</p></details>;
+
 export default function LandingPage() {
   // Only self-host reads the base URL; with the flag off the page stays byte-for-byte as before.
   const base = SELF_HOST ? env.baseUrl : undefined;
@@ -83,14 +85,18 @@ export default function LandingPage() {
         <div><strong>Your way</strong><span>Use it in the browser, or with adb and scrcpy.</span></div>
       </section>
       <section className={s.faq} aria-label="Common questions">
-        <h2>A few things to know</h2>
+        <div className={s.faqSide}>
+          <h2>A few things to know</h2>
+          <Link href="/compare">Compare free cloud emulators →</Link>
+        </div>
         <div>
-          {FAQS.map(f => <details key={f.q}><summary>{f.q}</summary><p>{f.a}{f.link && <> <Link href={f.link.href}>{f.link.text}</Link>.</>}</p></details>)}
+          {FAQS.slice(0, 5).map(faqItem)}
+          <details className={s.more}><summary>More questions ({FAQS.length - 5})</summary><div>{FAQS.slice(5).map(faqItem)}</div></details>
         </div>
       </section>
     </main>
     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd(env.baseUrl)).replace(/</g, "\\u003c") }} />
-    <footer className={s.footer}>Emuly — your codespace, your phone.</footer>
+    <footer className={s.footer}>Emuly — your codespace, your phone. · <Link href="/compare">Compare free cloud Android emulators</Link> · <Link href="/self-host">Self-host</Link></footer>
   </div>;
 }
 

@@ -29,6 +29,7 @@ const nextConfig: NextConfig = {
     return { beforeFiles: [
       { source: "/", has: md, destination: "/index.md" },
       { source: "/self-host", has: md, destination: "/self-host.md" },
+      { source: "/compare", has: md, destination: "/compare.md" },
     ] };
   },
   // OAuth callback URLs contain one-time codes. Never write request URLs to dev logs.

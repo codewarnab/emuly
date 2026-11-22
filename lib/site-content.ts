@@ -17,6 +17,7 @@ export const FAQS: Faq[] = [
   { q: "What happens when I stop it?", a: "Your codespace keeps the phone. Waking it boots Android fresh, which takes a few minutes. Only deleting the codespace erases it. GitHub deletes a stopped phone after its retention period. New phones get 30 days after the last stop. The console shows each phone's countdown." },
   { q: "Is it fast?", a: "Yes. Android runs with hardware acceleration (KVM) on the codespace machine. It is not slow software emulation, so apps open and respond quickly." },
   { q: "Limits?", a: "Running phones share your hours. GitHub decides how many codespaces you can have and run. GitHub stops an idle phone after 30 minutes or 4 hours, your choice. Cold boot takes about 2 minutes. Hours shown in the console are estimates." },
+  { q: "How does it compare to BrowserStack, Appetize or Genymotion?", a: "Those services give a one-time trial or a few free minutes a month. Emuly gives about 30 hours a month on GitHub Free, because it uses your own Codespaces hours. They do more in other areas, such as real phones or iOS.", link: { href: "/compare", text: "See the full comparison" } },
   { q: "Can I host it myself?", a: "Yes. One Docker container runs the whole app on your machine, with your own GitHub account. Your agent does the setup from one prompt. You only sign in to GitHub.", link: { href: "/self-host", text: "See how self-hosting works" } },
 ];
 
@@ -54,6 +55,7 @@ ${faqMarkdown(b)}
 ## Links
 
 - Self-host: ${b}/self-host.md
+- Compare free cloud Android emulators: ${b}/compare.md
 - Source code: ${REPO_URL}
 `;
 }
@@ -95,6 +97,7 @@ Emuly gives you and your AI agents a free Android emulator in the cloud. Each ph
 - [Agent setup prompt](${b}/agent.md): paste this into a coding agent to get a phone
 - [Agent playbook](${skillUrl}): how an agent starts, drives and stops phones over the API
 - [Self-host](${b}/self-host.md): run Emuly on your own machine with Docker
+- [Free Android emulators online, compared](${b}/compare.md): Emuly vs Appetize, BrowserStack, Genymotion Cloud and others
 
 ## Optional
 
