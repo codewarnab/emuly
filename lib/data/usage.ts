@@ -63,3 +63,13 @@ export async function readUsage(database: DatabaseQueries, userId: number, clock
   const [runs, settings] = await Promise.all([readMonthlyRuns(database, userId, now), userSettings(database, userId)]);
   return estimateUsage(runs, settings.allowance_core_hours, () => now);
 }
+
+/** SQL match for GitHub start errors about hours or billing. Keep in step with lib/shared/short-message.ts. */
+export const QUOTA_ERROR_SQL = "(message LIKE '%spending limit%' OR message LIKE '%billing%' OR message LIKE '%quota%')";
+
+/** GitHub refused a start for billing, and no phone started after that. Usage outside Emuly can cause this. */
+export function quotaBlocked(lastQuotaErrorAt: string | null, runs: Run[]) {
+  if (!lastQuotaErrorAt) return false;
+  const blockedAt = Date.parse(lastQuotaErrorAt);
+  return !runs.some(run => Date.parse(run.started_at) > blockedAt);
+}

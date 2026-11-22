@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { estimateUsage, reconcileUsage, type Run } from "./usage.ts";
+import { estimateUsage, quotaBlocked, reconcileUsage, type Run } from "./usage.ts";
 
 const run = (cores: number, started_at: string, stopped_at: string | null): Run =>
   ({ phone_id: `phone-${cores}`, cores, started_at, stopped_at });
@@ -59,4 +59,11 @@ test("exhausted budgets clamp remaining hours to zero; stopped phones have no de
   assert.equal(usage.used_core_hours, 2);
   assert.deepEqual(usage.running, []);
   assert.equal(usage.hours_left_at_current_rate, null);
+});
+
+test("quotaBlocked holds until a phone starts after GitHub refused a start for billing", () => {
+  const run = (started_at: string) => ({ phone_id: "p", cores: 4, started_at, stopped_at: started_at });
+  assert.equal(quotaBlocked(null, [run("2026-11-21T12:00:00Z")]), false);
+  assert.equal(quotaBlocked("2026-11-22T07:34:49Z", [run("2026-11-21T12:00:00Z")]), true);
+  assert.equal(quotaBlocked("2026-11-22T07:34:49Z", [run("2026-11-22T09:00:00Z")]), false);
 });

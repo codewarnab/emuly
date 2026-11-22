@@ -2,7 +2,7 @@ import "server-only";
 import { asyncDb } from "../data/async-db.ts";
 import { getAccessToken } from "./github-token.ts";
 import { createBillingClient, planAllowance } from "./github-billing.ts";
-import { estimateUsage, monthStart, readMonthlyRuns, reconcileUsage } from "../data/usage.ts";
+import { QUOTA_ERROR_SQL, estimateUsage, monthStart, quotaBlocked, readMonthlyRuns, reconcileUsage } from "../data/usage.ts";
 import { userSettings } from "../data/settings.ts";
 
 const global = globalThis as unknown as { __billing?: ReturnType<typeof createBillingClient> };
@@ -17,12 +17,14 @@ export async function readAccountUsage(user: { id: number; login: string }, cloc
       ON CONFLICT(user_id) DO UPDATE SET plan_name = excluded.plan_name`, args: [user.id, billing.plan] });
   }
   const now = clock();
-  const [saved, settings, runs, reportRuns] = await Promise.all([
+  const [saved, settings, runs, reportRuns, quotaError] = await Promise.all([
     database.execute({ sql: "SELECT plan_name, allowance_override FROM billing_settings WHERE user_id = ?", args: [user.id] }),
     userSettings(database, user.id),
     readMonthlyRuns(database, user.id, now),
     billing.usage && monthStart(now) !== monthStart(billing.checkedAt)
       ? readMonthlyRuns(database, user.id, billing.checkedAt) : null,
+    database.execute({ sql: `SELECT max(ts) AS ts FROM events WHERE user_id = ? AND kind = 'error' AND ts >= ? AND ${QUOTA_ERROR_SQL}`,
+      args: [user.id, monthStart(now)] }),
   ]);
   const row = saved.rows[0];
   const plan = typeof row?.plan_name === "string" ? row.plan_name : null;
@@ -34,6 +36,7 @@ export async function readAccountUsage(user: { id: number; login: string }, cloc
     ...localEstimate,
     ...reconcileUsage(localEstimate, atReport, billing.usage?.coreHours ?? null),
     billing, plan, overridden: row?.allowance_override != null,
+    quota_blocked: quotaBlocked((quotaError.rows[0]?.ts as string | null) ?? null, runs),
     storage_included: planAllowance(plan).storageGbMonths,
   };
   return { usage, localEstimate, autoStop: settings.auto_stop_before_empty };
