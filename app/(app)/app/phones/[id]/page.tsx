@@ -12,7 +12,6 @@ import { requireUser } from "../../../../../lib/auth/auth";
 import { findPhone, listPhones, phoneEvents, type Phone } from "../../../../../lib/phone/phones";
 import { KeyboardTools } from "@/components/shell/keyboard-tools";
 import { lastSyncError, syncPhoneStateLater } from "../../../../../lib/phone/phone-control";
-import type { SyncError } from "../../../../../lib/shared/sync-error";
 import { SyncNotice } from "@/components/shell/sync-notice";
 import { PhoneMutation, PhoneRefresh, RetryBoot } from "@/components/phone/phone-mutations";
 import { PhoneScreen, AndroidElapsed } from "@/components/phone/phone-screen";
@@ -45,14 +44,13 @@ async function PhoneContent({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ tab?: string }>;
 }) {
-  const user = await requireUser();
-  const { id } = await params;
+  const [user, { id }] = await Promise.all([requireUser(), params]);
   // Render the stored state now. GitHub syncs after the response; SSE refreshes the page on a change.
   // after() also runs when notFound() throws, so a codespace deleted on GitHub is still noticed.
   syncPhoneStateLater(user.id);
   const phone = await findPhone(user.id, id);
   if (!phone) notFound();
-  return <StoredPhone phone={phone} user={user} search={searchParams} syncError={await lastSyncError(user.id)} />;
+  return <StoredPhone phone={phone} user={user} search={searchParams} />;
 }
 
 type Props = {
@@ -64,17 +62,21 @@ export default function PhonePage(props: Props) {
   return <Suspense fallback={<Loading />}><PhoneContent {...props} /></Suspense>;
 }
 
-async function StoredPhone({ phone, user, search, syncError }: {
+async function StoredPhone({ phone, user, search }: {
   phone: Phone;
   user: { id: number; login: string; initials: string; avatarUrl: string | null };
   search: Promise<{ tab?: string }>;
-  syncError: SyncError | null;
 }) {
-  const { tab: rawTab } = await search;
-  const tab = (rawTab && tabSet.has(rawTab) ? rawTab : "log") as Tab;
   const screenReady = !phone.keeping && phone.state === "running" && phone.android_state === "ready";
+  const [{ tab: rawTab }, syncError, events, phones, quality] = await Promise.all([
+    search,
+    lastSyncError(user.id),
+    phoneEvents(user.id, phone.id),
+    listPhones(user.id),
+    screenReady ? streamQuality(asyncDb(), user.id) : undefined,
+  ]);
+  const tab = (rawTab && tabSet.has(rawTab) ? rawTab : "log") as Tab;
   const status = phoneStatus(phone);
-  const events = await phoneEvents(user.id, phone.id);
   const androidBooting = phone.state === "running" && phone.android_state === "booting";
   const inProgress = Boolean(phone.keeping) || ["pending", "booting", "stopping"].includes(phone.state);
   // The newest event marks when the current step began.
@@ -82,7 +84,7 @@ async function StoredPhone({ phone, user, search, syncError }: {
     : inProgress || androidBooting ? "starting" as const : null;
   const stepStarted = androidBooting ? phone.android_started_at : events[0]?.at ?? null;
   return <>
-    <KeyboardTools phones={(await listPhones(user.id)).map(item => ({ id: item.id, name: item.name }))} />
+    <KeyboardTools phones={phones.map(item => ({ id: item.id, name: item.name }))} />
     <Topbar breadcrumb={["Phones", phone.name]}>
       <Avatar initials={user.initials} login={user.login} avatarUrl={user.avatarUrl} />
     </Topbar>
@@ -91,7 +93,7 @@ async function StoredPhone({ phone, user, search, syncError }: {
         <h1 className={s.srOnly}>Phone details</h1>
       <section className={`${s.stage} ${s.disconnected} ${screenReady ? s.liveStage : ""}`} aria-label="Phone screen">
         {screenReady &&
-          <PhoneScreen key={phone.id} id={phone.id} resting={false} aspect={screenAspect(phone.device_preset)} live quality={await streamQuality(asyncDb(), user.id)} />}
+          <PhoneScreen key={phone.id} id={phone.id} resting={false} aspect={screenAspect(phone.device_preset)} live quality={quality} />}
         {phone.state !== "running" && phone.state !== "stopped" && <div className={s.emptyPhone} aria-hidden />}
         {!screenReady && <h2>{status.title}</h2>}
         {(androidBooting || inProgress) && <AndroidElapsed key={stepStarted ?? "none"} started={stepStarted} />}

@@ -1,4 +1,6 @@
 import "server-only";
+import type { Session } from "../auth/session-store.ts";
+import type { DatabaseQueries } from "../data/async-database.ts";
 import { asyncDb } from "../data/async-db.ts";
 import type { AgentAction } from "./agent-action.ts";
 
@@ -41,14 +43,18 @@ function stored(meta: unknown): { action: AgentAction; note?: string } | null {
   } catch { return null; }
 }
 
-/** Actions newer than afterId, oldest first so the caller can advance its cursor by the last id. */
-export async function readAgentActions(userId: number, phoneId: string, afterId: number): Promise<AgentActionEvent[]> {
-  const rows = (await asyncDb().execute({
-    sql: `SELECT id, ts, meta FROM events
-      WHERE user_id = ? AND phone_id = ? AND kind = 'adb' AND id > ? AND json_extract(meta, '$.action') IS NOT NULL
-      ORDER BY id LIMIT 50`,
-    args: [userId, phoneId, afterId],
+/** Undefined means the session ended. An empty list keeps the stream open. */
+export async function readAgentActions(database: DatabaseQueries, session: Session, phoneId: string, afterId: number): Promise<AgentActionEvent[] | undefined> {
+  const rows = (await database.execute({
+    sql: `SELECT e.id, e.ts, e.meta FROM sessions s
+      JOIN users u ON u.id = s.user_id
+      LEFT JOIN events e ON e.user_id = s.user_id AND e.phone_id = ? AND e.kind = 'adb'
+        AND e.id > ? AND json_extract(e.meta, '$.action') IS NOT NULL
+      WHERE s.id = ? AND s.user_id = ? AND u.blocked = 0 AND s.expires_at > ?
+      ORDER BY e.id LIMIT 50`,
+    args: [phoneId, afterId, session.id, session.userId, new Date().toISOString()],
   })).rows;
+  if (!rows.length) return undefined;
   return rows.flatMap(row => {
     const value = stored(row.meta);
     return value ? [{ id: Number(row.id), at: String(row.ts), ...value }] : [];
