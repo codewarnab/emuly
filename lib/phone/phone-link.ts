@@ -26,7 +26,7 @@ class RunnerResponseError extends Error {}
 /** key=value only. Never log headers, tokens, ticket values, cookies, or URLs with query strings. */
 function streamLog(event: string, fields: Record<string, string | number | undefined>) {
   const clean = (value: string | number) => String(value).replace(/gh[opsu]_[A-Za-z0-9_]{8,}/g, "[redacted]")
-    .replace(/\b(token|ticket|secret|cookie)=[^&\s]+/gi, "$1=[redacted]")
+    .replace(/\b(token|ticket|secret|cookies?)=[^&\s;]+/gi, "$1=[redacted]")
     .replace(/[^\w.@:+-]/g, "_");
   console.warn(`[stream] ${event} ${Object.entries(fields).filter(([, value]) => value !== undefined)
     .map(([key, value]) => `${key}=${clean(value!)}`).join(" ")}`);
@@ -37,7 +37,7 @@ function safeErrorText(error: unknown, secret = "") {
   const message = error instanceof Error ? `${error.name}:${error.message}` : String(error);
   return (secret ? message.replaceAll(secret, "[redacted]") : message)
     .replace(/gh[opsu]_[A-Za-z0-9_]{8,}/g, "[redacted]")
-    .replace(/\b(token|ticket|secret|cookie)=[^&\s]+/gi, "$1=[redacted]")
+    .replace(/\b(token|ticket|secret|cookies?)=[^&\s;]+/gi, "$1=[redacted]")
     .slice(0, 120);
 }
 /**
