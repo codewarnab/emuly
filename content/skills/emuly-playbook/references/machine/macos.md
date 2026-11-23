@@ -89,6 +89,11 @@ emulyadbfile() {
 }
 ~~~
 
+Install an APK with the CLI: `node emuly.mjs install <phone> app.apk` (get the file with
+`curl -fsSL "$EMULY_BASE_URL/v1/cli" -o emuly.mjs`). It checks the size and picks the route.
+The `/adb` commands below take at most 4 MB of files. For a larger file without the CLI, read
+`references/tasks/apps.md`.
+
 Install an APK. The only install flags are `-r`, `-t`, `-g`, `-d` and `--abi`:
 
 ~~~bash

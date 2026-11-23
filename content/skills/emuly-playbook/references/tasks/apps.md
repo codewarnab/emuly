@@ -3,6 +3,12 @@
 > Read this file only if the task installs an APK or moves a file. If not, stop reading now, and do not read the
 > other files in this folder.
 
+**Install an APK with the CLI.** Run `node emuly.mjs install <phone> app.apk [-r] [-t] [-g] [-d]`.
+Get the file with `curl -fsSL "$EMULY_BASE_URL/v1/cli" -o emuly.mjs`. It needs Node 22 and the
+same key and base URL as the API. It checks the size and picks `/adb`, `/adb/upload` or the Apps
+endpoint. It prints one line of JSON with `ok`, `route` and the adb output. Use the routes below
+only when the CLI cannot run.
+
 Send files as `multipart/form-data`. The `args` field is the same JSON array, `timeout_s`
 is optional, and `file0`, `file1`, … are the uploads. In args, `@file0` stands for the
 first file. The runner picks a temporary path, uses it for one command, and deletes it.

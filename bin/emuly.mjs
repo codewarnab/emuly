@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-// Emuly CLI: `emuly up|login|doctor|link|unlink|links`. Plain Node, no dependencies. Used on the host
+// Emuly CLI: `emuly up|login|doctor|install|link|unlink|links`. Plain Node, no dependencies. Used on the host
 // (`pnpm emuly up`) and as the container command (`node bin/emuly.mjs up --prod --no-browser`).
 // All interactive child output is inherited, so the user sees gh's device-flow code and the
 // server log. Checks run with piped output so their stderr can be shown on failure.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // gh's device flow needs no OAuth App: the credential store (a named volume in a container)
@@ -548,6 +548,99 @@ async function link(args) {
   for (const port of ports) await api("DELETE", `${path}?port=${port}`).catch(() => {});
 }
 
+// The host refuses a request body over 4.5 MB with an HTML page, so /adb takes at most 4 MB of files.
+const INLINE_MAX = 4 * 1024 * 1024;
+const APP_CHUNK = 4 * 1024 * 1024;
+const INSTALL_FLAGS = new Set(["-r", "-t", "-g", "-d"]);
+
+async function emulyFetch(path, init) {
+  const response = await fetch(`${emulyBase()}${path}`, { ...init, signal: AbortSignal.timeout(init.timeoutMs ?? 120_000),
+    headers: { authorization: `Bearer ${emulyKey()}`, ...init.headers } });
+  let value = {};
+  try { value = await response.json(); } catch {}
+  if (!response.ok) {
+    throw Object.assign(new Error(value.message ?? value.error ?? `Emuly returned ${response.status}.`), { status: response.status, body: value });
+  }
+  return value;
+}
+
+/** One APK through the Apps endpoint: 4 MiB chunks through Emuly, then poll until the install ends. */
+async function installByChunks(id, path, bytes) {
+  const base = `/v1/phones/${id}/app-installs`;
+  const json = body => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  let operation = await emulyFetch(base, json({ source: "upload", key: randomUUID(), filename: basename(path), totalBytes: bytes.length }));
+  for (let offset = 0; offset < bytes.length; offset += APP_CHUNK) {
+    const chunk = bytes.subarray(offset, offset + APP_CHUNK);
+    await emulyFetch(`${base}/${operation.id}/content`, { method: "PUT", body: chunk, headers: { "content-type": "application/octet-stream",
+      "x-upload-offset": String(offset), "x-chunk-sha256": createHash("sha256").update(chunk).digest("hex") } });
+    console.error(`emuly install: sent ${Math.min(offset + APP_CHUNK, bytes.length)} of ${bytes.length} bytes`);
+  }
+  operation = await emulyFetch(`${base}/${operation.id}/complete`, { method: "POST" });
+  const deadline = Date.now() + 10 * 60_000;
+  while (!["succeeded", "failed", "cancelled", "interrupted", "expired"].includes(operation.stage)) {
+    if (Date.now() > deadline) throw new Error(`The install is still ${operation.stage}. Poll GET ${base}/${operation.id}.`);
+    await wait(2_000);
+    operation = await emulyFetch(`${base}/${operation.id}`, { method: "GET" });
+  }
+  return { route: "app-installs", ...operation, ok: operation.stage === "succeeded" };
+}
+
+/**
+ * `emuly install <phone> <apk>... [-r] [-t] [-g] [-d]`. The CLI checks the size and picks the route, so an
+ * agent never sends a large APK to /adb: at most 4 MB goes to /adb, larger files go to /adb/upload
+ * (straight to the phone), and one APK falls back to the Apps endpoint when that direct route fails.
+ */
+async function install(args) {
+  const [phone, ...rest] = args;
+  const flags = rest.filter(a => a.startsWith("-")), paths = rest.filter(a => !a.startsWith("-"));
+  if (!phone || !paths.length) throw new Error("Usage: emuly install <phone> <apk>... [-r] [-t] [-g] [-d]");
+  const unknown = flags.find(flag => !INSTALL_FLAGS.has(flag));
+  if (unknown) throw new Error(`Unknown flag ${unknown}. Use -r, -t, -g or -d.`);
+  const files = paths.map(path => {
+    if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`No file at ${path}.`);
+    return { path, bytes: readFileSync(path) };
+  });
+  const id = encodeURIComponent(phone);
+  const installFlags = flags.length ? [...new Set(flags)] : ["-r"];
+  const adbArgs = [files.length > 1 ? "install-multiple" : "install", ...installFlags, ...files.map((_, i) => `@file${i}`)];
+  const total = files.reduce((sum, file) => sum + file.bytes.length, 0);
+  const done = result => { emit(result); if (result.ok === false) process.exitCode = 1; };
+
+  if (total <= INLINE_MAX) {
+    const form = new FormData();
+    form.set("args", JSON.stringify(adbArgs));
+    form.set("timeout_s", "120");
+    files.forEach((file, i) => form.set(`file${i}`, new Blob([file.bytes]), basename(file.path)));
+    const result = await emulyFetch(`/v1/phones/${id}/adb`, { method: "POST", body: form });
+    return done({ route: "adb", ...result, ok: result.exit_code === 0 });
+  }
+
+  let ticket;
+  try {
+    ticket = await emulyFetch(`/v1/phones/${id}/adb/upload`, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ args: adbArgs, timeout_s: 300, files: files.map(file => ({ name: basename(file.path),
+        size: file.bytes.length, sha256: createHash("sha256").update(file.bytes).digest("hex") })) }) });
+  } catch (error) {
+    if (error.body?.error !== "direct_upload_unavailable" || files.length > 1) throw error;
+    console.error("emuly install: the direct upload is not available. Using the Apps endpoint.");
+    return done(await installByChunks(id, files[0].path, files[0].bytes));
+  }
+  let response;
+  try {
+    response = await fetch(ticket.url, { method: "PUT", headers: ticket.headers, body: Buffer.concat(files.map(file => file.bytes)),
+      signal: AbortSignal.timeout(10 * 60_000) });
+  } catch (error) {
+    // The PUT never reached the phone (app.github.dev is blocked here, for example), so the ticket was not used.
+    if (files.length > 1) throw new Error(`The direct upload to the phone failed: ${error.message}`);
+    console.error("emuly install: the phone's direct URL is not reachable. Using the Apps endpoint.");
+    return done(await installByChunks(id, files[0].path, files[0].bytes));
+  }
+  let result = {};
+  try { result = await response.json(); } catch {}
+  if (!response.ok) throw new Error(result.message ?? result.error ?? `The phone returned ${response.status}.`);
+  done({ route: "adb/upload", ...result, ok: result.exit_code === 0 });
+}
+
 async function unlink(args) {
   const [phone, port] = args;
   if (!phone) throw new Error("Usage: emuly unlink <phone> [port]");
@@ -566,13 +659,15 @@ const usage = `Usage: emuly <command>
   up      Check gh, migrate the database and start Emuly (--prod adds --production)
   login   Sign in to GitHub through gh's device flow (codespace scope)
   doctor  Check gh, the token, the scope and the database directory
+  install emuly install <phone> <apk>... [-r] [-t] [-g] [-d]
+          Install APKs. Checks the size and picks the upload route. Prints one line of JSON.
   link    emuly link <phone> <port>... [--to host[:port]] [--route ssh|relay]
           Get this file from your Emuly server: curl -fsSL "$EMULY_BASE_URL/v1/cli" -o emuly.mjs
           Make the phone's localhost:<port> (and 10.0.2.2:<port>) reach <port> on this
           computer, or on --to. Runs until Ctrl-C. Prints one line of JSON when the link works.
   unlink  emuly unlink <phone> [port]   Remove one link, or all links of the phone
   links   emuly links <phone>           List the links of the phone as JSON`;
-const commands = { up, login, doctor, link, unlink, links: listLinks };
+const commands = { up, login, doctor, install, link, unlink, links: listLinks };
 const [command, ...args] = process.argv.slice(2);
 // Help is checked over command and args together, so `emuly --help` exits 0 too.
 const wantHelp = [command, ...args].some(a => a === "--help" || a === "-h");
