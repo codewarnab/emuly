@@ -6,8 +6,9 @@ import { skillFile } from "./agent-runbook.ts";
 const base = "https://emuly.example";
 
 test("the served skill offers agent-device at the pinned version", () => {
-  const skill = skillFile("SKILL.md", base);
-  assert.ok(skill, "SKILL.md is served");
+  assert.ok(skillFile("SKILL.md", base)!.includes("references/tasks/agent-device.md"));
+  const skill = skillFile("references/tasks/agent-device.md", base);
+  assert.ok(skill, "the agent-device file is served");
 
   assert.ok(skill.includes("https://agent-device.dev/"));
   assert.ok(skill.includes(`npm install -g agent-device@${AGENT_DEVICE_VERSION}`));
@@ -21,7 +22,9 @@ test("every token in the served skill is replaced", () => {
   assert.ok(skill, "SKILL.md is served");
   assert.doesNotMatch(skill, /\{\{|\}\}/);
   assert.ok(skill.includes(base));
-  assert.ok(skill.includes(AGENT_DEVICE_VERSION));
+  const agentDevice = skillFile("references/tasks/agent-device.md", base)!;
+  assert.doesNotMatch(agentDevice, /\{\{|\}\}/);
+  assert.ok(agentDevice.includes(AGENT_DEVICE_VERSION));
 });
 
 test("an unlisted file is null, so a route can answer 404", () => {

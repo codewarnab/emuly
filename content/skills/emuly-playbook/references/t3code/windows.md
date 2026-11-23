@@ -1,8 +1,11 @@
 # Show an Emuly phone in T3 Code (Windows)
 
+> Read this file only if you set up T3 Code on Windows. If not, stop reading now, and do not read the
+> other files in this folder.
+
 Read this when the user wants to see an Emuly phone in T3 Code (Settings → Devices) and
-T3 Code runs on Windows. For Linux, read `references/t3code.md`. The idea is the same: 3
-helper files make T3 Code find an Android SDK.
+T3 Code runs on Windows.
+3 helper files make T3 Code find an Android SDK.
 
 On Windows, the files must be:
 
@@ -16,9 +19,6 @@ them. You compile 2 small C# programs with `csc.exe`, which comes with Windows (
 Framework 4). `avdmanager.bat` runs through `cmd.exe`, so a batch file works for it.
 
 Run the commands below in PowerShell. Tested on Windows 11 with adb 37.0.0.
-
-Steps 2 and 3 of "T3 Code" in `SKILL.md` (turn on devices, show the phone) come after
-this file.
 
 ## 1. Check that this is the right machine
 
@@ -156,7 +156,7 @@ Check the helper:
 
 ## 5. Connect the phone
 
-Follow `references/native-adb.md` steps 1 to 3 to open the tunnel. You need `gh` and adb
+Follow `references/tasks/native-adb.md` steps 1 to 3 to open the tunnel. You need `gh` and adb
 only, not scrcpy. If the codespace was stopped, the phone must boot again first, and
 `adb connect` shows `offline` until it does. Then:
 
@@ -165,13 +165,27 @@ only, not scrcpy. If the codespace was stopped, the phone must boot again first,
 & "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" devices
 ```
 
-The phone must show as `device`. Then do steps 2 and 3 of "T3 Code" in `SKILL.md`. If the
+The phone must show as `device`. Then do step 7. If the
 phone does not show, tell the user: "Restart T3 Code." Keep the browser link too.
 
 ## 6. Close it
 
 When the user is done, run the helper `adb.exe disconnect 127.0.0.1:<port>` and stop the
-tunnel, as in `references/native-adb.md` step 5. Leave the helper files in place.
+tunnel, as in `references/tasks/native-adb.md` step 5. Leave the helper files in place.
+
+## 7. Turn on devices and show the phone
+
+1. Open `~/.t3/userdata/settings.json` (or `$T3CODE_HOME/userdata/settings.json`; on Windows,
+   `%USERPROFILE%\.t3\userdata\settings.json`). Set `enableDeviceSupport` and
+   `enableAgentDeviceAccess` to `true`. Keep every other key. If the file does not exist,
+   create it with only these 2 keys. Tell the user in one line: "I turned on Devices in T3 Code."
+   If the phone does not show after a restart, ask the user to turn on **Use devices** and
+   **Agents can use devices** in Settings → Devices.
+2. If you have the `device_open` tool, call it to open the phone. Else tell the user:
+   "Open the side panel, then click **Device** (or press **M**)."
+
+Each T3 Code environment (for example a remote Linux machine) has its own settings and
+helper files. When the user switches to another environment, set that one up too.
 
 ## Remove the helper files
 

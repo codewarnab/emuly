@@ -1,5 +1,8 @@
 # Windows commands
 
+> Read this file only if you run on Windows. If not, stop reading now, and do not read the
+> other files in this folder.
+
 Commands for each playbook topic. Each new shell must read the key first:
 
 ~~~powershell
@@ -77,7 +80,7 @@ Git Bash wrapper (define it once, then call it with a JSON array):
 emulyadb() { curl.exe -sS -X POST "$base/v1/phones/$id/adb" -H "$auth" -H "content-type: application/json" --data "{\"args\":$1}"; }
 ~~~
 
-Call it with any argument array from `references/adb.md`:
+Call it with any argument array from `references/tasks/adb.md`:
 
 ~~~powershell
 EmulyAdb '["shell","input","tap","540","1200"]'

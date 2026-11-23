@@ -1,5 +1,8 @@
 # Annotate a recording: trim it and add step captions
 
+> Read this file only if the task adds captions to a video. If not, stop reading now, and do not read the
+> other files in this folder.
+
 Use this whenever the user asks for annotations, captions, labels or a "trimmed" or
 "cleaned up" video, and for every before/after video you put in a PR or issue. Always use
 this style. Do not draw plain `drawtext` boxes instead.
@@ -17,7 +20,7 @@ Ask before you install any of them. The script downloads the Inter font once int
 
 ## Steps
 
-1. Record with the recording route (`references/screenshots.md`). Use `{"quality":"native"}`,
+1. Record with the recording route (`references/tasks/screenshots.md`). Use `{"quality":"native"}`,
    so the text in the video is sharp. Add a note after each step with `recording/mark`. Pause
    about 1 second on each screen, so each step has a clear moment.
 2. Find the moments to keep. If you added notes while you recorded, `GET .../recording/notes`
@@ -40,7 +43,7 @@ Ask before you install any of them. The script downloads the Inter font once int
    - Titles: 2 to 5 words, an action ("Tap Submit"). Details: what the viewer should notice.
 4. Grab one frame from each step (`ffmpeg -ss <t> -i out.mp4 -frames:v 1 f.png`) and look at
    them. Check that the text fits and the card does not hide the thing the step shows.
-5. Show the video as described in `references/screenshots.md`.
+5. Show the video as described in `references/tasks/screenshots.md`.
 
 For a before/after pair, use the same step titles in both videos, so a reviewer can compare
 them side by side.

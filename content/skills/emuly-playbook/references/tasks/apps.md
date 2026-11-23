@@ -1,5 +1,8 @@
 # Files, installs and downloads
 
+> Read this file only if the task installs an APK or moves a file. If not, stop reading now, and do not read the
+> other files in this folder.
+
 Send files as `multipart/form-data`. The `args` field is the same JSON array, `timeout_s`
 is optional, and `file0`, `file1`, … are the uploads. In args, `@file0` stands for the
 first file. The runner picks a temporary path, uses it for one command, and deletes it.
@@ -76,7 +79,7 @@ progress. Every operation needs a fresh UUID in `key`.
 Poll the operation until its `stage` is `succeeded`, `failed`, `cancelled` or `interrupted`.
 
 The operation also has `serverUrls` after validation: local server URLs inside the APK, such as
-`http://localhost:3000`. If it is not empty, follow `references/local-servers.md` before the
+`http://localhost:3000`. If it is not empty, follow `references/tasks/local-servers.md` before the
 test. The adb `install` route does not scan the APK.
 
 If an APK endpoint returns `503` with `runner_update_required`, the phone runner is old:

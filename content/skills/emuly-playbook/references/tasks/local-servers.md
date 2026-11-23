@@ -1,5 +1,8 @@
 # The app's server
 
+> Read this file only if the app on the phone calls a server. If not, stop reading now, and do not read the
+> other files in this folder.
+
 Read this before you test an app on the phone. Most apps call a server, such as an API, a
 websocket or the Metro bundler. The phone runs in a codespace. It cannot open a connection to the user's laptop.
 On the phone, `localhost` is the phone itself, not the laptop.

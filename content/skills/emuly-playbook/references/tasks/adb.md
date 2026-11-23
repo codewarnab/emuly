@@ -1,5 +1,8 @@
 # Drive the phone with adb
 
+> Read this file only if the task runs adb or reads the UI tree. If not, stop reading now, and do not read the
+> other files in this folder.
+
 Send ordinary adb arguments as a JSON array to `POST /v1/phones/<id>/adb`, as
 `{"args":[...],"timeout_s":30}`. The runner adds the emulator serial itself. Never send a
 single shell string: send one array item per argument.
@@ -95,7 +98,7 @@ do not create a phone to work around it.
 **Screenshots:** the route detects `["exec-out","screencap","-p"]` and returns raw PNG bytes
 instead of JSON. Save them to a file. Sending `Accept: image/png` also asks for raw bytes;
 use it only with screenshot calls. For a smaller image, use `GET /v1/phones/<id>/screenshot?scale=0.5`
-(see `references/screenshots.md`).
+(see `references/tasks/screenshots.md`).
 
 **Read the screen as text:** `GET <base>/v1/phones/<id>/ui` with the same header. It returns
 short JSON, not XML:
@@ -131,7 +134,7 @@ The same data through the adb route, as XML (older runners). Retry the dump once
 
 `uiautomator dump` does not show the buttons of a Jetpack Compose dialog. The dialog's
 nodes are missing from the XML, so a tap on them is a guess from a screenshot. For a
-Compose app, use agent-device (`references/tools/agent-device.md`): its snapshot reads
+Compose app, use agent-device (`references/tasks/agent-device.md`): its snapshot reads
 the Compose semantics tree and gives each button a ref to tap.
 
 **Open a file with an app:** push the file, then send a VIEW intent with its type.

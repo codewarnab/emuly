@@ -1,8 +1,10 @@
-# macOS commands
+# Linux commands
 
-Commands for each playbook topic, for `zsh` or `bash` and `curl`, on Apple Silicon and Intel
-Macs. They are the Linux commands with the macOS (BSD) tool names: `stat -f %z`,
-`shasum -a 256` and `uuidgen`. Each new shell must read the key first:
+> Read this file only if you run on Linux. If not, stop reading now, and do not read the
+> other files in this folder.
+
+Commands for each playbook topic, for `bash` and `curl`. They work the same on a desktop and
+on a remote machine reached over SSH or Tailscale. Each new shell must read the key first:
 
 ~~~bash
 base="${EMULY_BASE_URL:-$(cat ~/.config/emuly/base-url 2>/dev/null)}"; base="${base:-{{EMULY_BASE_URL}}}"
@@ -10,22 +12,13 @@ key="${EMULY_KEY:-$(cat ~/.config/emuly/key 2>/dev/null)}"
 auth="Authorization: Bearer $key"
 ~~~
 
-Optional installs come only from Homebrew. Ask first, and never type a password for the
-user. Homebrew is in `/opt/homebrew` (Apple Silicon) or `/usr/local` (Intel). If `brew` is
-not on `PATH`, use the full path. If Homebrew is missing, give the user https://brew.sh and wait.
+Optional installs come from the system package manager (`apt`, `dnf`, `pacman`) and may need
+`sudo`: ask first, and never type a password for the user. On a remote machine, read
+`references/machine/remote.md` first: scrcpy runs on the user's computer, not here.
 
-- scrcpy: `brew install scrcpy`. The formula does not include adb on macOS, so also run
-  `brew install --cask android-platform-tools`. Both run natively on Apple Silicon and Intel.
-- adb only (for example for T3 Code): `brew install --cask android-platform-tools`.
-- GitHub CLI (native adb only): `brew install gh`
-
-Known limits on macOS:
-
-- Run the commands in a terminal session of the logged-in user. `open` needs that session;
-  over SSH, give links and file paths instead (see `references/remote.md`).
-- `uuidgen` prints uppercase. The commands below make it lowercase.
-- macOS has no `/proc`, no `ss` and no GNU `stat`. Check a local port with
-  `nc -z 127.0.0.1 <port>` or `lsof -nP -iTCP:<port> -sTCP:LISTEN`.
+- scrcpy (includes adb): `sudo apt install scrcpy`, or the release at
+  https://github.com/Genymobile/scrcpy/blob/master/doc/linux.md when the package is old.
+- GitHub CLI (native adb only): https://github.com/cli/cli/blob/trunk/docs/install_linux.md
 
 ## List, start, create and stop
 
@@ -57,7 +50,7 @@ Wrapper (define it once, then call it with a JSON array):
 emulyadb() { curl -sS -X POST "$base/v1/phones/$id/adb" -H "$auth" -H "content-type: application/json" --data "{\"args\":$1}"; }
 ~~~
 
-Call it with any argument array from `references/adb.md`:
+Call it with any argument array from `references/tasks/adb.md`:
 
 ~~~bash
 emulyadb '["shell","input","tap","540","1200"]'
@@ -68,8 +61,6 @@ Save a screenshot:
 ~~~bash
 curl -sS -X POST "$base/v1/phones/$id/adb" -H "$auth" -H "content-type: application/json" --data '{"args":["exec-out","screencap","-p"]}' -o "$scratch/emuly-$id-screen.png"   # scratch: a temp folder, never the repo
 ~~~
-
-On a local Mac, `open "$scratch/emuly-$id-screen.png"` shows it in Preview, if the user wants it.
 
 ## Files, installs and downloads
 
@@ -112,7 +103,7 @@ curl -sS -X POST "$base/v1/phones/$id/adb" -H "$auth" -F 'args=["bugreport"]' -F
 A direct HTTPS URL is the easiest:
 
 ~~~bash
-uuid=$(uuidgen | tr '[:upper:]' '[:lower:]')
+uuid=$(cat /proc/sys/kernel/random/uuid)
 curl -sS -X POST "$base/v1/phones/$id/app-installs" -H "$auth" -H "content-type: application/json" \
   --data "{\"source\":\"url\",\"key\":\"$uuid\",\"url\":\"https://example.com/app.apk\"}"
 curl -sS -H "$auth" "$base/v1/phones/$id/app-installs/<operation-id>"
@@ -127,20 +118,20 @@ until its `stage` is `succeeded`, `failed`, `cancelled` or `interrupted`.
 
 ~~~bash
 file="$HOME/app.apk"
-opkey=$(uuidgen | tr '[:upper:]' '[:lower:]')
-total=$(stat -f %z "$file")
+opkey=$(cat /proc/sys/kernel/random/uuid)
+total=$(stat -c %s "$file")
 op=$(curl -sS -X POST "$base/v1/phones/$id/app-installs" -H "$auth" -H "content-type: application/json" \
   --data "{\"source\":\"upload\",\"key\":\"$opkey\",\"filename\":\"$(basename "$file")\",\"totalBytes\":$total}")
 opid=$(printf '%s' "$op" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
 offset=0
 while [ "$offset" -lt "$total" ]; do
   chunk=$(mktemp)
-  dd if="$file" of="$chunk" bs=4194304 skip=$((offset / 4194304)) count=1 2>/dev/null
-  sha=$(shasum -a 256 "$chunk" | cut -d' ' -f1)
+  dd if="$file" of="$chunk" bs=4194304 skip=$((offset / 4194304)) count=1 status=none
+  sha=$(sha256sum "$chunk" | cut -d' ' -f1)
   curl -sS -X PUT "$base/v1/phones/$id/app-installs/$opid/content" -H "$auth" \
     -H "content-type: application/octet-stream" -H "x-upload-offset: $offset" -H "x-chunk-sha256: $sha" \
     --data-binary "@$chunk"
-  offset=$((offset + $(stat -f %z "$chunk")))
+  offset=$((offset + $(stat -c %s "$chunk")))
   rm -f "$chunk"
 done
 curl -sS -X POST "$base/v1/phones/$id/app-installs/$opid/complete" -H "$auth"

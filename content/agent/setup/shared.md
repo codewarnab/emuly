@@ -50,6 +50,6 @@ If a request that uses the saved key returns **401**, the key is expired or revo
 ### Optional: check gh for links
 
 Run `gh auth status` once and remember the result. Do not stop setup when gh is missing or
-not logged in. A link (`emuly link`, see `references/local-servers.md` in the skill) uses gh
+not logged in. A link (`emuly link`, see `references/tasks/local-servers.md` in the skill) uses gh
 when it is logged in with the codespace scope. Without gh, the link uses the Emuly relay.
 Do not install gh during setup.

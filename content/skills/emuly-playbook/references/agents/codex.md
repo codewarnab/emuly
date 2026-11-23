@@ -1,5 +1,8 @@
 # Emuly with Codex
 
+> Read this file only if you are Codex. If not, stop reading now, and do not read the
+> other files in this folder.
+
 These notes apply only to OpenAI Codex (the CLI, the IDE extension, and the ChatGPT desktop
 app). The rest of the playbook still applies.
 
@@ -26,12 +29,12 @@ app). The rest of the playbook still applies.
   `~/.codex/skills/`). The user can call this skill by name with `$emuly-playbook`.
 - **Remote:** Codex often runs on a VM over SSH or Tailscale, or on an SSH host opened from
   the ChatGPT desktop app (Settings > Connections). In both cases the user sits at another
-  computer: follow `references/remote.md`.
+  computer: follow `references/machine/remote.md`.
 - **Screenshots:** Codex has no tool that sends a file to the user's computer. Save
   screenshots to a temporary folder, never the repository, and view them yourself with your
   image tool when you have one. To show one to the user:
   - Local: give the full path.
-  - Remote: skip step 1 of `references/remote.md` section 5 and go to Taildrop or `scp`.
+  - Remote: skip step 1 of `references/machine/remote.md` section 5 and go to Taildrop or `scp`.
 - **Long waits:** boot polling and device sign-in can take minutes. Poll in short loops of
   about 60 seconds and give the user a progress line after each loop, so a command timeout
   never kills the wait.

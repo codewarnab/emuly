@@ -26,5 +26,5 @@ test("the served skill names its own version, so the agent sends the version it 
   assert.match(skillVersion(), /^[0-9a-f]{12}$/);
   assert.equal(skillVersion(), skillVersion(), "stable");
   assert.ok(skillFile("SKILL.md", base)!.includes(`X-Emuly-Skill: ${skillVersion()}`));
-  assert.ok(skillFile("references/os/linux.md", base)!.includes(`X-Emuly-Skill: ${skillVersion()}`));
+  assert.ok(skillFile("references/machine/linux.md", base)!.includes(`X-Emuly-Skill: ${skillVersion()}`));
 });

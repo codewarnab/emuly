@@ -1,5 +1,8 @@
 # Phones: choose, start, stop, hours
 
+> Read this file only if the task lists, starts, creates or stops a phone. If not, stop reading now, and do not read the
+> other files in this folder.
+
 List the user's phones with `GET /v1/phones` before doing anything else. Each phone has an
 `id`, a friendly `name`, `state`, `android_state`, `idle_timeout_min`, `idle_stop_at` and a `browser_url`.
 `idle_stop_at` is the time Emuly stops a running phone if nothing uses it (null when no idle stop applies).
@@ -31,12 +34,12 @@ Booting can take several minutes. Do not create a second phone while the first o
 saves its state, and GitHub stops the codespace. This takes about 1-2 minutes. To know when
 it ends, call `GET /v1/phones/<id>?wait_for=stopped&timeout_s=120`. Tell the user that the stop
 started, and do not wait for it unless the next step needs a stopped phone. A webhook gets
-`phone.stopped` when it ends (see `references/delete-and-errors.md`).
+`phone.stopped` when it ends (see `references/tasks/delete-and-errors.md`).
 
 After a start, `android_state` is `ready` a little before the home screen and its apps load.
 When you give the link after a start, add this line: "Android is ready. The home screen and
 apps can take a few more seconds to load." Before the first screenshot after a start, wait
-until the home screen shows its apps (see `references/screenshots.md`).
+until the home screen shows its apps (see `references/tasks/screenshots.md`).
 
 Create only when the list is empty, or when the user explicitly asks for another phone.
 
@@ -58,11 +61,11 @@ the tools before the offer, and never install them before a yes.
 Before you send the offer, find out where you run and where the user sits. Do not ask the
 user for this. Check it yourself, once per session:
 
-1. **Where you run.** Run the check in `references/remote.md` section 1. It tells you if
+1. **Where you run.** Run the check in `references/machine/remote.md` section 1. It tells you if
    you are local or remote, if the link is over Tailscale, and the name and OS of the user's
    computer.
 2. **The codespace name.** If `gh` works here, find the phone's codespace now
-   (`references/native-adb.md` step 2) and put the real name in the commands. If `gh` does
+   (`references/tasks/native-adb.md` step 2) and put the real name in the commands. If `gh` does
    not work here, use the lookup form in case A below.
 3. **The port.** Use 5555. If it is in use where the tunnel runs, use 5556.
 
@@ -82,7 +85,7 @@ If you do not know `<codespace-name>`, write this in its place. In sh, use `$(..
 `(gh codespace list --json name,displayName -q '.[] | select(.displayName=="<id>") | .name')`
 
 **B. You run on a remote machine, over Tailscale.** You start the tunnel here
-(`references/remote.md` section 4, "Over Tailscale"). The user runs one command on
+(`references/machine/remote.md` section 4, "Over Tailscale"). The user runs one command on
 `<computer name>`:
 
 ```sh
@@ -99,7 +102,7 @@ scrcpy --tcpip=127.0.0.1:5555
 
 In B and C, the tunnel runs only after the user says yes, so write "Say yes and I will start
 the tunnel" above the user's commands. Add the scrcpy install line for the user's OS from
-`references/remote.md` section 4.
+`references/machine/remote.md` section 4.
 
 ### The offer
 
@@ -126,8 +129,8 @@ Do you want me to open the scrcpy window?
 ```
 
 Offer it once per session. Do not set it up until the user says yes. The steps are in
-`references/native-adb.md`. On a remote machine, use the wording and steps in
-`references/remote.md` instead: the window opens on the user's computer, not here.
+`references/tasks/native-adb.md`. On a remote machine, use the wording and steps in
+`references/machine/remote.md` instead: the window opens on the user's computer, not here.
 
 ## Hours and storage
 

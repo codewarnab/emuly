@@ -1,14 +1,17 @@
 # Native adb or scrcpy
 
+> Read this file only if the user asks for native adb or scrcpy. If not, stop reading now, and do not read the
+> other files in this folder.
+
 Use this when the user asks for native adb or scrcpy, or says yes to the scrcpy offer in
-`references/phones.md`. Always keep the browser link too. Without a yes, do not run any
+`references/tasks/phones.md`. Always keep the browser link too. Without a yes, do not run any
 step below.
 
 You do all the steps. Do not give the user a list of commands to run, and do not ask them
 to open terminals. Ask the user to act only for a sign-in that needs their browser.
 
 On a remote machine (SSH or Tailscale, no display), scrcpy cannot open a window here. Do
-steps 1 and 2 here with gh only, then follow `references/remote.md` section 4.
+steps 1 and 2 here with gh only, then follow `references/machine/remote.md` section 4.
 
 ## 1. Check the tools
 
@@ -16,7 +19,7 @@ steps 1 and 2 here with gh only, then follow `references/remote.md` section 4.
 - If one is missing, never install it on your own. Ask first, and name each tool:
   "scrcpy needs <missing tools>, which are not installed. Install them with <package
   manager>?" Install only after the user says yes. On a no, keep the browser link and stop.
-  Install commands are in the OS file, for example `references/os/windows.md`. The scrcpy
+  Install commands are in your machine file, `references/machine/<your OS>.md`. The scrcpy
   package includes adb.
 - `gh auth status` must show at least one signed-in account. If none is signed in, ask the
   user to run `gh auth login` themselves. Never ask for a GitHub token.

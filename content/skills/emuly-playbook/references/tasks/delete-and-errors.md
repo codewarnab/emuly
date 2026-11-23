@@ -1,5 +1,8 @@
 # Delete a phone
 
+> Read this file only if the task deletes a phone or hits an unknown error. If not, stop reading now, and do not read the
+> other files in this folder.
+
 Deleting is off by default. Try `DELETE /v1/phones/<id>` once. If the user turned on
 **Let agents delete phones without asking**, it deletes and returns `settings_url`. Say
 exactly:

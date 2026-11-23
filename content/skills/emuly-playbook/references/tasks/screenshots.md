@@ -1,5 +1,8 @@
 # Screenshots and video in the chat
 
+> Read this file only if the task takes a screenshot or records the screen. If not, stop reading now, and do not read the
+> other files in this folder.
+
 A screenshot in the chat lets the user see the phone without opening the phone page.
 Showing one is optional. The phone link stays the main way to watch the phone.
 
@@ -68,7 +71,7 @@ which comes `first_frame_ms` after the start request (often about 1 s). Use note
   `emuly-<id>-task.vtt`, so a video player shows the notes as captions.
 - `video_start_at` is also in the start, status and stop replies after the first frame.
 
-Use the note times as the `start` of each step in `references/annotate.md`.
+Use the note times as the `start` of each step in `references/tasks/annotate.md`.
 
 ### Recording quality
 
@@ -123,7 +126,7 @@ Use the first way that you can.
    best quality. The `X-Screenshot-Scale` header says which scale came back; `1` from an
    older runner means it ignored `scale`.
 
-2. **agent-device** (when it is set up, see `references/tools/agent-device.md`). No extra
+2. **agent-device** (when it is set up, see `references/tasks/agent-device.md`). No extra
    install.
 
    ```sh
@@ -139,10 +142,10 @@ Use the first way that you can.
 
 3. **The HTTP adb route** (always works, no install). Send
    `{"args":["exec-out","screencap","-p"]}` to `POST /v1/phones/<id>/adb` and save the raw
-   PNG bytes. The commands for your shell are in the OS file, for example
-   `references/os/windows.md`.
+   PNG bytes. The commands for your shell are in your machine file,
+   `references/machine/<your OS>.md`.
 
-4. **Native adb** (only when the user already uses it, see `references/native-adb.md`):
+4. **Native adb** (only when the user already uses it, see `references/tasks/native-adb.md`):
 
    ```sh
    adb exec-out screencap -p > <scratchpad path>/emuly-<id>-result.png
@@ -152,7 +155,7 @@ Use the first way that you can.
 
 - If your tools can send or attach a file to the chat, send the image or video with a
   one-line caption, for example "The login screen after the fix".
-- On a remote machine, a path here is no use to the user: follow `references/remote.md`
+- On a remote machine, a path here is no use to the user: follow `references/machine/remote.md`
   section 5 (Taildrop over Tailscale, or one `scp` command).
 - Otherwise, give the full file path on its own line, so the user can open it.
 - Give the phone link too if the user may want to see the live screen:
@@ -161,7 +164,7 @@ Use the first way that you can.
 
 ## Put a video in a GitHub PR or issue
 
-Trim and caption the video first with `references/annotate.md`.
+Trim and caption the video first with `references/tasks/annotate.md`.
 
 Do this only when the user asks for the video in a PR or an issue. GitHub plays a video only
 from a link of the form `https://github.com/user-attachments/assets/<id>`. It removes a

@@ -1,5 +1,8 @@
 # Working from a remote machine
 
+> Read this file only if you run over SSH or Tailscale, or with no display. If not, stop reading now, and do not read the
+> other files in this folder.
+
 Read this when you run on a machine the user reaches over SSH or Tailscale, for example a
 Linux VM. The user sits at another computer (Windows, macOS or Linux). Everything else in
 the playbook still applies; this file changes only what the user sees and where things run.
@@ -46,7 +49,7 @@ need `sudo`: ask first, and never type a password for the user. Prefer a user-le
 ## 4. scrcpy from a remote machine
 
 There is no screen here, so a scrcpy window can never open here. In the scrcpy offer in
-`references/phones.md`, change option 1 to:
+`references/tasks/phones.md`, change option 1 to:
 
 ```text
 1. scrcpy window on your computer (<computer name>) (recommended)
@@ -55,7 +58,7 @@ There is no screen here, so a scrcpy window can never open here. In the scrcpy o
 ```
 
 After a yes, you run the tunnel here, and the user runs scrcpy there. Follow
-`references/native-adb.md` steps 1 to 2 on this machine (only `gh` is needed here, not adb
+`references/tasks/native-adb.md` steps 1 to 2 on this machine (only `gh` is needed here, not adb
 or scrcpy), then pick the path below. Give the user exactly one command to run, in a code
 block, with the install line for their OS only if they do not have scrcpy yet:
 
@@ -84,7 +87,7 @@ you are done."
 
 ### Plain SSH
 
-Keep the tunnel on loopback here, exactly as in `references/native-adb.md` step 3. The user
+Keep the tunnel on loopback here, exactly as in `references/tasks/native-adb.md` step 3. The user
 forwards it to their computer and starts scrcpy there, in one terminal:
 
 ```sh
@@ -104,7 +107,7 @@ the task.
 
 ## 5. Links to a local server
 
-Run `emuly link` on the machine that can reach the server (see `references/local-servers.md`).
+Run `emuly link` on the machine that can reach the server (see `references/tasks/local-servers.md`).
 If the server runs on this machine, run it here. If the server runs on the user's computer,
 the user runs `emuly link` there; give them one command. If the server is on a machine that
 this machine reaches over Tailscale, run it here with `--to <host>:<port>`, after the user says yes.
