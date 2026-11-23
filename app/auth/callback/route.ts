@@ -10,6 +10,7 @@ import { exchangeTokens, githubIdentity, githubGet, SignInError } from "../../..
 import { getUser } from "../../../lib/auth/auth";
 import { safeNext } from "../../../lib/auth/next-path";
 import { billingClient } from "../../../lib/github/billing";
+import { LAST_LOGIN_MAX_AGE, lastLogin } from "../../../lib/auth/last-login";
 
 export async function GET(request: NextRequest) {
   const store = await cookies();
@@ -54,6 +55,9 @@ export async function GET(request: NextRequest) {
     if (user.blocked) return result(loginFailure("blocked", next));
     billingClient.invalidate(user.id);
     await createSession(user.id);
+    // The login page names this account next time. Logout keeps it on purpose.
+    const last = lastLogin(identity.login);
+    if (last) store.set(cookieName("last"), last, cookieOptions(LAST_LOGIN_MAX_AGE));
     return result(next ?? "/app");
   } catch (error) {
     // Do not log the request, provider payload, authorization code, or exception.

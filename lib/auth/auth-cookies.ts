@@ -1,7 +1,7 @@
 import "server-only";
 import { env } from "../env";
 
-export function cookieName(kind: "session" | "state" | "billing" | "next") {
+export function cookieName(kind: "session" | "state" | "billing" | "next" | "last") {
   return `${env.cookieInsecure ? "" : "__Host-"}emuly_${kind}`;
 }
 

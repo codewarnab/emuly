@@ -7,7 +7,8 @@ import { GitHubError } from "../github/github.ts";
 import {
   ADB_FILES_MAX, ADB_UPLOAD_MAX_BYTES, AdbError, adbArguments, adbResult, adbTimeout, isDownload, isScreencap,
 } from "./phone-adb-contract.ts";
-import { PhoneInputError, redact, type createPhoneService } from "./phone-mutations.ts";
+import { PhoneInputError, type createPhoneService } from "./phone-mutations.ts";
+import { githubRefused } from "./github-refused.ts";
 import { readAgentNote } from "./agent-note.ts";
 import { RunnerTimeoutError } from "./runner-errors.ts";
 import { agentDeviceBaseUrl, agentDeviceInfo, agentDeviceSession, agentDeviceUnavailable } from "./agent-device.ts";
@@ -15,7 +16,7 @@ import type { Phone } from "./phones.ts";
 import type { RecordingAction } from "./phone-link.ts";
 import { notesVtt, type RecordingNote } from "./recording-notes.ts";
 
-type Identity = { id: number; authKind?: "session" | "agent"; agentKeyId?: number };
+type Identity = { id: number; login?: string; authKind?: "session" | "agent"; agentKeyId?: number };
 type PhoneView = Pick<Phone, "id" | "name" | "state" | "android_state" | "idle_timeout_min"> & Partial<Pick<Phone, "last_activity_at" | "android_started_at" | "last_started_at" | "keeping">> & { device_preset?: string; location?: string | null };
 // status, mark and notes are frequent and change nothing outside the recording: no Activity line.
 const QUIET_RECORDING_ACTIONS = new Set<RecordingAction>(["status", "mark", "notes"]);
@@ -174,8 +175,8 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
     if (identity.agentKeyId === undefined) return;
     try { await action?.({ userId: identity.id, phoneId: id, agentKeyId: identity.agentKeyId, label, command, note: readAgentNote(request) }); } catch {}
   };
-  const fail = (error: unknown, fallback: string) => {
-    if (error instanceof GitHubError) return json({ error: "github_refused", message: redact(error.message) }, 409);
+  const fail = (identity: Identity, error: unknown, fallback: string) => {
+    if (error instanceof GitHubError) return json(githubRefused(error, identity.login), 409);
     if (error instanceof CoordinationBusyError) return json({ error: "busy", message: "Another request for this phone is still running. Retry in a few seconds." }, 409, { "Retry-After": "5" });
     // A slow phone (often just after boot) is not a broken one: say so, and say when to retry.
     if (error instanceof RunnerTimeoutError) return json({ error: "timeout", message: `${error.message} Retry in ${error.retryAfter} s.`,
@@ -199,7 +200,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
           ? `Start accepted. GET ${wait} answers when Android is ready, or after 60 s. Repeat it until done is true.`
           : `Stop accepted. Android saves its state, then GitHub stops the codespace. GET ${wait} answers when the phone is stopped, or after 60 s.` }, 202);
     } catch (error) {
-      return fail(error, `The ${operation} request could not be confirmed. Check the phone before retrying.`);
+      return fail(identity, error, `The ${operation} request could not be confirmed. Check the phone before retrying.`);
     }
   }
   return {
@@ -334,7 +335,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         return json(value);
       } catch (error) {
         if (error instanceof InputError) return json({ error: "invalid_input", message: error.message }, error.status);
-        return fail(error, "The recording request could not be confirmed. Retry.");
+        return fail(identity, error, "The recording request could not be confirmed. Retry.");
       }
     },
     /**
@@ -365,7 +366,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         // An older runner ignores scale and sends the full PNG: the header says which one came.
         return new Response(bytes, { headers: { "Content-Type": "image/png", "Cache-Control": "private, no-store",
           "X-Content-Type-Options": "nosniff", "X-Screenshot-Scale": response.headers.get("x-screenshot-scale") ?? "1" } });
-      } catch (error) { return fail(error, "The screenshot failed. Retry."); }
+      } catch (error) { return fail(identity, error, "The screenshot failed. Retry."); }
     },
     /**
      * GET ui: the UI tree as JSON. Each node has text, desc, id, class, bounds, tap [x, y] and flags.
@@ -400,7 +401,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         }
         await act(identity, id, "Read the UI tree", `GET ui${all ? "?all=1" : ""}`, request);
         return json(value);
-      } catch (error) { return fail(error, "The UI tree could not be read. Retry, or use GET /screenshot."); }
+      } catch (error) { return fail(identity, error, "The UI tree could not be read. Retry, or use GET /screenshot."); }
     },
     async adb(request: Request, id: string) {
       const note = readAgentNote(request);
@@ -489,7 +490,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         if (loggable) await record(identity, id, args, -1, note);
         if (error instanceof InputError) return json({ error: "invalid_input", message: error.message, ran: false }, error.status);
         // A known refusal (busy, rate limit, bad input) came before adb. Any other failure may be after it.
-        const failed = fail(error, "The connection to the phone failed. The command may have run: check the phone, or retry with the same Idempotency-Key.");
+        const failed = fail(identity, error, "The connection to the phone failed. The command may have run: check the phone, or retry with the same Idempotency-Key.");
         const body = await failed.json() as Record<string, unknown>;
         return json({ ...body, ran: body.error === "request_failed" ? "unknown" : false }, failed.status, Object.fromEntries(failed.headers));
       }
@@ -544,7 +545,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
           message: "PUT the bytes of file0, file1, … one after another as the body, before expires_at. The ticket works once." });
       } catch (error) {
         if (error instanceof InputError) return json({ error: "invalid_input", message: error.message }, error.status);
-        return fail(error, "The upload ticket could not be made. Retry.");
+        return fail(identity, error, "The upload ticket could not be made. Retry.");
       }
     },
   };

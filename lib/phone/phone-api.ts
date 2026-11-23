@@ -1,6 +1,7 @@
 import { DEFAULT_DEVICE_PRESET, DEVICE_PRESETS, devicePreset } from "../shared/device-presets.ts";
 import type { createPhoneService } from "./phone-mutations.ts";
-import { PhoneInputError, redact } from "./phone-mutations.ts";
+import { PhoneInputError } from "./phone-mutations.ts";
+import { githubRefused } from "./github-refused.ts";
 import { GitHubError, PHONE_MACHINE } from "../github/github.ts";
 import { IDLE_MAX, IDLE_MIN, validIdle } from "../shared/idle.ts";
 import { RateLimitError } from "../data/rate-limit.ts";
@@ -8,7 +9,7 @@ import type { Usage } from "../data/usage.ts";
 
 /** HTTP boundary shared by route handlers. Identity always comes from the session. */
 export function createPhoneApi({ user, service, template, usage, defaults, clientIp }: {
-  user: () => Promise<{ id: number } | null>;
+  user: () => Promise<{ id: number; login?: string; name?: string | null; avatarUrl?: string | null } | null>;
   service: Pick<ReturnType<typeof createPhoneService>, "create" | "keep">;
   template: () => { repository: string; repositoryId: number; devcontainerPath?: string };
   usage: (userId: number) => Usage | Promise<Usage>;
@@ -30,11 +31,17 @@ export function createPhoneApi({ user, service, template, usage, defaults, clien
         await service.keep(identity.id, id);
         return json({ id, status: "keeping" }, 202);
       } catch (error) {
-        if (error instanceof GitHubError) return json({ error: "github_refused", message: redact(error.message) }, 409);
+        if (error instanceof GitHubError) return json(githubRefused(error, identity.login), 409);
         if (error instanceof RateLimitError) return json({ error: "rate_limited", message: error.message }, 429, { "Retry-After": String(error.retryAfter) });
         if (error instanceof PhoneInputError) return json({ error: "invalid_input", message: error.message }, 400);
         return json({ error: "request_failed", message: "Keep it could not be confirmed. Refresh to check progress." }, 502);
       }
+    },
+    /** The GitHub account that owns the phones. Agents use it to name the account in billing problems. */
+    async me() {
+      const identity = await user();
+      if (!identity) return json({ error: "unauthorized" }, 401);
+      return json({ github_login: identity.login ?? null, name: identity.name ?? null, avatar_url: identity.avatarUrl ?? null });
     },
     async usage() {
       const identity = await user();
@@ -67,7 +74,7 @@ export function createPhoneApi({ user, service, template, usage, defaults, clien
           clientIp: clientIp?.(request) });
         return json({ id }, 201);
       } catch (error) {
-        if (error instanceof GitHubError) return json({ error: "github_refused", message: redact(error.message) }, 409);
+        if (error instanceof GitHubError) return json(githubRefused(error, identity.login), 409);
         if (error instanceof RateLimitError) return json({ error: "rate_limited", message: error.message }, 429, { "Retry-After": String(error.retryAfter) });
         if (error instanceof PhoneInputError || error instanceof SyntaxError) return json({ error: "invalid_input", message: error.message }, 400);
         return json({ error: "request_failed", message: "The request could not be confirmed. Check GitHub before trying again." }, 502);

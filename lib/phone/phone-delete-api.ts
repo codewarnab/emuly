@@ -4,7 +4,7 @@ import { AGENT_DELETE_PHONE_MESSAGE } from "../auth/scope.ts";
 import type { DatabaseQueries } from "../data/async-database.ts";
 import { createPhoneDeleteRequest, getPhoneDeleteRequest } from "../data/phone-deletions.ts";
 
-type Identity = { id: number; authKind?: "session" | "agent"; agentKeyId?: number };
+type Identity = { id: number; login?: string; authKind?: "session" | "agent"; agentKeyId?: number };
 type PhoneView = { id: string; name: string };
 type Removal = { ok: true } | { ok: false; status: number; error: string; message: string; retryAfter?: string };
 
@@ -36,7 +36,8 @@ export function createPhoneDeleteApi({ user, phone, agentCanDelete, remove, reco
     if (!stored) return json({ error: "not_found", message: "Phone not found." }, 404);
     const result = await remove(identity.id, id);
     if (!result.ok) {
-      return json({ error: result.error, message: result.message }, result.status,
+      const owner = result.error === "github_refused" && identity.login ? { github_login: identity.login } : {};
+      return json({ error: result.error, message: result.message, ...owner }, result.status,
         result.retryAfter ? { "Retry-After": result.retryAfter } : undefined);
     }
     if (identity.authKind === "agent") {

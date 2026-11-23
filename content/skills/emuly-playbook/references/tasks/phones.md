@@ -142,6 +142,11 @@ Offer it once per session. Do not set it up until the user says yes. The steps a
 - D4. Stopped phones still use storage. Codespaces delete stopped phones after the
   retention period; new phones keep 30 days.
 - D5. Warn the user before creating many phones, and prefer reusing one.
+- D6. `GET /v1/usage` is an estimate. It cannot see a GitHub spending limit or a payment
+  problem. GitHub then refuses start or create with `github_refused`.
+- D7. A `github_refused` body has `github_login`: the GitHub account that owns the phones.
+  Tell the user to fix billing for that account at https://github.com/settings/billing.
+  `GET /v1/me` also returns `github_login`, `name` and `avatar_url`.
 
 ## Work efficiently
 

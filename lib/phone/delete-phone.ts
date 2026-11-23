@@ -3,7 +3,8 @@ import { RateLimitError } from "../data/rate-limit.ts";
 import { GitHubError } from "../github/github.ts";
 import { phoneControl } from "./phone-control.ts";
 import { revokeDirect } from "./phone-runner.ts";
-import { PhoneInputError, redact } from "./phone-mutations.ts";
+import { PhoneInputError } from "./phone-mutations.ts";
+import { githubRefused } from "./github-refused.ts";
 
 export type PhoneRemovalResult =
   | { ok: true }
@@ -17,7 +18,7 @@ export async function removePhone(userId: number, id: string): Promise<PhoneRemo
     await phoneControl().remove(userId, id);
     return { ok: true };
   } catch (error) {
-    if (error instanceof GitHubError) return { ok: false, status: 409, error: "github_refused", message: redact(error.message) };
+    if (error instanceof GitHubError) return { ok: false, status: 409, ...githubRefused(error) };
     if (error instanceof RateLimitError) return { ok: false, status: 429, error: "rate_limited", message: error.message,
       retryAfter: String(error.retryAfter) };
     if (error instanceof PhoneInputError) return { ok: false, status: 400, error: "invalid_input", message: error.message };

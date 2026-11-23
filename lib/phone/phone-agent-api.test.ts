@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createPhoneAgentApi } from "./phone-agent-api.ts";
 import { PhoneInputError } from "./phone-mutations.ts";
 import { RunnerTimeoutError } from "./runner-errors.ts";
+import { GitHubError } from "../github/github.ts";
 
 const stored = { id: "phone-quiet-falcon", name: "Quiet Falcon", state: "running", android_state: "ready", idle_timeout_min: 240 };
 
@@ -518,4 +519,21 @@ test("a screenshot from the browser session writes no agent row", async () => {
     screenshot: async () => new Response(new Uint8Array([0x89]), { headers: { "content-type": "image/png" } }) });
   await api.screenshot(get(`/v1/phones/${stored.id}/screenshot`), stored.id);
   assert.deepEqual(acted, []);
+});
+
+test("a GitHub refusal names the GitHub account, so the agent can point at its billing", async () => {
+  const { api } = fixture({
+    user: async () => ({ id: 7, login: "octo-cat", authKind: "agent", agentKeyId: 3 }),
+    service: {
+      start: async () => { throw new GitHubError("There is a billing issue that is preventing you from starting this codespace.", 403); },
+      stop: async () => { throw new GitHubError("refused", 409); },
+    },
+  });
+  const response = await api.start(post(`/v1/phones/${stored.id}/start`), stored.id);
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { error: "github_refused",
+    message: "There is a billing issue that is preventing you from starting this codespace.", github_login: "octo-cat" });
+  const anonymous = fixture({ service: { start: async () => { throw new GitHubError("refused", 403); }, stop: async (_userId, id) => id } });
+  const without = await anonymous.api.start(post(`/v1/phones/${stored.id}/start`, undefined, { origin: "https://emuly.test" }), stored.id);
+  assert.equal("github_login" in await without.json(), false);
 });

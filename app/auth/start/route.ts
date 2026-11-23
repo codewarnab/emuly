@@ -23,6 +23,8 @@ export async function GET(request: NextRequest) {
     scope: billing ? "codespace user" : "codespace",
     state,
     allow_signup: "true",
+    // "Not you?" on the login page: let the user pick another GitHub account.
+    ...(request.nextUrl.searchParams.get("switch") === "1" ? { prompt: "select_account" } : {}),
   }).toString();
   const response = NextResponse.redirect(url, 302);
   response.headers.set("Cache-Control", "no-store");

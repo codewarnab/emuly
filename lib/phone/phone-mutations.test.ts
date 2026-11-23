@@ -539,20 +539,24 @@ test("phone HTTP API authenticates, rejects cross-site creation, passes defaults
   });
   await updateSettings(f.asyncDatabase, 1, { default_idle_min: 240 });
   let signedIn = false;
-  const api = createPhoneApi({ user: async () => signedIn ? { id: 1 } : null, service: f.service,
+  const api = createPhoneApi({ user: async () => signedIn ? { id: 1, login: "octo-cat", name: "Octo", avatarUrl: null } : null, service: f.service,
     template: () => input, usage: async id => (await readUsage(f.asyncDatabase, id, () => Date.parse("2026-11-07T00:00:00Z"))),
     defaults: id => userSettings(f.asyncDatabase, id) });
   const request = (origin?: string, body = "{}") => new Request("http://localhost/v1/phones", { method: "POST",
     headers: { "Content-Type": "application/json", ...(origin ? { Origin: origin } : {}) }, body });
   try {
     assert.equal((await api.usage()).status, 401);
+    assert.equal((await api.me()).status, 401);
     assert.equal((await api.create(request())).status, 401);
     signedIn = true;
     assert.equal((await api.create(request("https://foreign.invalid"))).status, 403);
     assert.equal((await api.create(request(undefined, "[]"))).status, 400);
     const response = await api.create(request());
     assert.equal(response.status, 409);
-    assert.deepEqual(await response.json(), { error: "github_refused", message: "Your spending limit has been reached." });
+    assert.deepEqual(await response.json(), { error: "github_refused", message: "Your spending limit has been reached.", github_login: "octo-cat" });
+    const me = await api.me();
+    assert.equal(me.headers.get("cache-control"), "private, no-store");
+    assert.deepEqual(await me.json(), { github_login: "octo-cat", name: "Octo", avatar_url: null });
     assert.equal(posts, 1);
     const usage = await api.usage();
     assert.equal(usage.headers.get("cache-control"), "private, no-store");
