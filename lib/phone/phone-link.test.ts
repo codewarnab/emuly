@@ -309,3 +309,39 @@ test("closing a connection gives each stream the reason, so the proxy can log it
     assert.equal(next.signal.reason, "idle_timeout");
   } finally { links.close(phone); }
 });
+
+test("forwarded calls reuse GitHub's relay cookie, and a refused cookie falls back to the token once", async () => {
+  const seen: { path: string; token: string | null; cookie: string | null }[] = [];
+  let cookieValid = true, issued = 0;
+  const setCookie = () => ({ "set-cookie": `.Tunnels.Relay.WebForwarding.Cookies=relay-${++issued}; path=/; secure` });
+  const links = createEmulyLinks({ token: async () => "synthetic-token",
+    tunnel: async () => { throw new Error("No fallback after a successful probe"); },
+    fetch: async (url, init) => {
+      const headers = new Headers(init?.headers);
+      const path = new URL(String(url)).pathname;
+      seen.push({ path, token: headers.get("x-github-token"), cookie: headers.get("cookie") });
+      if (headers.get("cookie") && !cookieValid) return new Response(null, { status: 302, headers: { location: "https://github.com/login" } });
+      if (headers.get("x-github-token")) return Response.json({ ok: true, exit_code: 0 }, { headers: setCookie() });
+      return Response.json({ ok: true, exit_code: 0 });
+    } });
+  try {
+    await links.adb(phone, { args: ["shell", "echo", "hi"], timeout_s: 5 });
+    assert.deepEqual(seen.map(call => [call.path, call.token, call.cookie]), [
+      ["/health", "synthetic-token", null],
+      ["/adb", null, ".Tunnels.Relay.WebForwarding.Cookies=relay-1"],
+    ], "the probe's cookie replaces the token on the next call");
+    cookieValid = false;
+    seen.length = 0;
+    const response = await links.adb(phone, { args: ["shell", "echo", "hi"], timeout_s: 5 });
+    assert.equal(response.status, 200);
+    assert.deepEqual(seen.map(call => [call.token, call.cookie]), [
+      [null, ".Tunnels.Relay.WebForwarding.Cookies=relay-1"],
+      ["synthetic-token", null],
+    ], "a refused cookie is never sent to the runner, so one retry with the token is safe");
+    cookieValid = true;
+    seen.length = 0;
+    await links.request(phone, "/ui");
+    assert.equal(seen[0].cookie, ".Tunnels.Relay.WebForwarding.Cookies=relay-2", "the new cookie is kept");
+    assert.equal(seen[0].token, null);
+  } finally { links.close(phone); }
+});

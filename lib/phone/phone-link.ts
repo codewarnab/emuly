@@ -7,7 +7,18 @@ import { runnerUpdateMessage } from "./phone-response.ts";
 
 type Bridge = { url: string; close: () => void };
 type Owner = { userId: number; id: string; codespaceName: string };
-type Connection = Bridge & { forwarded: boolean };
+/** relayCookie: GitHub's port-forwarding session cookie. Memory only; never logged or stored. */
+type Connection = Bridge & { forwarded: boolean; relayCookie?: string };
+const RELAY_COOKIE = ".Tunnels.Relay.WebForwarding.Cookies";
+
+/** The relay cookie from a forwarded reply, as name=value. Undefined when the reply sets none. */
+export function relayCookie(response: Response): string | undefined {
+  for (const line of response.headers.getSetCookie?.() ?? []) {
+    const pair = line.split(";")[0].trim();
+    if (pair.startsWith(`${RELAY_COOKIE}=`) && pair.length > RELAY_COOKIE.length + 1) return pair;
+  }
+  return undefined;
+}
 type Entry = { connection: Promise<Connection>; abort: AbortController; active: number; viewers: number; timer?: NodeJS.Timeout; awake?: NodeJS.Timeout;
   lastAwakeSuccess?: number };
 class RunnerResponseError extends Error {}
@@ -77,7 +88,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
       const probe = await measure("forwarded_probe", () => request(`${url}/health`, { headers: { "X-Github-Token": secret },
         redirect: "manual", cache: "no-store", signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]) }), { route: "forwarded" });
       if (probe.ok && probe.headers.get("content-type")?.includes("application/json") && (await probe.json()).ok === true) {
-        return { url, forwarded: true, close() {} };
+        return { url, forwarded: true, relayCookie: relayCookie(probe), close() {} };
       }
       await probe.body?.cancel();
     } catch { signal.throwIfAborted(); }
@@ -117,6 +128,32 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
       }
     } };
   }
+  /**
+   * A call through GitHub port forwarding. GitHub checks X-Github-Token on each request, and that
+   * check takes about 1.1 s. Its session cookie skips the check (about 0.2 s), so send the cookie
+   * when we have it. A refused cookie (302/401/403) never reaches the runner, so one retry with the
+   * token is safe. Only for bodies that can be sent twice (string or Buffer).
+   */
+  async function send(connection: Connection, phone: Owner, url: string, init: RequestInit & { headers: Headers }) {
+    if (!connection.forwarded) return request(url, init);
+    const cookie = connection.relayCookie;
+    if (cookie) {
+      const headers = new Headers(init.headers);
+      headers.delete("X-Github-Token");
+      headers.set("Cookie", cookie);
+      const response = await request(url, { ...init, headers });
+      if (![302, 401, 403].includes(response.status)) {
+        connection.relayCookie = relayCookie(response) ?? cookie;
+        return response;
+      }
+      await response.body?.cancel();
+      if (connection.relayCookie === cookie) connection.relayCookie = undefined;
+    }
+    init.headers.set("X-Github-Token", await token(phone.userId));
+    const response = await request(url, init);
+    connection.relayCookie = relayCookie(response) ?? connection.relayCookie;
+    return response;
+  }
   return {
     close,
     async apps(phone: Owner, path: AppsPath, options: AppsRequest): Promise<Response> {
@@ -126,11 +163,10 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
       try {
         const connection = await entry.connection;
         const headers = new Headers({ "content-type": options.bytes ? "application/octet-stream" : "application/json" });
-        if (connection.forwarded) headers.set("X-Github-Token", await token(phone.userId));
         if (options.bytes) { headers.set("X-Upload-Offset", String(options.offset)); headers.set("X-Chunk-Sha256", options.digest ?? ""); }
         const signals = [entry.abort.signal, AbortSignal.timeout(90_000)];
         if (options.signal) signals.push(options.signal);
-        const response = await request(`${connection.url}${path}`, { method: options.method, headers,
+        const response = await send(connection, phone, `${connection.url}${path}`, { method: options.method, headers,
           body: options.bytes ? Buffer.from(options.bytes) : options.json ? JSON.stringify(options.json) : undefined,
           redirect: "manual", cache: "no-store", signal: AbortSignal.any(signals) });
         if (!response.headers.get("content-type")?.includes("application/json")) {
@@ -157,14 +193,13 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
         const connection = await entry.connection;
         const files = input.files ?? [];
         const headers = new Headers({ "content-type": files.length ? "application/octet-stream" : "application/json" });
-        if (connection.forwarded) headers.set("X-Github-Token", await token(phone.userId));
         if (input.key) headers.set("Idempotency-Key", input.key);
         // The runner writes these bytes to its own temp directory; it never receives a path.
         if (files.length) headers.set("X-Emuly-Adb", JSON.stringify({ args: input.args, timeout_s: input.timeout_s,
           binary: input.binary === true, files: files.map(file => ({ name: file.name, size: file.bytes.length })) }));
         const { key: _key, ...sent } = input;
         const body = files.length ? Buffer.concat(files.map(file => Buffer.from(file.bytes))) : JSON.stringify(sent);
-        const response = await request(`${connection.url}/adb`, { method: "POST", headers, body,
+        const response = await send(connection, phone, `${connection.url}/adb`, { method: "POST", headers, body,
           redirect: "manual", cache: "no-store",
           // A file upload shares the same deadline as the command it feeds.
           signal: AbortSignal.any([entry.abort.signal, AbortSignal.timeout(input.timeout_s * 1000
@@ -320,8 +355,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
       try {
         const connection = await entry.connection;
         const headers = new Headers({ "content-type": "application/json" });
-        if (connection.forwarded) headers.set("X-Github-Token", await token(phone.userId));
-        const response = await request(`${connection.url}${path}`, { method: body ? "POST" : "GET", headers,
+        const response = await send(connection, phone, `${connection.url}${path}`, { method: body ? "POST" : "GET", headers,
           body: body ? JSON.stringify(body) : undefined, redirect: "manual", cache: "no-store",
           signal: AbortSignal.any([entry.abort.signal, AbortSignal.timeout(40_000)]) });
         const bytes = await response.arrayBuffer();
@@ -350,8 +384,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
       try {
         const connection = await entry.connection;
         const headers = new Headers({ "content-type": "application/json" });
-        if (connection.forwarded) headers.set("X-Github-Token", await token(phone.userId));
-        const response = await request(`${connection.url}${path}`, { method, headers,
+        const response = await send(connection, phone, `${connection.url}${path}`, { method, headers,
           body: method === "POST" ? JSON.stringify(body ?? {}) : undefined, redirect: "manual", cache: "no-store",
           // A 30-minute recording is up to ~1 GB; the download gets 10 minutes, every other call 40 s.
           signal: AbortSignal.any([entry.abort.signal, AbortSignal.timeout(action === "file" ? 600_000 : action === "grid" ? 120_000 : 40_000)]) });
@@ -405,9 +438,8 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
       try {
         const connection = await entry.connection;
         const headers = new Headers({ "content-type": "application/json" });
-        if (connection.forwarded) headers.set("X-Github-Token", await token(phone.userId));
         const search = query && (path === "/screenshot" || path === "/ui") ? `?${new URLSearchParams(query)}` : "";
-        const response = await request(`${connection.url}${path}${search}`, { method: body ? "POST" : "GET", headers,
+        const response = await send(connection, phone, `${connection.url}${path}${search}`, { method: body ? "POST" : "GET", headers,
           body: body ? JSON.stringify(body) : undefined, redirect: "manual", cache: "no-store",
           signal: AbortSignal.any([entry.abort.signal, AbortSignal.timeout(path === "/boot" ? BOOT_REQUEST_MS : path === "/stop" ? 180_000 : 20_000)]) });
         // Consume before releasing the lease: a slow image must not lose its bridge to the idle timer.
