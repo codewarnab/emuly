@@ -1,4 +1,5 @@
 import "server-only";
+import { unknownRouteBody } from "../v1-routes.ts";
 import { crossOrigin } from "../auth/origin.ts";
 import { APK_CHUNK_BYTES, APK_MAX_BYTES, installFinished } from "./phone-apps-contract.ts";
 import type { AppsPath, AppsRequest } from "./phone-link.ts";
@@ -93,7 +94,10 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmissi
       const allowed = (request.method === "GET" && (["apps", "app-installs", "file-fetches"].includes(route) || (resource && !resource[2]) || (fetchJob && !fetchJob[2])))
         || (request.method === "POST" && (["apps/open", "app-installs", "file-fetches"].includes(route) || (resource && ["complete", "cancel"].includes(resource[2])) || fetchJob?.[2] === "cancel"))
         || (request.method === "PUT" && resource?.[2] === "content");
-      if (!allowed) bad(404, "Apps route not found.");
+      if (!allowed) {
+        const body = unknownRouteBody(request.method, new URL(request.url).pathname);
+        return Response.json({ ...body, error: body.message, errorCode: "not_found" }, { status: 404 });
+      }
       const options: AppsRequest = { method: request.method as AppsRequest["method"], signal: request.signal };
       const admissionId = `${identity.id}:${id}`;
       let admissionKey = await sharedAdmission?.current(identity.id, id);
