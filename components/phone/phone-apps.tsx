@@ -139,7 +139,7 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
     if (!retry) {
       if (active) { setError("An installation is already active. Refresh its status first."); return; }
       if (file && (!/\.apk$/i.test(file.name) || file.size < 1 || file.size > APK_MAX_BYTES)) {
-        setError("Choose one standalone .apk file up to 250 MiB."); return;
+        setError("Choose one standalone .apk file up to 1 GiB."); return;
       }
       pending.current = file ? { key: crypto.randomUUID(), file } : { key: crypto.randomUUID(), url: url.trim() };
     }
@@ -229,7 +229,7 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
         </span>
         <div className={s.dropBody}>
           <p className={s.dropTitle}>Drop an APK here</p>
-          <small>Standalone APK · up to 250 MiB</small>
+          <small>Standalone APK · up to 1 GiB</small>
         </div>
         <Button type="button" disabled={blocked} onClick={() => input.current?.click()}>Upload APK</Button>
         <input ref={input} className={s.file} type="file" accept=".apk,application/vnd.android.package-archive" disabled={blocked}

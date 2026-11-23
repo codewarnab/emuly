@@ -3,6 +3,7 @@ import { measure } from "../diagnostics/diagnostics.ts";
 import { ADB_DOWNLOAD_MAX_BYTES } from "./phone-adb-contract.ts";
 import type { phoneObservations } from "./phone-observation.ts";
 import { RunnerTimeoutError } from "./runner-errors.ts";
+import { runnerUpdateMessage } from "./phone-response.ts";
 
 type Bridge = { url: string; close: () => void };
 type Owner = { userId: number; id: string; codespaceName: string };
@@ -134,7 +135,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
           redirect: "manual", cache: "no-store", signal: AbortSignal.any(signals) });
         if (!response.headers.get("content-type")?.includes("application/json")) {
           await response.body?.cancel();
-          return Response.json({ error: "Update the phone runner before using Apps.", errorCode: "runner_update_required" }, { status: 503 });
+          return Response.json({ error: runnerUpdateMessage(phone.id, "Apps"), errorCode: "runner_update_required" }, { status: 503 });
         }
         const reader = response.body?.getReader();
         if (!reader) throw new Error("Empty Apps response");
@@ -325,7 +326,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
           signal: AbortSignal.any([entry.abort.signal, AbortSignal.timeout(40_000)]) });
         const bytes = await response.arrayBuffer();
         if (!response.headers.get("content-type")?.includes("application/json")) {
-          return Response.json({ error: "Update the phone runner before using links.", errorCode: "runner_update_required" }, { status: 503 });
+          return Response.json({ error: runnerUpdateMessage(phone.id, "Links"), errorCode: "runner_update_required" }, { status: 503 });
         }
         return new Response(bytes, { status: response.status, headers: { "content-type": "application/json" } });
       } finally { release(); }
@@ -378,7 +379,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
           return new Response(bytes, { status: 200, headers: forwarded });
         }
         if (!type.includes("application/json")) {
-          return Response.json({ error: "Update the phone runner before recording.", errorCode: "runner_update_required" }, { status: 503 });
+          return Response.json({ error: runnerUpdateMessage(phone.id, "Recording"), errorCode: "runner_update_required" }, { status: 503 });
         }
         return new Response(bytes, { status: response.status, headers: { "content-type": "application/json" } });
       } catch (error) { done(); throw error; }

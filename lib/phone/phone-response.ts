@@ -66,6 +66,11 @@ export function parseAppOpened(value: unknown): { ok: true } {
   return result as { ok: true };
 }
 
+/** The one fix for every `runner_update_required`: the agent can do it alone, with no click from the user. */
+export function runnerUpdateMessage(id: string, what: string): string {
+  return `${what} needs a newer phone runner. POST /v1/phones/${id}/apps/update and repeat it until it returns {"status":"ready"}, then retry. If it fails, stop and start the phone.`;
+}
+
 export function parseRunnerUpdate(value: unknown): { status: "ready" | "working" } {
   const result = object(value);
   requireField(result.status === "ready" || result.status === "working");

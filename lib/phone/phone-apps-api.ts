@@ -125,7 +125,7 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmissi
         } else {
           if (!["url", "upload"].includes(input.source) || typeof input.key !== "string" || !/^[0-9a-f-]{36}$/.test(input.key)) bad(400, "Invalid installation request.");
           if (input.source === "upload" && (!Number.isSafeInteger(input.totalBytes) || input.totalBytes < 1 || input.totalBytes > APK_MAX_BYTES
-            || typeof input.filename !== "string" || input.filename.length > 255 || !/\.apk$/i.test(input.filename))) bad(400, "Choose a standalone .apk file up to 250 MiB.");
+            || typeof input.filename !== "string" || input.filename.length > 255 || !/\.apk$/i.test(input.filename))) bad(400, "Choose a standalone .apk file up to 1 GiB.");
           if (input.source === "url") {
             let url: URL;
             try { url = new URL(input.url); } catch { bad(400, "Enter a direct HTTPS download URL."); }

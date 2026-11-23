@@ -88,9 +88,8 @@ The operation also has `serverUrls` after validation: local server URLs inside t
 `http://localhost:3000`. If it is not empty, follow `references/tasks/local-servers.md` before the
 test. The adb `install` route does not scan the APK.
 
-If an APK endpoint returns `503` with `runner_update_required`, the phone runner is old:
-ask the user to open the phone in the browser and retry. `POST /v1/phones/<id>/apps/update`
-also exists for that case.
+If an APK endpoint returns `503` with `runner_update_required`, the phone runner is old.
+Send `POST /v1/phones/<id>/apps/update` and repeat it until it returns `{"status":"ready"}`, then retry.
 
 Read the inventory with `GET /v1/phones/<id>/apps`. Open an app with
 `POST /v1/phones/<id>/apps/open` and body `{"packageId":"com.example.app"}`.

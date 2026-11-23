@@ -122,7 +122,8 @@ short JSON, not XML:
 - A `503` with `ui_unavailable` means every try failed. The screen may still be changing, or
   another UiAutomation tool (agent-device) runs. Wait 1 s and retry once, then use a screenshot.
 - A `503` with `runner_update_required` means the phone's runner is older than this route.
-  Use the adb recipe below, and restart the phone when the user agrees.
+  Send `POST /v1/phones/<id>/apps/update` and repeat it until it returns `{"status":"ready"}`, then retry.
+  If you cannot update it, use the adb recipe below.
 
 The same data through the adb route, as XML (older runners). Retry the dump once if it prints
 "null root node":

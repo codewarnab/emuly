@@ -15,6 +15,7 @@ import { agentDeviceBaseUrl, agentDeviceInfo, agentDeviceSession, agentDeviceUna
 import type { Phone } from "./phones.ts";
 import type { RecordingAction } from "./phone-link.ts";
 import { notesVtt, type RecordingNote } from "./recording-notes.ts";
+import { runnerUpdateMessage } from "./phone-response.ts";
 
 type Identity = { id: number; login?: string; authKind?: "session" | "agent"; agentKeyId?: number };
 type PhoneView = Pick<Phone, "id" | "name" | "state" | "android_state" | "idle_timeout_min"> & Partial<Pick<Phone, "last_activity_at" | "android_started_at" | "last_started_at" | "keeping">> & { device_preset?: string; location?: string | null };
@@ -320,7 +321,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         try { value = await response.json() as Record<string, unknown>; } catch {}
         // A runner without the recording routes answers its generic 404 with no errorCode.
         if (response.status === 404 && typeof value.errorCode !== "string") {
-          return json({ error: "runner_update_required", message: "Update the phone runner before recording." }, 503);
+          return json({ error: "runner_update_required", message: runnerUpdateMessage(id, "Recording") }, 503);
         }
         if (!response.ok) {
           const code = typeof value.errorCode === "string" ? value.errorCode : "recording_failed";
@@ -392,7 +393,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         try { value = await response.json() as Record<string, unknown>; } catch {}
         // A runner without /ui answers its generic 404 with no errorCode.
         if (response.status === 404 && typeof value.errorCode !== "string") {
-          return json({ error: "runner_update_required", message: "Restart the phone to update its runner, then retry. GET /screenshot works now." }, 503);
+          return json({ error: "runner_update_required", message: `${runnerUpdateMessage(id, "This route")} GET /screenshot works now.` }, 503);
         }
         if (!response.ok) {
           const code = typeof value.errorCode === "string" ? value.errorCode : "ui_failed";
@@ -450,7 +451,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
             if (parsed && typeof parsed === "object") value = parsed as Record<string, unknown>;
           } catch {}
           if (response.status === 404 || response.status === 405) {
-            return json({ error: "runner_update_required", message: "Update the phone runner before using adb.", ran: false }, 503);
+            return json({ error: "runner_update_required", message: runnerUpdateMessage(id, "adb"), ran: false }, 503);
           }
           // ran: false = adb did not start, a retry is safe. true = it ran. "unknown" = it may have run:
           // check the phone before a retry, or retry with the same Idempotency-Key.

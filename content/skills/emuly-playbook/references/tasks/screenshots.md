@@ -112,8 +112,8 @@ One recording runs at a time: a second start gets **409** `recording_busy`. A re
 by itself at `max_s`, at 1 GB, or when the phone stops; `file` still returns what it has.
 If the codespace stopped during the recording, start the phone again: the runner then repairs
 the file (`stop_reason` `recovered`), and `file` returns the video up to the stop.
-A **503** `runner_update_required` means the phone runs an older runner: use agent-device
-`record`, or tell the user that a phone restart updates it.
+A **503** `runner_update_required` means the phone runs an older runner.
+Send `POST /v1/phones/<id>/apps/update` and repeat it until it returns `{"status":"ready"}`, then retry. If that fails, use agent-device `record`.
 
 ## Ways to take a screenshot
 

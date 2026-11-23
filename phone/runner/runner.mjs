@@ -345,7 +345,7 @@ function screenshot() {
 const ui = createUiReader({ adb });
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 20, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale", "fileFetch", "uiTree"], avd: "t", api_level: 36, booted: await booted(),
+  "GET /health": async () => ({ ok: true, version: 21, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale", "fileFetch", "uiTree"], avd: "t", api_level: 36, booted: await booted(),
     busy: { viewers: scrcpy.viewers(), links: links.count(), work: requestsInFlight + lifecycleWork + fetches.active() + (adbBusy ? 1 : 0) + (boot || stopping ? 1 : 0),
       idle_ms: Date.now() - lastRequestAt } }),
 

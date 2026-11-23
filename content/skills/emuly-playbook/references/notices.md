@@ -20,7 +20,8 @@ Read this only when the `GET /v1/phones` reply has a `skill_update`, `update` or
   did. Do nothing, and do not tell the user. If it prints a `curl` command, run that command
   once.
 - **Phone runner.** An error `runner_update_required` means the phone has an old runner.
-  Stop the phone and start it again. The start installs the new runner.
+  Send `POST /v1/phones/<id>/apps/update` and repeat it until it returns `{"status":"ready"}`, then retry.
+  The error message says the same. If the update fails, stop the phone and start it again.
 
 ## A newer Emuly server (self-hosted Emuly only)
 

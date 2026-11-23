@@ -2,6 +2,7 @@ import { crossOrigin } from "../auth/origin.ts";
 import { LinkError, linkPort, linkPorts, linkRoute, parseTarget } from "./phone-links-contract.ts";
 import { classifyTarget, netCheckFix } from "./net-check.ts";
 import type { LinksPath } from "./phone-link.ts";
+import { runnerUpdateMessage } from "./phone-response.ts";
 
 type Identity = { id: number; authKind?: "session" | "agent" };
 type PhoneView = { id: string; state: string; android_state: string };
@@ -38,14 +39,14 @@ export function createPhoneLinksApi({ user, phone, runner, issue, baseUrl, owner
   }
 
   /** The runner's JSON, or an error body the agent can act on. */
-  async function relay(response: Response) {
+  async function relay(response: Response, id: string) {
     let value: Record<string, unknown> = {};
     try { value = await response.json() as Record<string, unknown>; } catch {}
     if (response.ok) return { ok: true as const, value };
     const message = typeof value.error === "string" ? value.error : "The phone runner could not do this. Try again.";
     if (value.errorCode === "runner_update_required" || response.status === 404) {
       return { ok: false as const, response: json({ error: "runner_update_required",
-        message: "Restart the phone so it gets the new runner, then try again." }, 503) };
+        message: runnerUpdateMessage(id, "Links") }, 503) };
     }
     const status = [400, 409].includes(response.status) ? response.status : 502;
     return { ok: false as const, response: json({ error: status === 400 ? "invalid_input" : status === 409 ? "phone_conflict" : "link_failed", message }, status) };
@@ -54,7 +55,7 @@ export function createPhoneLinksApi({ user, phone, runner, issue, baseUrl, owner
   async function call(identity: Identity, id: string, path: LinksPath, body?: Record<string, unknown>) {
     try {
       const { codespaceName, response } = await runner(identity.id, id, path, body);
-      const result = await relay(response);
+      const result = await relay(response, id);
       return result.ok ? { ok: true as const, value: result.value, codespaceName } : result;
     } catch {
       return { ok: false as const, response: json({ error: "request_failed", message: "The phone connection failed. Try again." }, 502) };

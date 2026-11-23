@@ -205,7 +205,7 @@ export async function createApps({ root, sdk, run, adb, exclusive, booted }) {
       if (!input || !["upload", "url"].includes(input.source) || !validId(input.key)) fail(400, "invalid_input", "Invalid installation request.");
       if (input.source === "url") apkUrl(input.url);
       if (input.source === "upload" && (!Number.isSafeInteger(input.totalBytes) || input.totalBytes <= 0 || input.totalBytes > MAX_APK))
-        fail(413, "too_large", "Choose an APK between 1 byte and 250 MiB.");
+        fail(413, "too_large", "Choose an APK between 1 byte and 1 GiB.");
       const fingerprint = createHash("sha256").update(JSON.stringify([input.source, input.source === "url" ? input.url : [input.filename, input.totalBytes]])).digest("hex");
       const previous = [...records.values()].find(item => item.key === input.key);
       if (previous) {
