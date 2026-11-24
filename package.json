@@ -22,6 +22,7 @@
     "@next/env": "16.4.5",
     "@vercel/analytics": "^2.0.1",
     "@vercel/functions": "3.10.0",
+    "@vercel/speed-insights": "^2.1.0",
     "next": "16.4.5",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -38,5 +39,7 @@
     "typescript": "^5"
   },
   "packageManager": "pnpm@12.8.1",
-  "bin": { "emuly": "bin/emuly.mjs" }
+  "bin": {
+    "emuly": "bin/emuly.mjs"
+  }
 }
