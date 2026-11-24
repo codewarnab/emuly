@@ -1,0 +1,9 @@
+// Experiment: an iOS phone with agent-sim (x86Sim) in a codespace. See docs/ios-agent-sim.md.
+// Privileged, because x86Sim's Darling needs namespaces and mounts that a normal container blocks.
+{
+  "name": "Emuly iOS phone (experiment)",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "hostRequirements": { "cpus": 4, "memory": "16gb", "storage": "32gb" },
+  "privileged": true,
+  "init": true
+}
