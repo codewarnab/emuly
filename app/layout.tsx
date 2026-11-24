@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Public_Sans, Sora } from "next/font/google";
 import "./globals.css";
 import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { UIProvider } from "@/components/ui/ui-provider";
 import { WebMcpLoader } from "@/components/webmcp/webmcp-loader";
 
@@ -25,7 +26,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" suppressHydrationWarning className={`${body.variable} ${display.variable}`}>
       <head><script dangerouslySetInnerHTML={{ __html: themeScript }} /></head>
-      <body><a className="skip-link" href="#main-content">Skip to content</a><UIProvider>{children}</UIProvider><Analytics /><WebMcpLoader /></body>
+      <body><a className="skip-link" href="#main-content">Skip to content</a><UIProvider>{children}</UIProvider><Analytics /><SpeedInsights /><WebMcpLoader /></body>
     </html>
   );
 }
