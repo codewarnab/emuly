@@ -147,4 +147,4 @@ The top of `lib/diagnostics/diagnostics.ts` gets a block comment with the anonym
 
 ## Open questions
 
-- Do we want `region` at all, while there are few users in some regions? The 10-sample rule hides small regions, but we can also drop it.
+- Decided 25 Nov 2026: keep `region`. The 10-sample rule hides small regions, and only GitHub region names are stored.
