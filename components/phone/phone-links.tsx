@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Mini } from "@/components/ui/mini";
+import { Mini, type MiniRow } from "@/components/ui/mini";
 
 type Link = { port: number; route: string; listening: boolean; relay_connected: boolean };
 type Egress = { mode?: string; port?: number | null; lock?: boolean; laptop_connected?: boolean | null; udp?: string };
@@ -8,8 +8,8 @@ type Egress = { mode?: string; port?: number | null; lock?: boolean; laptop_conn
 /**
  * The links of this phone. Shown only when a link exists, so
  * the user can see each port that apps on the phone can reach on their computer.
- * When `emuly proxy` runs, a "Traffic" row says that all phone traffic goes through the computer,
- * or that it is blocked because the proxy is offline (fail closed).
+ * When `emuly proxy` runs, an "Internet" row says in plain words where the phone's traffic goes.
+ * The details (DNS, UDP, the tunnel kind) sit behind an ⓘ, so the row stays short.
  */
 export function PhoneLinks({ id, running }: { id: string; running: boolean }) {
   const [links, setLinks] = useState<Link[]>([]);
@@ -35,10 +35,15 @@ export function PhoneLinks({ id, running }: { id: string; running: boolean }) {
   }, [id, running]);
   const laptop = egress.mode === "laptop";
   if (!links.length && !laptop) return null;
-  const traffic: [string, string][] = laptop ? [["Traffic", egress.laptop_connected
-    ? `via your computer${egress.udp === "blocked" ? " · UDP blocked" : ""}`
-    : `blocked: proxy offline${egress.lock ? " (locked)" : ""}`]] : [];
-  return <Mini title="Links to your computer" rows={[...traffic, ...links.map(link => [
-    laptop && link.port === egress.port ? "Traffic proxy" : `Port ${link.port}`,
-    `${link.route === "ssh" ? "SSH tunnel" : "Emuly relay"} · ${(link.route === "ssh" ? link.listening : link.relay_connected) ? "open" : "waiting"}`] as [string, string])]} />;
+  const internet: MiniRow[] = !laptop ? [] : egress.laptop_connected
+    ? [["Internet", "Through your computer", "Sites see your computer's IP address. Lookups go there too."
+      + (egress.udp === "blocked" ? " Other UDP is blocked, so apps use TCP." : "") + " Stop emuly proxy to switch back."]]
+    : [["Internet", egress.lock ? "Off until you turn it back on" : "Paused, reconnecting",
+      egress.lock ? "The proxy is locked. Run: emuly proxy <phone> off" : "The link to your computer dropped. Nothing goes out directly while it reconnects."]];
+  // The proxy's own port is part of the Internet row, so it gets no row of its own.
+  const ports: MiniRow[] = links.filter(link => !(laptop && link.port === egress.port)).map(link => [`Port ${link.port}`,
+    (link.route === "ssh" ? link.listening : link.relay_connected) ? "Open" : "Waiting",
+    link.route === "ssh" ? "Through an SSH tunnel from your computer." : "Through the Emuly relay (slower)."]);
+  if (!internet.length && !ports.length) return null;
+  return <Mini title="Your computer" rows={[...internet, ...ports]} />;
 }

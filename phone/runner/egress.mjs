@@ -21,6 +21,13 @@ export const LOOPBACK_BLOCKED = new Set([4310, 5037, 5554, 5555, 8790, 8791, EGR
 const HEAD_MAX = 16 * 1024;
 const HEAD_MS = 10_000;
 const CONNECT_MS = 10_000;
+/**
+ * An unlocked laptop proxy with no laptop for this long goes back to direct. Without it, a laptop that
+ * sleeps or a CLI that is killed (no Ctrl-C) leaves the phone offline until `emuly proxy off`.
+ * It is longer than a normal reconnect (~10 s). A locked proxy never falls back: that is what --lock means.
+ */
+export const ORPHAN_MS = 120_000;
+const WATCH_MS = 15_000;
 
 export class EgressError extends Error { status = 400; }
 
@@ -117,10 +124,10 @@ export function egressSetting(body) {
 
 /**
  * @param {{ file?: string, listenPort?: number, lookup?: typeof dnsLookup, upstreamHost?: string,
- *   log?: (line: string) => void }} [options]
+ *   log?: (line: string) => void, orphanMs?: number, watchMs?: number }} [options]
  */
 export function createEgress({ file = EGRESS_FILE, listenPort = EGRESS_PORT, lookup = dnsLookup, upstreamHost = "127.0.0.1",
-  log = () => {} } = {}) {
+  log = () => {}, orphanMs = ORPHAN_MS, watchMs = WATCH_MS } = {}) {
   /** @type {{ mode: string, port?: number, lock: boolean, since: string }} */
   let setting = { mode: "direct", port: undefined, lock: false, since: new Date().toISOString() };
   const counters = { connections: 0, active: 0, refused: 0, failed: 0, bytes_up: 0, bytes_down: 0, upstream_ms_last: 0, upstream_ms_avg: 0 };
@@ -128,6 +135,19 @@ export function createEgress({ file = EGRESS_FILE, listenPort = EGRESS_PORT, loo
   const sockets = new Set();
   /** @type {import("node:net").Server | undefined} */
   let server;
+  /** When the laptop link was last seen open (or the mode last changed). */
+  let seenAt = Date.now();
+  /** @type {ReturnType<typeof setInterval> | undefined} */
+  let watch;
+
+  /** Falls back to direct when an unlocked laptop proxy has had no laptop for orphanMs. */
+  async function watchLaptop() {
+    if (setting.mode !== "laptop" || setting.lock) { seenAt = Date.now(); return; }
+    if (await upstreamOpen()) { seenAt = Date.now(); return; }
+    if (Date.now() - seenAt < orphanMs) return;
+    log("egress: laptop proxy gone, back to direct");
+    await set({ mode: "direct" }).catch(() => {});
+  }
 
   async function load() {
     try {
@@ -143,6 +163,7 @@ export function createEgress({ file = EGRESS_FILE, listenPort = EGRESS_PORT, loo
     const checked = egressSetting(body);
     const changed = checked.mode !== setting.mode || checked.port !== setting.port;
     setting = { ...checked, since: changed ? new Date().toISOString() : setting.since };
+    seenAt = Date.now();
     await mkdir(dirname(file), { recursive: true });
     const temporary = `${file}.${process.pid}.tmp`;
     await writeFile(temporary, JSON.stringify(setting));
@@ -300,6 +321,8 @@ export function createEgress({ file = EGRESS_FILE, listenPort = EGRESS_PORT, loo
       server = createServer({ allowHalfOpen: true }, handle);
       server.once("error", reject);
       server.listen(listenPort, "127.0.0.1", () => { log(`egress gateway on 127.0.0.1:${listenPort}`); resolve(status()); });
+      watch = setInterval(() => void watchLaptop(), watchMs);
+      watch.unref?.();
     });
   }
 
@@ -307,6 +330,7 @@ export function createEgress({ file = EGRESS_FILE, listenPort = EGRESS_PORT, loo
   const boundPort = () => { const address = server?.address(); return typeof address === "object" && address ? address.port : listenPort; };
 
   function close() {
+    clearInterval(watch);
     for (const socket of sockets) socket.destroy();
     return new Promise(resolve => server ? server.close(() => resolve(undefined)) : resolve(undefined));
   }

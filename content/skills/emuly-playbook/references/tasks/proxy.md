@@ -46,6 +46,8 @@ The first stdout line is JSON:
 ## Stop
 
 - Stop the process (Ctrl-C). Without `--lock`, the phone goes back to its own network within 2 s.
+- If the computer sleeps, loses its network or the CLI is killed, the phone has no internet while it waits.
+  Without `--lock`, it goes back to its own network after 2 minutes. With `--lock`, it stays offline.
 - With `--lock`, the phone stays offline until: `emuly proxy <phone> off`
 - `emuly proxy <phone> status` prints the mode. `"laptop_connected": false` in `laptop` mode means
   the phone has no internet now.

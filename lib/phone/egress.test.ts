@@ -286,3 +286,18 @@ test("the forwarder uses the codespace resolver in direct mode and the link in l
   assert.equal(down[3] & 0x0f, 2);
   assert.deepEqual(forwarder.counters(), { queries: 3, laptop: 2, failed: 1 });
 });
+
+test("an unlocked laptop proxy with no laptop goes back to direct; a locked one stays", async t => {
+  // A port with nothing on it: the laptop link is gone.
+  const probe = createServer(), unused = await listen(probe);
+  await new Promise(resolve => probe.close(resolve));
+  const open = createEgress({ file: join(dir(), "egress.json"), listenPort: 0, orphanMs: 50, watchMs: 20 });
+  const locked = createEgress({ file: join(dir(), "egress.json"), listenPort: 0, orphanMs: 50, watchMs: 20 });
+  t.after(() => Promise.all([open.close(), locked.close()]));
+  await open.listen(); await locked.listen();
+  await open.set({ mode: "laptop", port: unused });
+  await locked.set({ mode: "laptop", port: unused, lock: true });
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(open.status().mode, "direct");
+  assert.equal(locked.status().mode, "laptop");
+});

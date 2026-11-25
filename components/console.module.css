@@ -119,6 +119,8 @@
 .meta { display: flex; flex-direction: column; justify-content: center; gap: 16px; min-width: 0; font-size: 13px; }
 .meta > div { display: flex; flex-direction: column; gap: 2px; }
 .k { color: var(--dim); }
+.info { margin-left: 6px; font-size: 0.85em; cursor: help; opacity: 0.7; }
+.info:hover, .info:focus-visible { opacity: 1; }
 .v { overflow-wrap: anywhere; color: var(--text); }
 .meta > div:first-child .v { font: 13px/1.6 var(--mono); }
 .pcardFoot { display: flex; gap: 8px; align-items: center; grid-column: 1 / -1; padding-top: 4px; }
