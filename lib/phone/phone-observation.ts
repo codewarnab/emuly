@@ -19,8 +19,8 @@ function createPhoneObservations(database: Client) {
   const viewing = new Map<string, Window>();
   const attempts = new Map<string, BrowserAttempt>();
   const opening = new Map<string, Promise<Window>>();
-  const enabled = (phone: Owner) => process.env.EMULY_DIAGNOSTICS === "1"
-    && (!process.env.EMULY_DIAGNOSTICS_PHONE || process.env.EMULY_DIAGNOSTICS_PHONE === phone.id);
+  // Diagnostics cover every phone when EMULY_DIAGNOSTICS=1. There is no per-phone filter.
+  const enabled = (_phone: Owner) => process.env.EMULY_DIAGNOSTICS === "1";
   function window(phone: Owner): Promise<Window> {
     const key = `${phone.userId}:${phone.id}`;
     const existing = opening.get(key);

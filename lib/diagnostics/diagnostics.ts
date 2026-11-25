@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
 import type { Client } from "@libsql/client";
+import { waitUntil } from "@vercel/functions";
 import { transaction, type DatabaseQueries } from "../data/async-database.ts";
 import { errorCodes, validateStep, type Step, type StepCode, type Outcome, type OperationKind, type ErrorCode } from "./diagnostic-contract.ts";
 
@@ -17,35 +18,62 @@ function nextSequence(operationId: string) {
 }
 /** Vercel stops a function after 300 s; a record untouched for longer has no live writer. */
 export const ABANDONED_AFTER_MS = 6 * 60_000;
-export const diagnosticHealth = { writeFailures: 0, invalidRecords: 0, droppedRecords: 0, collectorFailures: 0 };
+/** Health counters. `writeFailures` is the total. The `writeFailures_*` keys split it by error class
+    (never the message, which can hold ids), so we can see why writes fail. */
+export const diagnosticHealth = { writeFailures: 0, writeFailures_constraint: 0, writeFailures_busy: 0, writeFailures_timeout: 0,
+  writeFailures_schema: 0, writeFailures_other: 0, invalidRecords: 0, droppedRecords: 0, collectorFailures: 0 };
+type WriteFailureClass = "constraint" | "busy" | "timeout" | "schema" | "other";
+/** Maps a database error to a fixed class. Only the class is stored, never the error text. */
+export function writeFailureClass(error: unknown): WriteFailureClass {
+  const code = String((error as { code?: unknown })?.code ?? ""), text = error instanceof Error ? `${error.name} ${error.message}` : "";
+  if (/CONSTRAINT/i.test(code) || /constraint failed/i.test(text)) return "constraint";
+  if (/BUSY|LOCKED/i.test(code) || /database is locked|busy/i.test(text)) return "busy";
+  if (/Timeout|ETIMEDOUT/i.test(text)) return "timeout";
+  if (/no such (table|column)|has no column/i.test(text)) return "schema";
+  return "other";
+}
 const release = () => /^[a-f0-9]{7,40}$/.test(process.env.EMULY_RELEASE ?? "") ? process.env.EMULY_RELEASE! : "unknown";
 export type Diagnostics = ReturnType<typeof createDiagnostics>;
 
-/** Failure-isolated, bounded private store. No activity events, logs, or webhooks. */
+/**
+ * Failure-isolated, bounded, anonymous store. No activity events, logs, or webhooks.
+ *
+ * Anonymity: diagnostic tables hold no user, phone, key or codespace id. A phone reaches its records only
+ * through `phones.diagnostic_run_id`, a random id for the current phone life. A new id on each create or
+ * resume, and the phone row going away on delete, cut the link, so older records belong to no one.
+ * See docs/diagnostics-overhaul-plan.md.
+ */
 function diagnosticQueries(database: DatabaseQueries, starts: Map<string, number>, flushed: typeof diagnosticHealth) {
-  const allowed = (phoneId?: string) => process.env.EMULY_DIAGNOSTICS === "1"
-    && (!phoneId || !process.env.EMULY_DIAGNOSTICS_PHONE || phoneId === process.env.EMULY_DIAGNOSTICS_PHONE);
+  // Collection is on for every phone when EMULY_DIAGNOSTICS=1. There is no per-phone filter.
+  const allowed = () => process.env.EMULY_DIAGNOSTICS === "1";
+  /** The current run id of a live phone that the owner has. Undefined when there is no such phone. */
+  async function phoneRun(ownerId: number, phoneId: string): Promise<{ runId?: string } | undefined> {
+    const row = (await database.execute({ sql: "SELECT diagnostic_run_id FROM phones WHERE id = ? AND user_id = ? AND state != 'deleted'", args: [phoneId, ownerId] })).rows[0];
+    return row ? { runId: row.diagnostic_run_id ? String(row.diagnostic_run_id) : undefined } : undefined;
+  }
 
-  async function operation(ownerId: number, phoneId: string, kind: OperationKind, fresh = false): Promise<string | undefined> {
-    if (!allowed(phoneId)) return;
-    const phone = (await database.execute({ sql: "SELECT state FROM phones WHERE id = ? AND user_id = ? AND state != 'deleted'", args: [phoneId, ownerId] })).rows[0];
+  async function operation(ownerId: number, phoneId: string, kind: OperationKind, fresh = false, presetId?: string): Promise<string | undefined> {
+    if (!allowed()) return;
+    const phone = await phoneRun(ownerId, phoneId);
     if (!phone) return;
-    const existing = (await database.execute({ sql: `SELECT id FROM diagnostic_operations WHERE owner_id = ? AND phone_id = ?
-      AND kind = ? AND outcome = 'running' ORDER BY started_at DESC LIMIT 1`, args: [ownerId, phoneId, kind] })).rows[0];
-    if (existing && !fresh) return String(existing.id);
-    const current = (await database.execute({ sql: "SELECT run_id FROM diagnostic_phone_runs WHERE phone_id = ?", args: [phoneId] })).rows[0];
-    const runId = ["create", "resume"].includes(kind) ? newDiagnosticId() : String(current?.run_id ?? newDiagnosticId());
-    await database.execute({ sql: `INSERT INTO diagnostic_phone_runs VALUES (?, ?) ON CONFLICT DO UPDATE SET run_id = excluded.run_id`, args: [phoneId, runId] });
-    const id = newDiagnosticId();
-    await database.execute({ sql: `INSERT INTO diagnostic_operations (id, owner_id, phone_id, run_id, kind, started_at, release, observer_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, args: [id, ownerId, phoneId, runId, kind, new Date().toISOString(), release(), observer] });
+    const existing = phone.runId ? (await database.execute({ sql: `SELECT id FROM diagnostic_operations WHERE run_id = ?
+      AND kind = ? AND outcome = 'running' ORDER BY started_at DESC LIMIT 1`, args: [phone.runId, kind] })).rows[0] : undefined;
+    if (existing && !fresh && !presetId) return String(existing.id);
+    // A create or resume starts a new phone life with a new random run id. This cuts the link to older records.
+    const runId = ["create", "resume"].includes(kind) || !phone.runId ? newDiagnosticId() : phone.runId;
+    if (runId !== phone.runId) await database.execute({ sql: "UPDATE phones SET diagnostic_run_id = ? WHERE id = ? AND user_id = ?", args: [runId, phoneId, ownerId] });
+    const id = presetId ?? newDiagnosticId();
+    await database.execute({ sql: `INSERT INTO diagnostic_operations (id, run_id, kind, started_at, release, observer_id)
+      VALUES (?, ?, ?, ?, ?, ?)`, args: [id, runId, kind, new Date().toISOString(), release(), observer] });
     starts.set(id, performance.now());
     return id;
   }
   async function current(ownerId: number, phoneId: string): Promise<string | undefined> {
-    if (!allowed(phoneId)) return;
-    const row = (await database.execute({ sql: `SELECT id FROM diagnostic_operations WHERE owner_id = ? AND phone_id = ?
-      AND kind IN ('create','resume','boot_retry') AND outcome = 'running' ORDER BY rowid DESC LIMIT 1`, args: [ownerId, phoneId] })).rows[0];
+    if (!allowed()) return;
+    const phone = await phoneRun(ownerId, phoneId);
+    if (!phone) return;
+    const row = phone.runId ? (await database.execute({ sql: `SELECT id FROM diagnostic_operations WHERE run_id = ?
+      AND kind IN ('create','resume','boot_retry') AND outcome = 'running' ORDER BY rowid DESC LIMIT 1`, args: [phone.runId] })).rows[0] : undefined;
     return row ? String(row.id) : (await operation(ownerId, phoneId, "resume"));
   }
   async function write(operationId: string | undefined, input: unknown): Promise<boolean> {
@@ -53,12 +81,12 @@ function diagnosticQueries(database: DatabaseQueries, starts: Map<string, number
     const record = validateStep(input);
     if (!record) { diagnosticHealth.invalidRecords++; return false; }
     const remote = ["setup", "boot", "runner"].includes(record.producer);
-    const row = (await database.execute({ sql: `SELECT o.phone_id, o.release FROM diagnostic_operations o JOIN phones p ON p.id = o.phone_id
+    const row = (await database.execute({ sql: `SELECT o.release FROM diagnostic_operations o JOIN phones p ON p.diagnostic_run_id = o.run_id
       WHERE o.id = ? AND (o.outcome = 'running' OR (? = 1 AND o.outcome IN ('succeeded','failed'))
         OR (o.kind = 'viewing_session' AND o.outcome = 'succeeded' AND ? = 1 AND EXISTS (
           SELECT 1 FROM diagnostic_steps WHERE operation_id = o.id AND step_id = ? AND outcome = 'running')))
-      AND p.state != 'deleted' AND p.user_id = o.owner_id`, args: [operationId, remote ? 1 : 0, record.outcome !== "running" ? 1 : 0, record.stepId] })).rows[0];
-    if (!row || !allowed(String(row.phone_id))) return false;
+      AND p.state != 'deleted'`, args: [operationId, remote ? 1 : 0, record.outcome !== "running" ? 1 : 0, record.stepId] })).rows[0];
+    if (!row) return false;
     const prior = (await database.execute({ sql: "SELECT outcome, record FROM diagnostic_steps WHERE operation_id = ? AND step_id = ?", args: [operationId, record.stepId] })).rows[0];
     if (prior) {
       const old = validateStep(JSON.parse(String(prior.record)));
@@ -89,9 +117,11 @@ function diagnosticQueries(database: DatabaseQueries, starts: Map<string, number
     sequences.delete(operationId);
   }
   async function cancel(ownerId: number, phoneId: string, startupOnly = false) {
-    if (!allowed(phoneId)) return;
-    for (const row of (await database.execute({ sql: `SELECT id FROM diagnostic_operations WHERE owner_id = ? AND phone_id = ? AND outcome = 'running'
-      AND (? = 0 OR kind IN ('create','resume','boot_retry'))`, args: [ownerId, phoneId, startupOnly ? 1 : 0] })).rows) {
+    if (!allowed()) return;
+    const phone = await phoneRun(ownerId, phoneId);
+    if (!phone?.runId) return;
+    for (const row of (await database.execute({ sql: `SELECT id FROM diagnostic_operations WHERE run_id = ? AND outcome = 'running'
+      AND (? = 0 OR kind IN ('create','resume','boot_retry'))`, args: [phone.runId, startupOnly ? 1 : 0] })).rows) {
       const id = String(row.id);
       for (const step of (await database.execute({ sql: "SELECT record FROM diagnostic_steps WHERE operation_id = ? AND outcome = 'running' LIMIT 2048", args: [id] })).rows) {
         const record = validateStep(JSON.parse(String(step.record)));
@@ -106,11 +136,10 @@ function diagnosticQueries(database: DatabaseQueries, starts: Map<string, number
     // record is abandoned only when no function could still be writing it: older than the
     // longest function run, with no step observed since.
     const cutoff = new Date(Date.now() - ABANDONED_AFTER_MS).toISOString();
-    const abandoned = (await database.execute({ sql: `SELECT o.id, o.kind, o.phone_id FROM diagnostic_operations o
+    const abandoned = (await database.execute({ sql: `SELECT o.id, o.kind FROM diagnostic_operations o
       WHERE o.observer_id != ? AND o.outcome = 'running' AND o.started_at < ?
       AND NOT EXISTS (SELECT 1 FROM diagnostic_steps s WHERE s.operation_id = o.id AND s.observed_at >= ?) LIMIT 100`, args: [observer, cutoff, cutoff] })).rows;
     for (const row of abandoned) {
-      if (!allowed(String(row.phone_id))) continue;
       await store.mark(String(row.id), "observer_restart", { outcome: "unknown", errorCode: "coverage_missing", quality: "missing" });
       await database.execute({ sql: "UPDATE diagnostic_operations SET observer_id = ? WHERE id = ?", args: [observer, row.id] });
       if (row.kind === "viewing_session") {
@@ -139,6 +168,7 @@ function diagnosticQueries(database: DatabaseQueries, starts: Map<string, number
       if (delta > 0) await database.execute({ sql: "INSERT INTO diagnostic_health VALUES (?, ?) ON CONFLICT DO UPDATE SET count = count + excluded.count", args: [code, delta] });
       flushed[code] = diagnosticHealth[code];
     }
+    // Step detail keeps exact times, so it lives 14 days. The anonymous daily counts live 90 days.
     const cutoff = new Date(Date.now() - 14 * 86400000).toISOString();
     await database.execute({ sql: "DELETE FROM diagnostic_operations WHERE id IN (SELECT id FROM diagnostic_operations WHERE started_at < ? LIMIT 100)", args: [cutoff] });
     await database.execute({ sql: "DELETE FROM diagnostic_daily WHERE rowid IN (SELECT rowid FROM diagnostic_daily WHERE day < ? LIMIT 500)", args: [new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10)] });
@@ -146,17 +176,16 @@ function diagnosticQueries(database: DatabaseQueries, starts: Map<string, number
   const store = { operation, current, write, finish, cancel, reconcile, prune,
     async sameRun(operationId: string | undefined) {
       if (!operationId || !allowed()) return false;
-      return await (!!(await database.execute({ sql: `SELECT 1 FROM diagnostic_operations o JOIN diagnostic_phone_runs r ON r.phone_id = o.phone_id
-        JOIN phones p ON p.id = o.phone_id WHERE o.id = ? AND o.run_id = r.run_id
-        AND o.outcome IN ('running','succeeded') AND p.user_id = o.owner_id AND p.state = 'running'`, args: [operationId] })).rows[0]) ?? false;
+      return await (!!(await database.execute({ sql: `SELECT 1 FROM diagnostic_operations o JOIN phones p ON p.diagnostic_run_id = o.run_id
+        WHERE o.id = ? AND o.outcome IN ('running','succeeded') AND p.state = 'running'`, args: [operationId] })).rows[0]) ?? false;
     },
     async active(operationId: string | undefined) {
       if (!operationId || !allowed()) return false;
-      return await (!!(await database.execute({ sql: `SELECT 1 FROM diagnostic_operations o JOIN diagnostic_phone_runs r ON r.phone_id = o.phone_id
-        WHERE o.id = ? AND o.run_id = r.run_id AND o.outcome = 'running'`, args: [operationId] })).rows[0]) ?? false;
+      return await (!!(await database.execute({ sql: `SELECT 1 FROM diagnostic_operations o JOIN phones p ON p.diagnostic_run_id = o.run_id
+        WHERE o.id = ? AND o.outcome = 'running' AND p.state != 'deleted'`, args: [operationId] })).rows[0]) ?? false;
     },
     async providerAvailable(ownerId: number, phoneId: string) {
-      if (!allowed(phoneId)) return;
+      if (!allowed()) return;
       const id = await current(ownerId, phoneId);
       if (!id || (await database.execute({ sql: "SELECT 1 FROM diagnostic_steps WHERE operation_id = ? AND code = 'provider_wait' LIMIT 1", args: [id] })).rows[0]) return;
       const start = starts.get(id);
@@ -164,14 +193,16 @@ function diagnosticQueries(database: DatabaseQueries, starts: Map<string, number
         : { durationMs: Math.min(86400000, Math.round(performance.now() - start)), quality: "observed_interval" });
     },
     async observeStop(ownerId: number, phoneId: string, evidence: { state: string; idleTimeoutMin: number; lastUsedAt?: string }) {
-      if (!allowed(phoneId)) return;
-      if ((await database.execute({ sql: `SELECT 1 FROM diagnostic_steps s JOIN diagnostic_operations o ON o.id = s.operation_id
-        WHERE o.phone_id = ? AND s.code = 'provider_stop' AND o.run_id = (SELECT run_id FROM diagnostic_phone_runs WHERE phone_id = ?) LIMIT 1`, args: [phoneId, phoneId] })).rows[0]) return;
+      if (!allowed()) return;
+      const phone = await phoneRun(ownerId, phoneId);
+      if (!phone) return;
+      if (phone.runId && (await database.execute({ sql: `SELECT 1 FROM diagnostic_steps s JOIN diagnostic_operations o ON o.id = s.operation_id
+        WHERE o.run_id = ? AND s.code = 'provider_stop' LIMIT 1`, args: [phone.runId] })).rows[0]) return;
       const operationId = await operation(ownerId, phoneId, "viewing_session");
-      const intent = (await database.execute({ sql: `SELECT o.id FROM diagnostic_operations o JOIN diagnostic_steps s ON s.operation_id = o.id
-        WHERE o.phone_id = ? AND o.owner_id = ? AND o.kind IN ('stop','keep') AND s.code = 'github_stop' AND s.outcome = 'succeeded'
-        AND o.run_id = (SELECT run_id FROM diagnostic_phone_runs WHERE phone_id = ?)
-        ORDER BY o.rowid DESC LIMIT 1`, args: [phoneId, ownerId, phoneId] })).rows[0];
+      const runId = (await phoneRun(ownerId, phoneId))?.runId;
+      const intent = runId ? (await database.execute({ sql: `SELECT o.id FROM diagnostic_operations o JOIN diagnostic_steps s ON s.operation_id = o.id
+        WHERE o.run_id = ? AND o.kind IN ('stop','keep') AND s.code = 'github_stop' AND s.outcome = 'succeeded'
+        ORDER BY o.rowid DESC LIMIT 1`, args: [runId] })).rows[0] : undefined;
       const lastUsed = Date.parse(evidence.lastUsedAt ?? "");
       await store.mark(operationId, "provider_stop", { providerState: evidence.state as "Shutdown", cause: intent ? "application_stop" : "unknown",
         confidence: intent ? "confirmed" : "unknown", idleTimeoutMin: evidence.idleTimeoutMin, evidenceSource: "configured",
@@ -213,7 +244,7 @@ function diagnosticQueries(database: DatabaseQueries, starts: Map<string, number
 const pending = new WeakMap<Client, Promise<unknown>>();
 export function createDiagnostics(database: Client) {
   const starts = new Map<string, number>();
-  const flushed = healthFlushes.get(database) ?? { writeFailures: 0, invalidRecords: 0, droppedRecords: 0, collectorFailures: 0 };
+  const flushed = healthFlushes.get(database) ?? Object.fromEntries(Object.keys(diagnosticHealth).map(k => [k, 0])) as typeof diagnosticHealth;
   healthFlushes.set(database, flushed);
   type Queries = ReturnType<typeof diagnosticQueries>;
   function run<K extends keyof Queries>(method: K, args: Parameters<Queries[K]>): Promise<Awaited<ReturnType<Queries[K]>>> {
@@ -227,17 +258,30 @@ export function createDiagnostics(database: Client) {
           const call = store[method] as (...values: Parameters<Queries[K]>) => ReturnType<Queries[K]>;
           return await call(...args);
         });
-      } catch {
+      } catch (error) {
+        // A diagnostic failure never reaches the caller. Count it by class so the cause is visible.
         Object.assign(flushed, previousFlush);
         diagnosticHealth.writeFailures++;
+        diagnosticHealth[`writeFailures_${writeFailureClass(error)}`]++;
         return fallback;
       }
     }) as Promise<Awaited<ReturnType<Queries[K]>>>;
     pending.set(database, task);
+    // On Vercel, keep the function alive until the write ends, after the response is sent.
+    if (process.env.VERCEL) waitUntil(task);
     return task;
   }
   const store = {
-    operation: (...args: Parameters<Queries["operation"]>) => run("operation", args),
+    /**
+     * Speed: returns a new operation id at once, with no database trip. The insert runs in the
+     * background queue, so a start, stop, create or delete never waits for diagnostics.
+     */
+    operation(ownerId: number, phoneId: string, kind: OperationKind, fresh = false): Promise<string | undefined> {
+      if (process.env.EMULY_DIAGNOSTICS !== "1") return Promise.resolve(undefined);
+      const id = newDiagnosticId();
+      void run("operation", [ownerId, phoneId, kind, fresh, id]);
+      return Promise.resolve(id);
+    },
     current: (...args: Parameters<Queries["current"]>) => run("current", args),
     write: (...args: Parameters<Queries["write"]>) => run("write", args),
     finish: (...args: Parameters<Queries["finish"]>) => run("finish", args),
@@ -251,6 +295,8 @@ export function createDiagnostics(database: Client) {
     cursor: (...args: Parameters<Queries["cursor"]>) => run("cursor", args),
     collect: (...args: Parameters<Queries["collect"]>) => run("collect", args),
     mark: (...args: Parameters<Queries["mark"]>) => run("mark", args),
+    /** Resolves when every queued diagnostic write has ended. For tests and shutdown only. */
+    async settled() { await pending.get(database); },
     scope<T>(operationId: string | undefined, work: () => T): T {
       return operationId ? context.run({ store, operationId }, work) : work();
     },
@@ -268,28 +314,32 @@ export async function collectProgress(batch: unknown) {
   if (scope) await scope.store.collect(scope.operationId, batch);
 }
 
-/** Nested source durations use a monotonic clock; this function never retries work. */
+/**
+ * Nested source durations use a monotonic clock; this function never retries work.
+ * Speed: the writes are not awaited. They go to the per-database queue, which keeps their order,
+ * so the measured work (a GitHub call, an ssh command, a token read) never waits for diagnostics.
+ */
 export async function measure<T>(code: StepCode, work: () => Promise<T>, extra: Partial<Step> = {}): Promise<T> {
   const scope = context.getStore();
   if (!scope) return work();
   const started = performance.now();
   const r: Step = { stepId: newDiagnosticId(), parentStepId: scope.parentStepId, producer: "server", producerRunId: observer,
     sequence: nextSequence(scope.operationId), code, attempt: 1, startedAt: new Date().toISOString(), outcome: "running", errorCode: "none", quality: "exact", ...extra };
-  await scope.store.write(scope.operationId, r);
+  void scope.store.write(scope.operationId, r);
   try {
     const result = await context.run({ ...scope, parentStepId: r.stepId }, work);
     const http = result instanceof Response ? { httpStatus: result.status } : {};
     const command = result && typeof result === "object" && "code" in result && Number.isInteger(result.code)
       && Number(result.code) >= 0 && Number(result.code) <= 255 ? { exitCode: Number(result.code) } : {};
     const failed = (result instanceof Response && !result.ok) || (command.exitCode !== undefined && command.exitCode !== 0);
-    await scope.store.write(scope.operationId, { ...r, ...http, ...command, finishedAt: new Date().toISOString(),
+    void scope.store.write(scope.operationId, { ...r, ...http, ...command, finishedAt: new Date().toISOString(),
       durationMs: Math.min(86400000, Math.round(performance.now() - started)), outcome: failed ? "failed" : "succeeded",
       errorCode: failed ? command.exitCode ? "command_failed" : "provider_unavailable" : "none" });
     return result;
   } catch (error) {
     const name = error instanceof Error ? error.name : "";
     const supplied = error && typeof error === "object" && "diagnosticCode" in error ? error.diagnosticCode : undefined;
-    await scope.store.write(scope.operationId, { ...r, finishedAt: new Date().toISOString(), durationMs: Math.round(performance.now() - started), outcome: "failed",
+    void scope.store.write(scope.operationId, { ...r, finishedAt: new Date().toISOString(), durationMs: Math.round(performance.now() - started), outcome: "failed",
       errorCode: errorCodes.includes(supplied as ErrorCode) ? supplied : name === "TimeoutError" ? "timeout" : name === "AbortError" ? "cancelled"
         : code === "credential_lookup" ? "credential_unavailable" : ["relay_connect", "ssh_auth", "metadata_fetch", "tunnel_lookup", "port_wait"].includes(code)
           ? "connection_failed" : code === "command" ? "command_failed" : "unknown_failure" });

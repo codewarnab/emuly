@@ -19,11 +19,10 @@ async function fixture() {
     VALUES (1, 1, 'synthetic-private-login', X'00', '', '${ts}', '${ts}'), (2, 2, 'other', X'00', '', '${ts}', '${ts}');
     INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state, created_at)
     VALUES ('phone-aaaa', 1, 'synthetic-private-codespace', 'private/repo', 'machine', 'running', '${ts}');`);
-  const previous = process.env.EMULY_DIAGNOSTICS, target = process.env.EMULY_DIAGNOSTICS_PHONE;
-  process.env.EMULY_DIAGNOSTICS = "1"; delete process.env.EMULY_DIAGNOSTICS_PHONE;
+  const previous = process.env.EMULY_DIAGNOSTICS;
+  process.env.EMULY_DIAGNOSTICS = "1";
   return { database, store: createDiagnostics(database), close() {
     if (previous === undefined) delete process.env.EMULY_DIAGNOSTICS; else process.env.EMULY_DIAGNOSTICS = previous;
-    if (target === undefined) delete process.env.EMULY_DIAGNOSTICS_PHONE; else process.env.EMULY_DIAGNOSTICS_PHONE = target;
     database.close();
   } };
 }
@@ -63,6 +62,7 @@ test("measurement executes work once, survives unavailable telemetry storage, an
   try {
     const op = (await f.store.operation(1, "phone-aaaa", "create"))!;
     let calls = 0;
+    await f.store.settled();
     await f.database.executeMultiple("DROP TABLE diagnostic_steps");
     assert.equal(await f.store.scope(op, () => measure("github_create", async () => { calls++; return 42; })), 42);
     assert.equal(calls, 1);
@@ -109,8 +109,34 @@ test("local exports omit private linkage, timestamps, and rejected content; shut
     for (const privateValue of ["phone-aaaa", "synthetic-private-login", "synthetic-private-codespace", "private/repo", op, ts]) assert.ok(!text.includes(privateValue));
     assert.match(text, /"cause":"unknown"/);
     assert.match(text, /"firstFrame":"missing"/);
+    // Anonymous: no diagnostic table has a user or phone column, and deleting the user removes the only link.
+    for (const table of ["diagnostic_operations", "diagnostic_steps", "diagnostic_cursors", "diagnostic_daily"]) {
+      const columns = (await f.database.execute(`PRAGMA table_info(${table})`)).rows.map(row => String(row.name));
+      assert.ok(!columns.some(c => /user|owner|phone|key|codespace|ip/.test(c)), `${table} has ${columns}`);
+    }
     await f.database.executeMultiple("DELETE FROM users WHERE id = 1");
-    assert.equal((await f.database.execute({ sql: "SELECT count(*) AS n FROM diagnostic_operations", args: [] })).rows[0]?.n, 0);
-    assert.equal((await f.database.execute({ sql: "SELECT count(*) AS n FROM diagnostic_steps", args: [] })).rows[0]?.n, 0);
+    assert.equal((await f.database.execute({ sql: "SELECT count(*) AS n FROM phones WHERE diagnostic_run_id IS NOT NULL", args: [] })).rows[0]?.n, 0);
+  } finally { f.close(); }
+});
+
+test("a slow diagnostics database never slows the user or agent request", async () => {
+  const f = await fixture();
+  try {
+    // Every diagnostic transaction takes 300 ms to open. The request work must not wait for any of them.
+    const slow = new Proxy(f.database, { get(target, key) {
+      if (key === "transaction") return async (...args: Parameters<typeof target.transaction>) => {
+        await new Promise(resolve => setTimeout(resolve, 300));
+        return target.transaction(...args);
+      };
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    } });
+    const store = createDiagnostics(slow);
+    const started = performance.now();
+    const op = await store.operation(1, "phone-aaaa", "create");
+    assert.equal(await store.scope(op, () => measure("github_create", async () => 7)), 7);
+    assert.ok(performance.now() - started < 100, "the request waited for diagnostics");
+    await store.settled();
+    assert.equal((await f.database.execute({ sql: "SELECT count(*) AS n FROM diagnostic_steps WHERE code = 'github_create' AND outcome = 'succeeded'", args: [] })).rows[0]?.n, 1);
   } finally { f.close(); }
 });

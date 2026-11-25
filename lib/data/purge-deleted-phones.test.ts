@@ -24,8 +24,9 @@ test("deleted phones and their rows go once their hours leave the billing month"
         ('kept', 2, '2026-10-01T00:00:00Z', '2026-10-01T01:00:00Z', 'emuly');
       INSERT INTO events (phone_id, user_id, ts, kind, message) VALUES
         ('old-deleted', 1, '2026-11-20', 'step', 'delete accepted'), ('kept', 1, '2026-11-20', 'step', 'stopped');
-      INSERT INTO diagnostic_operations (id, owner_id, phone_id, run_id, kind, started_at, release, observer_id)
-        VALUES ('op-1', 1, 'old-deleted', 'run-1', 'delete', '2026-11-20', 'test', 'observer');
+      UPDATE phones SET diagnostic_run_id = 'run-1' WHERE id = 'old-deleted';
+      INSERT INTO diagnostic_operations (id, run_id, kind, started_at, release, observer_id)
+        VALUES ('op-1', 'run-1', 'delete', '2026-11-20', 'test', 'observer');
       INSERT INTO diagnostic_steps (operation_id, step_id, producer, producer_run_id, sequence, code, attempt, outcome, observed_at, record)
         VALUES ('op-1', 'step-1', 'app', 'run-1', 1, 'github_delete', 1, 'succeeded', '2026-11-20', '{}');`);
 

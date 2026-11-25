@@ -16,19 +16,20 @@ This uses existing storage and needs no migration or message-based backfill.
 Records without an attempt report `setup_failed = 0`, including old records with failure-like display text.
 Their next setup check records the current result explicitly.
 
-## Enable after acceptance
+## Enable
 
-Set these server settings for one owned disposable test phone:
+Set these server settings:
 
 ```dotenv
 EMULY_DIAGNOSTICS=1
-EMULY_DIAGNOSTICS_PHONE=phone-0123456789abcdef
 EMULY_RELEASE=0123456
 ```
 
+Collection covers every phone. The old `EMULY_DIAGNOSTICS_PHONE` filter is gone.
+Records are anonymous: see `docs/diagnostics-overhaul-plan.md`.
+Diagnostic writes never delay a request. They run in a background queue, kept alive with `waitUntil` on Vercel.
 `EMULY_RELEASE` accepts a lowercase Git revision with 7–40 hexadecimal characters.
 Invalid or absent revisions become `unknown`.
-Unset the phone filter only after reviewing acceptance evidence and collection cost.
 Setting `EMULY_DIAGNOSTICS=0` stops central diagnostic writes and browser attempt issuance.
 Already-running remote scripts can finish writing their bounded local progress file.
 No telemetry setting creates, starts, stops, or deletes a phone.

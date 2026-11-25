@@ -1,6 +1,6 @@
 # Diagnostics overhaul plan
 
-Status: plan only. No code has changed yet.
+Status: Part 1 is done. Parts 2 to 6 are not started.
 
 ## Why
 
@@ -17,7 +17,7 @@ The diagnostics system in `lib/diagnostics/` works, but it gives us almost no da
 2. **On for all phones.** No single-phone filter in production.
 3. **Phone states and errors.** How long each state and step takes, and how often each one fails, and with which error.
 4. **Agent API usage.** Which `/v1` routes agents call, how often, how fast, and which calls fail or are retried.
-5. **Never breaks the product.** A diagnostic failure never changes a response or slows a request.
+5. **Never breaks or slows the product.** A diagnostic failure never changes a response. No user or agent request waits for a diagnostic write. Writes go to a background queue, and `waitUntil` keeps the Vercel function alive until they end.
 6. **Comments in the code.** Each recording point says what it records and why it is anonymous.
 
 ## Anonymity rules
@@ -32,7 +32,7 @@ These rules apply to every new table and every record. A review fails if a chang
 | No IPs, no region from IP | Do not record IPs. Region is the Codespace region only (`centralindia` etc.), which is shared by many users. |
 | Coarse time | Store the UTC day only, never the time of day. |
 | Counts, not events | Write into daily counters with time buckets. Do not write one row for each call. |
-| Small groups hidden | A report hides any group with fewer than 5 samples on that day. |
+| Small groups hidden | A report hides any group with fewer than 10 samples on that day. |
 | Route templates only | Store `/v1/phones/:id/adb`, never the real path. |
 
 Because nothing links to a person, these tables need no `seal` encryption and no entry in `lib/auth/reencrypt.ts`. The account delete path needs no change either.
@@ -109,7 +109,7 @@ This answers: Which routes do agents use most? Which ones fail? Do agents poll w
 ## Part 4: Reports
 
 - Add `api`, `states` and `patterns` modes to `lib/diagnostics/diagnostic-reports.ts`.
-- Each mode hides groups with fewer than 5 samples.
+- Each mode hides groups with fewer than 10 samples.
 - Add a script, `scripts/diagnostics-report.ts`, that runs the reports against Turso with a short-lived token, like `scripts/migrate-database.ts`.
 - Later, maybe: an admin page. Not part of this plan.
 
@@ -135,7 +135,7 @@ The top of `lib/diagnostics/diagnostics.ts` gets a block comment with the anonym
 - A test that writes every record type, then reads every diagnostic table and checks that no column holds a value matching a user ID, phone ID, agent key ID, IP or full timestamp.
 - A test that a thrown error in a diagnostic write does not change the API response.
 - A test that the `/v1` wrapper stores the route template, not the real path.
-- A test that reports hide groups with fewer than 5 samples.
+- A test that reports hide groups with fewer than 10 samples.
 
 ## Order of work
 
@@ -147,5 +147,4 @@ The top of `lib/diagnostics/diagnostics.ts` gets a block comment with the anonym
 
 ## Open questions
 
-- Is a 5-sample minimum enough, or do we want 10?
-- Do we want `region` at all, while there are few users in some regions? The 5-sample rule hides small regions, but we can also drop it.
+- Do we want `region` at all, while there are few users in some regions? The 10-sample rule hides small regions, but we can also drop it.

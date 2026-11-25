@@ -11,8 +11,9 @@ export async function diagnosticReport(database: DatabaseQueries, mode: string, 
       ? [{ operation: r.id, kind: r.kind, outcome: r.outcome, stale: Date.now() - Date.parse(String(r.started_at)) > 3600000,
         droppedRecords: integer(r.dropped_records) ? r.dropped_records : null }] : []);
   if (mode === "health") return {
-    counters: (await database.execute({ sql: "SELECT code, count FROM diagnostic_health LIMIT 4", args: [] })).rows.filter(r =>
-      ["writeFailures", "invalidRecords", "droppedRecords", "collectorFailures"].includes(String(r.code)) && integer(r.count)),
+    counters: (await database.execute({ sql: "SELECT code, count FROM diagnostic_health LIMIT 16", args: [] })).rows.filter(r =>
+      (["writeFailures", "invalidRecords", "droppedRecords", "collectorFailures"].includes(String(r.code))
+        || /^writeFailures_(constraint|busy|timeout|schema|other)$/.test(String(r.code))) && integer(r.count)),
     databaseBytes: Number((await database.execute({ sql: "PRAGMA page_count", args: [] })).rows[0]?.page_count ?? 0) * Number((await database.execute({ sql: "PRAGMA page_size", args: [] })).rows[0]?.page_size ?? 0),
   };
   if (mode === "aggregate") return aggregate(database);
