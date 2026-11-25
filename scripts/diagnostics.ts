@@ -10,7 +10,7 @@ const args = process.argv.slice(2), at = args.indexOf("--token");
 const tokenFile = at >= 0 ? args.splice(at, 2)[1] : undefined;
 const [filename, mode = "list", operationId] = args;
 if (!filename) {
-  console.error("Usage: node scripts/diagnostics.ts <database-path> [list|timeline|aggregate|health|api] [operation-id] [--token <file>]");
+  console.error("Usage: node scripts/diagnostics.ts <database-path> [list|timeline|aggregate|health|api|states] [operation-id] [--token <file>]");
   process.exitCode = 1;
 } else {
   let database: Client | undefined;

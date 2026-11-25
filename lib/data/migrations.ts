@@ -463,4 +463,12 @@ export const MIGRATIONS = [
     day TEXT NOT NULL, pattern TEXT NOT NULL, samples INTEGER NOT NULL, PRIMARY KEY(day, pattern)
   );
   `,
+  // Anonymous phone state-change counts (lib/diagnostics/state-usage.ts). No user, phone or codespace; day only; fixed codes.
+  `
+  CREATE TABLE diagnostic_states (
+    day TEXT NOT NULL, release TEXT NOT NULL, from_state TEXT NOT NULL, to_state TEXT NOT NULL, reason TEXT NOT NULL,
+    error_code TEXT NOT NULL, region TEXT NOT NULL, bucket_ms INTEGER NOT NULL, samples INTEGER NOT NULL,
+    PRIMARY KEY(day, release, from_state, to_state, reason, error_code, region, bucket_ms)
+  );
+  `,
 ];

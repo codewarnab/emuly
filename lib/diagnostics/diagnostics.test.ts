@@ -110,7 +110,7 @@ test("local exports omit private linkage, timestamps, and rejected content; shut
     assert.match(text, /"cause":"unknown"/);
     assert.match(text, /"firstFrame":"missing"/);
     // Anonymous: no diagnostic table has a user or phone column, and deleting the user removes the only link.
-    for (const table of ["diagnostic_operations", "diagnostic_steps", "diagnostic_cursors", "diagnostic_daily"]) {
+    for (const table of ["diagnostic_operations", "diagnostic_steps", "diagnostic_cursors", "diagnostic_daily", "diagnostic_states"]) {
       const columns = (await f.database.execute(`PRAGMA table_info(${table})`)).rows.map(row => String(row.name));
       assert.ok(!columns.some(c => /user|owner|phone|key|codespace|ip/.test(c)), `${table} has ${columns}`);
     }

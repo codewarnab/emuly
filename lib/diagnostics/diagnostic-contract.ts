@@ -13,7 +13,9 @@ export const outcomes = ["running", "succeeded", "failed", "cancelled", "interru
 export type Outcome = typeof outcomes[number];
 export const errorCodes = ["none", "unknown_failure", "timeout", "cancelled", "credential_unavailable", "connection_failed", "command_failed",
   "no_viewers", "no_activity", "already_pending", "connection_aborted", "observer_shutdown", "invalid_progress", "progress_unavailable", "coverage_missing",
-  "socket_closed", "decoder_failed", "queue_full", "hidden", "stale", "phone_stopped", "rate_limited", "provider_unavailable"] as const;
+  "socket_closed", "decoder_failed", "queue_full", "hidden", "stale", "phone_stopped", "rate_limited", "provider_unavailable",
+  // Named failures (Part 2). Before these, the same failures showed as unknown_failure or command_failed.
+  "github_quota", "github_auth", "kvm_missing", "boot_timeout", "runner_crash", "tunnel_lost"] as const;
 export type ErrorCode = typeof errorCodes[number];
 export const operationKinds = ["create", "resume", "boot_retry", "stop", "delete", "keep", "viewing_session"] as const;
 export type OperationKind = typeof operationKinds[number];

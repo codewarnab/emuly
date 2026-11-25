@@ -1,6 +1,7 @@
 import type { DatabaseQueries } from "../data/async-database.ts";
 import { diagnosticId, operationKinds, outcomes, validateStep } from "./diagnostic-contract.ts";
 import { apiUsageReport } from "./api-usage.ts";
+import { stateReport } from "./state-usage.ts";
 
 const safeRelease = (v: unknown) => v === "unknown" || (typeof v === "string" && /^[a-f0-9]{7,40}$/.test(v));
 const integer = (v: unknown) => Number.isSafeInteger(v) && Number(v) >= 0;
@@ -20,6 +21,8 @@ export async function diagnosticReport(database: DatabaseQueries, mode: string, 
   if (mode === "aggregate") return aggregate(database);
   // Anonymous /v1 usage for the last 7 days. Groups with fewer than 10 samples are hidden.
   if (mode === "api") return apiUsageReport(database);
+  // Anonymous phone state changes for the last 7 days. Groups with fewer than 10 samples are hidden.
+  if (mode === "states") return stateReport(database);
   if (mode !== "timeline" || !diagnosticId(operationId)) throw new Error("Invalid report request");
   const operation = (await database.execute({ sql: "SELECT run_id, started_at FROM diagnostic_operations WHERE id = ?", args: [operationId] })).rows[0];
   if (!operation) throw new Error("Operation unavailable");

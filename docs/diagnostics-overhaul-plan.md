@@ -1,6 +1,6 @@
 # Diagnostics overhaul plan
 
-Status: Parts 1 and 3 are done. Parts 2, 4, 5 and 6 are not started.
+Status: Parts 1, 2 and 3 are done. Part 2 added the "states" report mode and 180-day retention for diagnostic_states. Parts 4, 5 and 6 are not started.
 
 ## Why
 

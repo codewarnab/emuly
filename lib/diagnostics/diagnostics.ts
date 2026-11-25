@@ -176,6 +176,8 @@ function diagnosticQueries(database: DatabaseQueries, starts: Map<string, number
     const apiCutoff = new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10);
     await database.execute({ sql: "DELETE FROM diagnostic_api WHERE rowid IN (SELECT rowid FROM diagnostic_api WHERE day < ? LIMIT 500)", args: [apiCutoff] });
     await database.execute({ sql: "DELETE FROM diagnostic_api_patterns WHERE day < ?", args: [apiCutoff] });
+    // Anonymous phone state-change counts also live 180 days.
+    await database.execute({ sql: "DELETE FROM diagnostic_states WHERE rowid IN (SELECT rowid FROM diagnostic_states WHERE day < ? LIMIT 500)", args: [apiCutoff] });
   }
   const store = { operation, current, write, finish, cancel, reconcile, prune,
     async sameRun(operationId: string | undefined) {
