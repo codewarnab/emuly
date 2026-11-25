@@ -154,10 +154,10 @@ because the host side of each connection is a real kernel socket and not slirp's
 | Reconnect | Drop the laptop network for 30 s: traffic resumes after the reconnect. |
 | Speed | Record page load and throughput in direct mode before and after, and in laptop mode. |
 
-#### Results (2026-11-25, 12:00-12:50 IST, `phone-bright-fox`, runner 23 from this branch)
+#### Results (2026-11-25, a test codespace, runner 23 from this branch)
 
 The real runner and `boot.sh` ran in the codespace. A local fake API passed the `/v1` link and
-proxy calls to the runner. The CLI ran on Windows 11 with the ssh route. A probe in Android
+proxy calls to the runner. The CLI ran with the ssh route. A probe in Android
 compared the exit IP with the laptop and codespace IPs, without printing them.
 
 | Test | Result |
@@ -170,7 +170,7 @@ compared the exit IP with the laptop and codespace IPs, without printing them.
 | Back to direct | Pass. Ctrl-C without `--lock` gives `"mode":"direct"` at once. The next probe shows the codespace IP. |
 | Fail closed | Pass. Hard kill with `--lock`: no exit IP, TCP 443 fails, DNS fails, `laptop_connected:false`. `emuly proxy <phone> off` gives direct again. |
 | Killed without `--lock` | Pass. The runner goes back to direct after 91 s (the 90 s limit). |
-| Speed, 1 MB over HTTP | Direct 0.41-0.67 s. Laptop 2.2 s (~0.47 MB/s; the laptop upload is ~0.42 MB/s). |
+| Speed, 1 MB over HTTP | Direct 0.41-0.67 s. Through the laptop, the laptop upload speed sets the limit. |
 
 Bugs found live and fixed (each has a unit test):
 
@@ -196,7 +196,7 @@ and `--via` against a real upstream proxy (the unit tests cover HTTP and SOCKS5 
 | Errors | No gh, the wrong gh account, no adb, and the phone stopped each give the right `error`. |
 | Platforms | Windows, and Linux or macOS if available. |
 
-#### Results (2026-11-25, Windows 11, `phone-bright-fox` on the ditipriya02 account)
+#### Results (2026-11-25, a test codespace)
 
 A fake API on `127.0.0.1:4399` gave the codespace name, because the phone is in another Emuly
 account. The tunnel, gh and adb parts were real.
@@ -212,7 +212,7 @@ account. The tunnel, gh and adb parts were real.
 | Ctrl-C | Pass. adb disconnected, `DELETE /links?port=3000` was sent, and the lock file was removed. |
 | Hard kill | The lock file and an `offline` adb entry stay. The next run recovers: the dead PID is ignored and the entry is replaced. |
 | Errors | Pass: `phone_not_running`, `no_adb`, `needs_gh` (no gh, and the wrong owner with the right login hint), `unauthorized`. |
-| Speed | `adb push` of 20 MB of random data: 0.2-0.6 MB/s. The laptop upload is 0.42 MB/s (Cloudflare test), so the uplink is the limit, not the tunnel. `-C` does not help random data. A 60 MB debug APK takes about 2.5 min on this link. Hot reload sends only small deltas. |
+| Speed | `adb push` speed is set by the laptop upload, not the tunnel. `-C` does not help random data. Hot reload sends only small deltas. |
 
 ## Order of work
 
