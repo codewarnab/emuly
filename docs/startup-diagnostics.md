@@ -43,6 +43,8 @@ node scripts/diagnostics.ts .data/emuly.db list
 node scripts/diagnostics.ts .data/emuly.db timeline <operation-id>
 node scripts/diagnostics.ts .data/emuly.db aggregate
 node scripts/diagnostics.ts .data/emuly.db health
+node scripts/diagnostics.ts .data/emuly.db api            # anonymous /v1 usage, last 7 days
+node scripts/diagnostics.ts url.txt api --token token.txt # the same, on Turso
 ```
 
 The reader opens SQLite read-only. It does not load credentials or migrate the database.

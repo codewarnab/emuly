@@ -1,9 +1,10 @@
 import { asyncDb } from "../../../../../lib/data/async-db";
 import { pollDeviceCode } from "../../../../../lib/data/agents";
 import { agentKeyCommands } from "../../../../../lib/auth/agent";
+import { withApiUsage } from "@/lib/diagnostics/api-usage-route";
 
 /** The agent polls this route until the browser approves or denies the device login. */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const json = (body: unknown, status = 200) =>
     Response.json(body, { status, headers: { "Cache-Control": "private, no-store" } });
   if (!request.headers.get("content-type")?.startsWith("application/json")) return json({ error: "invalid_input" }, 415);
@@ -30,3 +31,6 @@ export async function POST(request: Request) {
     return json({ error: "request_failed", message: "The sign-in request could not be checked. Try again." }, 500);
   }
 }
+
+// Each call is counted anonymously (docs/diagnostics-overhaul-plan.md, Part 3).
+export const POST = withApiUsage(handlePOST);

@@ -216,7 +216,7 @@ function emulyBase() {
 
 async function api(method, path, body) {
   const response = await fetch(`${emulyBase()}${path}`, { method, signal: AbortSignal.timeout(60_000),
-    headers: { authorization: `Bearer ${emulyKey()}`, ...(body ? { "content-type": "application/json" } : {}) },
+    headers: { authorization: `Bearer ${emulyKey()}`, "x-emuly-client": "cli", ...(body ? { "content-type": "application/json" } : {}) },
     body: body ? JSON.stringify(body) : undefined });
   let value = {};
   try { value = await response.json(); } catch {}
@@ -784,7 +784,7 @@ const INSTALL_FLAGS = new Set(["-r", "-t", "-g", "-d"]);
 
 async function emulyFetch(path, init) {
   const response = await fetch(`${emulyBase()}${path}`, { ...init, signal: AbortSignal.timeout(init.timeoutMs ?? 120_000),
-    headers: { authorization: `Bearer ${emulyKey()}`, ...init.headers } });
+    headers: { authorization: `Bearer ${emulyKey()}`, "x-emuly-client": "cli", ...init.headers } });
   let value = {};
   try { value = await response.json(); } catch {}
   if (!response.ok) {

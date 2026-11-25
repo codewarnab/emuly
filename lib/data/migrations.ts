@@ -452,4 +452,15 @@ export const MIGRATIONS = [
   );
   ALTER TABLE phones ADD COLUMN diagnostic_run_id TEXT;
   `,
+  // Anonymous /v1 API usage counts (lib/diagnostics/api-usage.ts). No user, phone, key or IP; day only; route templates.
+  `
+  CREATE TABLE diagnostic_api (
+    day TEXT NOT NULL, release TEXT NOT NULL, route TEXT NOT NULL, client TEXT NOT NULL, client_version TEXT NOT NULL,
+    auth TEXT NOT NULL, status_class TEXT NOT NULL, error_code TEXT NOT NULL, bucket_ms INTEGER NOT NULL, samples INTEGER NOT NULL,
+    PRIMARY KEY(day, release, route, client, client_version, auth, status_class, error_code, bucket_ms)
+  );
+  CREATE TABLE diagnostic_api_patterns (
+    day TEXT NOT NULL, pattern TEXT NOT NULL, samples INTEGER NOT NULL, PRIMARY KEY(day, pattern)
+  );
+  `,
 ];

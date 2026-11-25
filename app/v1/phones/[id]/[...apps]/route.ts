@@ -9,6 +9,7 @@ import { sharedAppAdmission } from "../../../../../lib/phone/app-admission";
 import { withLease } from "../../../../../lib/data/coordination";
 import { recordPhoneAgentAction } from "../../../../../lib/phone/phone-activity";
 import { runnerUpdateMessage } from "@/lib/phone/phone-response";
+import { withApiUsage } from "@/lib/diagnostics/api-usage-route";
 
 const setup = createPhoneSetup({ token: getAccessToken });
 const upgrades = new Map<string, Promise<{ status: string }>>();
@@ -44,4 +45,6 @@ async function route(request: Request, { params }: Context) {
   const { id, apps } = await params;
   return handle(request, id, apps);
 }
-export { route as GET, route as POST, route as PUT };
+// Each call is counted anonymously (docs/diagnostics-overhaul-plan.md, Part 3).
+const counted = withApiUsage(route);
+export { counted as GET, counted as POST, counted as PUT };

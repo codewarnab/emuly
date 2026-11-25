@@ -1,6 +1,6 @@
 # Diagnostics overhaul plan
 
-Status: Part 1 is done. Parts 2 to 6 are not started.
+Status: Parts 1 and 3 are done. Parts 2, 4, 5 and 6 are not started.
 
 ## Why
 

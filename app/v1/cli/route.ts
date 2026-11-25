@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { withApiUsage } from "@/lib/diagnostics/api-usage-route";
 
 /**
  * The Emuly CLI (bin/emuly.mjs) of this server. An agent downloads it from the server that it already
@@ -26,13 +27,17 @@ function headers(sha256: string, length: number) {
   };
 }
 
-export async function GET() {
+async function handleGET() {
   const { body, sha256 } = await cli();
   return new Response(body, { headers: headers(sha256, Buffer.byteLength(body)) });
 }
 
 /** The CLI asks with HEAD at start to learn if a newer copy exists. */
-export async function HEAD() {
+async function handleHEAD() {
   const { body, sha256 } = await cli();
   return new Response(null, { headers: headers(sha256, Buffer.byteLength(body)) });
 }
+
+// Each call is counted anonymously (docs/diagnostics-overhaul-plan.md, Part 3).
+export const GET = withApiUsage(handleGET);
+export const HEAD = withApiUsage(handleHEAD);

@@ -172,6 +172,10 @@ function diagnosticQueries(database: DatabaseQueries, starts: Map<string, number
     const cutoff = new Date(Date.now() - 14 * 86400000).toISOString();
     await database.execute({ sql: "DELETE FROM diagnostic_operations WHERE id IN (SELECT id FROM diagnostic_operations WHERE started_at < ? LIMIT 100)", args: [cutoff] });
     await database.execute({ sql: "DELETE FROM diagnostic_daily WHERE rowid IN (SELECT rowid FROM diagnostic_daily WHERE day < ? LIMIT 500)", args: [new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10)] });
+    // Anonymous API usage counts live 180 days.
+    const apiCutoff = new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10);
+    await database.execute({ sql: "DELETE FROM diagnostic_api WHERE rowid IN (SELECT rowid FROM diagnostic_api WHERE day < ? LIMIT 500)", args: [apiCutoff] });
+    await database.execute({ sql: "DELETE FROM diagnostic_api_patterns WHERE day < ?", args: [apiCutoff] });
   }
   const store = { operation, current, write, finish, cancel, reconcile, prune,
     async sameRun(operationId: string | undefined) {

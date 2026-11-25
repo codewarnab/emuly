@@ -4,9 +4,10 @@ import { findPhone } from "../../../../../lib/phone/phones";
 import { runnerApps } from "../../../../../lib/phone/phone-runner";
 import { parseAppInstalls, readPhoneResponse } from "../../../../../lib/phone/phone-response";
 import { eventStream } from "../../../../../lib/shared/event-stream";
+import { withApiUsage } from "@/lib/diagnostics/api-usage-route";
 
 export const maxDuration = 300;
-export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
+async function handleGET(request: Request, context: { params: Promise<{ id: string }> }) {
   const session = await getSession();
   if (!session) return new Response(null, { status: 401 });
   const { id } = await context.params;
@@ -23,3 +24,6 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     return readPhoneResponse(response, parseAppInstalls);
   });
 }
+
+// Each call is counted anonymously (docs/diagnostics-overhaul-plan.md, Part 3).
+export const GET = withApiUsage(handleGET);

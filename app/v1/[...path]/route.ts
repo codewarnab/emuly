@@ -1,4 +1,5 @@
 import { unknownRouteBody } from "@/lib/v1-routes";
+import { withApiUsage } from "@/lib/diagnostics/api-usage-route";
 
 // A route handler cannot render app/not-found.tsx (notFound() here sends an empty body), so a browser gets this page.
 const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -17,4 +18,6 @@ function route(request: Request) {
   return Response.json(unknownRouteBody(request.method, new URL(request.url).pathname), { status: 404 });
 }
 
-export { route as GET, route as POST, route as PUT, route as PATCH, route as DELETE };
+// Each call is counted anonymously (docs/diagnostics-overhaul-plan.md, Part 3).
+const counted = withApiUsage(route);
+export { counted as GET, counted as POST, counted as PUT, counted as PATCH, counted as DELETE };
