@@ -1,6 +1,6 @@
 # Phone traffic through the laptop (`emuly proxy`)
 
-Status: Phase 0 passed (2026-11-25). Build next.
+Status: built and live-tested (2026-11-25). See "Live tests in a codespace" for the results.
 
 ## Goal
 
@@ -153,6 +153,34 @@ because the host side of each connection is a real kernel socket and not slirp's
 | Persistence | Restart the runner, then stop and start the phone: the mode and rules come back. |
 | Reconnect | Drop the laptop network for 30 s: traffic resumes after the reconnect. |
 | Speed | Record page load and throughput in direct mode before and after, and in laptop mode. |
+
+#### Results (2026-11-25, 12:00-12:50 IST, `phone-bright-fox`, runner 23 from this branch)
+
+The real runner and `boot.sh` ran in the codespace. A local fake API passed the `/v1` link and
+proxy calls to the runner. The CLI ran on Windows 11 with the ssh route. A probe in Android
+compared the exit IP with the laptop and codespace IPs, without printing them.
+
+| Test | Result |
+|---|---|
+| Boot flags | Pass. `-http-proxy http://127.0.0.1:8792` and `-dns-server 127.0.0.77` are on. The setcap node copy binds port 53. |
+| Exit IP (direct) | Pass. The codespace IP. HTTP GET 490-530 ms. |
+| Exit IP (laptop) | Pass. The laptop IP, in Android and in `check`. HTTP GET 600-1,200 ms. The first JSON line comes in about 10 s. |
+| DNS (laptop) | Pass. `"dns":"laptop"`. With the proxy killed and `--lock`, a new name fails (`unknown host`). |
+| UDP | Pass. `"udp":"blocked"`. The `emuly_udp` chain has its DROP rule, and a UDP send gets `not permitted`. `su 0` works, so adbd does not restart. Direct mode flushes the chain. |
+| Back to direct | Pass. Ctrl-C without `--lock` gives `"mode":"direct"` at once. The next probe shows the codespace IP. |
+| Fail closed | Pass. Hard kill with `--lock`: no exit IP, TCP 443 fails, DNS fails, `laptop_connected:false`. `emuly proxy <phone> off` gives direct again. |
+| Killed without `--lock` | Pass. The runner goes back to direct after 91 s (the 90 s limit). |
+| Speed, 1 MB over HTTP | Direct 0.41-0.67 s. Laptop 2.2 s (~0.47 MB/s; the laptop upload is ~0.42 MB/s). |
+
+Bugs found live and fixed (each has a unit test):
+
+- NAT64 addresses (`64:ff9b::/96`) from the laptop's DNS were refused as private. Now the IPv4 inside is checked.
+- Direct mode now checks every address of a name, and uses IPv4 first (the codespace has no IPv6 route).
+- Plain HTTP: some servers (api.ipify.org) drop a request when the client half-closes. The gateway
+  no longer passes that half-close to the server for plain HTTP. CONNECT still passes it.
+
+Not run: Chrome and a Flutter app on screen, a DNS leak site, a 30 s laptop network drop,
+and `--via` against a real upstream proxy (the unit tests cover HTTP and SOCKS5 auth).
 
 ### Live tests for `emuly dev` (already built, not yet tested live)
 

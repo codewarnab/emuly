@@ -3,6 +3,7 @@ import { LinkError, linkPort, linkPorts, linkRoute, parseTarget } from "./phone-
 import { classifyTarget, netCheckFix } from "./net-check.ts";
 import type { LinksPath } from "./phone-link.ts";
 import { runnerUpdateMessage } from "./phone-response.ts";
+import { EgressError, egressSetting } from "../../phone/runner/egress.mjs";
 
 type Identity = { id: number; authKind?: "session" | "agent" };
 type PhoneView = { id: string; state: string; android_state: string };
@@ -10,7 +11,8 @@ type LogcatHint = { kind: string; line: string; hint: string; target?: string };
 
 /**
  * Links: GET/POST/DELETE /v1/phones/<id>/links and
- * GET /v1/phones/<id>/net-check. The runner holds the links; this layer checks input and owner.
+ * GET /v1/phones/<id>/net-check, and the proxy mode: GET/POST/DELETE /v1/phones/<id>/proxy and
+ * POST /v1/phones/<id>/proxy/check. The runner holds the links; this layer checks input and owner.
  */
 export function createPhoneLinksApi({ user, phone, runner, issue, baseUrl, owner }: {
   user: () => Promise<Identity | null>;
@@ -116,6 +118,45 @@ export function createPhoneLinksApi({ user, phone, runner, issue, baseUrl, owner
       const result = await call(identity, id, "/links/remove", port === undefined ? {} : { port });
       if (!result.ok) return result.response;
       return json(result.value);
+    },
+
+    /** The egress mode of the phone (phone/runner/egress.mjs): direct, or through the laptop. */
+    async proxyStatus(request: Request, id: string) {
+      const identity = await access(request, id, false);
+      if (identity instanceof Response) return identity;
+      const result = await call(identity, id, "/egress");
+      return result.ok ? json(result.value) : result.response;
+    },
+
+    /**
+     * { mode: "laptop", port, lock? } sends all phone traffic to the laptop link on that codespace
+     * port; { mode: "direct" } ends it. `emuly proxy` makes the link first. No credentials come here.
+     */
+    async proxySet(request: Request, id: string) {
+      const identity = await access(request, id, false);
+      if (identity instanceof Response) return identity;
+      let body: Record<string, unknown>;
+      try { body = await request.json() as Record<string, unknown>; } catch { return bad("Send JSON, for example {\"mode\":\"laptop\",\"port\":18792}."); }
+      let setting: { mode: string; port?: number; lock: boolean };
+      try { setting = egressSetting(body); }
+      catch (error) { return bad(error instanceof EgressError ? error.message : "Invalid proxy setting."); }
+      const result = await call(identity, id, "/egress", setting);
+      return result.ok ? json(result.value) : result.response;
+    },
+
+    async proxyOff(request: Request, id: string) {
+      const identity = await access(request, id, false);
+      if (identity instanceof Response) return identity;
+      const result = await call(identity, id, "/egress", { mode: "direct" });
+      return result.ok ? json(result.value) : result.response;
+    },
+
+    /** The exit IP through the phone's current path. It goes to the caller only and is not stored. */
+    async proxyCheck(request: Request, id: string) {
+      const identity = await access(request, id, false);
+      if (identity instanceof Response) return identity;
+      const result = await call(identity, id, "/egress/check", {});
+      return result.ok ? json(result.value) : result.response;
     },
 
     async netCheck(request: Request, id: string) {

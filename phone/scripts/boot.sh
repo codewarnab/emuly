@@ -127,6 +127,27 @@ if [ "$MODE" = "resume" ]; then
   echo "note: resume requested; every boot is cold (issue #15)"
 fi
 
+# Egress (docs/phone-proxy-plan.md): every guest TCP connection goes to the runner gateway
+# (egress.mjs on 127.0.0.1:8792), so `emuly proxy` can change the path with no restart.
+# Gateway down = no internet for the phone (fail closed). It never goes direct.
+flags+=(-http-proxy http://127.0.0.1:8792)
+# DNS goes to egress-dns.mjs on 127.0.0.77:53 (127.0.0.53 is systemd-resolved). Port 53 needs
+# a copy of node with cap_net_bind_service. If that fails, DNS stays on the codespace resolver.
+source "$(dirname "$0")/node-path.sh"
+node53=/tmp/emuly-node53
+if [ ! -x "$node53" ] && command -v node >/dev/null; then
+  cp "$(command -v node)" "$node53" && sudo -n setcap cap_net_bind_service=+ep "$node53" 2>/dev/null || rm -f "$node53"
+fi
+if [ -x "$node53" ] && ! pgrep -f "emuly-node53 .*egress-dns.mj[s]" >/dev/null; then
+  setsid nohup "$node53" "$(cd "$(dirname "$0")/../runner" && pwd)/egress-dns.mjs" >/tmp/emuly-dns.log 2>&1 </dev/null &
+  for _ in $(seq 1 20); do grep -q "emuly dns on" /tmp/emuly-dns.log 2>/dev/null && break; sleep 0.1; done
+fi
+if pgrep -f "emuly-node53 .*egress-dns.mj[s]" >/dev/null; then
+  flags+=(-dns-server 127.0.0.77)
+else
+  echo "note: egress dns did not start; the phone uses the codespace resolver"
+fi
+
 # Keep the previous boot's log so a bad boot can be compared with the last one.
 mv -f "$LOG" "$LOG.cli" 2>/dev/null || true
 # Phase code stays "fallback_boot": diagnostics map it to bootMethod=raw_fallback.

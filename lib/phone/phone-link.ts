@@ -46,7 +46,7 @@ function safeErrorText(error: unknown, secret = "") {
  */
 const BOOT_REQUEST_MS = process.env.VERCEL ? 240_000 : 1_200_000;
 export type RunnerPath = "/health" | "/boot" | "/stop" | "/screenshot" | "/ui" | "/tap" | "/key" | "/agent-device-info" | "/direct/revoke";
-export type LinksPath = "/links" | "/links/remove" | "/net-check" | "/link-hints";
+export type LinksPath = "/links" | "/links/remove" | "/net-check" | "/link-hints" | "/egress" | "/egress/check";
 export type AppsPath = "/apps" | "/apps/open" | "/app-installs" | `/app-installs/${string}` | "/file-fetches" | `/file-fetches/${string}`;
 export type AppsRequest = { method: "GET" | "POST" | "PUT"; json?: Record<string, unknown>; bytes?: Uint8Array; offset?: number; digest?: string; signal?: AbortSignal };
 export type AdbRequest = { args: string[]; timeout_s: number; binary?: boolean; files?: { name: string; bytes: Uint8Array }[]; key?: string };
@@ -357,7 +357,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
     },
     /** Link and net-check calls. The runner's status and JSON error reach the caller unchanged. */
     async links(phone: Owner, path: LinksPath, body?: Record<string, unknown>): Promise<Response> {
-      if (!["/links", "/links/remove", "/net-check", "/link-hints"].includes(path)) throw new Error("Invalid links route");
+      if (!["/links", "/links/remove", "/net-check", "/link-hints", "/egress", "/egress/check"].includes(path)) throw new Error("Invalid links route");
       // Reading the list is not an action: an open console tab polls it and must not keep the phone awake.
       if (body) activity?.mark(phone);
       const { entry, release } = acquire(phone);

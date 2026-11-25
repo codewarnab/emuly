@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-// Emuly CLI: `emuly up|login|doctor|install|link|dev|unlink|links`. Plain Node, no dependencies. Used on the host
+// Emuly CLI: `emuly up|login|doctor|install|link|dev|proxy|unlink|links`. Plain Node, no dependencies. Used on the host
 // (`pnpm emuly up`) and as the container command (`node bin/emuly.mjs up --prod --no-browser`).
 // All interactive child output is inherited, so the user sees gh's device-flow code and the
 // server log. Checks run with piped output so their stderr can be shown on failure.
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { connect } from "node:net";
+import { connect, createServer as createNetServer, isIP } from "node:net";
+import { lookup as dnsLookup } from "node:dns";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -451,10 +452,18 @@ function runRelay(url, targets, onReady, stopSignal) {
 
 async function link(args) {
   const { phone, ports, targets, route: forced } = linkArgs(args);
-  const path = `/v1/phones/${encodeURIComponent(phone)}/links`;
   const stop = new AbortController();
   // Ctrl-C removes the links on the phone, so no stale adb reverse rule stays behind.
   for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => stop.abort());
+  await holdLink({ phone, ports, targets, forced, stop });
+}
+
+/**
+ * Keeps links up until `stop` aborts, with reconnects. `onUp(route, verified)` runs once when the
+ * link first works; without it, the link prints its JSON line. `emuly proxy` uses it too.
+ */
+async function holdLink({ phone, ports, targets, forced, stop, onUp }) {
+  const path = `/v1/phones/${encodeURIComponent(phone)}/links`;
 
   let choice = forced ? { route: forced } : await pickRoute();
   // Route A needs a gh account that can open this phone's codespace. Find it before the first try.
@@ -489,6 +498,7 @@ async function link(args) {
   const announce = (route, verified) => {
     if (announced) { say(`reconnected (${route}).`); return; }
     announced = true;
+    if (onUp) { void onUp(route, verified); return; }
     emit({ ok: true, verified, phone, route, ports, targets: [...targets].map(([port, target]) => ({ port, to: `${target.host}:${target.port}`,
       listening_here: listeningHere.get(port) })),
       app_urls: ports.flatMap(port => [`localhost:${port}`, `10.0.2.2:${port}`]) });
@@ -873,6 +883,274 @@ async function listLinks(args) {
   emit(await api("GET", `/v1/phones/${encodeURIComponent(phone)}/links`));
 }
 
+// ---------------------------------------------------------------------------------------------
+// `emuly proxy`: all phone traffic leaves from this computer, or from an upstream proxy here.
+// The runner gateway (phone/runner/egress.mjs) sends each phone connection as a CONNECT through a
+// link to the small CONNECT server below. Credentials for --via stay in this process: they are
+// never sent to Emuly, written to disk, or printed. See docs/phone-proxy-plan.md.
+
+const sayProxy = message => console.error(`emuly proxy: ${message}`);
+/** The codespace port of the proxy link. Outside the runner's ports and common dev ports. */
+const PROXY_LINK_PORT = 18792;
+
+/** True for loopback, private, link-local, shared, multicast and reserved addresses (v4 and v6). */
+function lanAddress(ip) {
+  const v4 = /^(?:::ffff:)?(\d+)\.(\d+)\.(\d+)\.(\d+)$/i.exec(ip);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254)
+      || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224;
+  }
+  const lower = ip.toLowerCase();
+  if (!lower.includes(":")) return true;
+  if (lower === "::" || lower === "::1") return true;
+  const first = parseInt(lower.split(":")[0] || "0", 16);
+  return (first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80 || (first & 0xff00) === 0xff00;
+}
+
+/** A --via proxy without its user name and password, for messages. */
+const viaLabel = via => via ? `${via.protocol}://${via.host.includes(":") ? `[${via.host}]` : via.host}:${via.port}` : "this computer";
+
+/** Parses --via. The error never contains the URL, because it may hold a password. */
+function parseVia(text) {
+  let url;
+  try { url = new URL(text); } catch { throw new Error("--via is http://[user:pass@]host:port or socks5://[user:pass@]host:port."); }
+  const protocol = url.protocol.replace(/:$/, "");
+  if (!["http", "socks5", "socks5h"].includes(protocol)) throw new Error(`--via does not support ${protocol}://. Use http:// or socks5://.`);
+  if (!url.hostname) throw new Error("--via needs a host.");
+  const port = Number(url.port || (protocol === "http" ? 8080 : 1080));
+  return { protocol, host: url.hostname.replace(/^\[(.*)\]$/, "$1"), port,
+    user: decodeURIComponent(url.username), pass: decodeURIComponent(url.password) };
+}
+
+function proxyArgs(args, env = process.env) {
+  const options = { lock: false, allowLan: false, local: false };
+  const rest = [];
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === "--lock") options.lock = true;
+    else if (arg === "--allow-lan") options.allowLan = true;
+    else if (arg === "--local") options.local = true;
+    else if (arg === "--via" || arg === "--route") options[arg.slice(2)] = args[++index];
+    else if (arg.startsWith("--via=") || arg.startsWith("--route=")) { const [key, value] = arg.slice(2).split(/=(.*)/); options[key] = value; }
+    else if (arg.startsWith("-")) throw new Error(`Unknown option ${arg}.`);
+    else rest.push(arg);
+  }
+  const [phone, action = "on", extra] = options.local ? [undefined, "local", rest[0]] : rest;
+  if ((!phone && !options.local) || extra || !["on", "off", "status", "local"].includes(action)) {
+    throw new Error("Usage: emuly proxy <phone> [--via url] [--lock] [--allow-lan] | emuly proxy <phone> off | emuly proxy <phone> status");
+  }
+  if (options.route && !["ssh", "relay"].includes(options.route)) throw new Error("--route is ssh or relay.");
+  const viaText = options.via ?? env.EMULY_PROXY_VIA;
+  return { phone, action, lock: options.lock, allowLan: options.allowLan, route: options.route, via: viaText ? parseVia(viaText) : undefined };
+}
+
+/** Reads one HTTP reply head from a socket: the status line and the bytes after the head. */
+function readReplyHead(socket) {
+  return new Promise((resolve, reject) => {
+    let buffer = Buffer.alloc(0);
+    const onData = chunk => {
+      buffer = Buffer.concat([buffer, chunk]);
+      const end = buffer.indexOf("\r\n\r\n");
+      if (end >= 0) { cleanup(); resolve({ line: buffer.subarray(0, buffer.indexOf("\r\n")).toString("latin1"), rest: buffer.subarray(end + 4) }); }
+      else if (buffer.length > 16_384) { cleanup(); reject(new Error("The upstream proxy sent a bad reply.")); }
+    };
+    const onEnd = () => { cleanup(); reject(new Error("The upstream proxy closed the connection.")); };
+    const cleanup = () => { socket.pause(); socket.off("data", onData); socket.off("end", onEnd); socket.off("error", onEnd); };
+    socket.on("data", onData); socket.once("end", onEnd); socket.once("error", onEnd); socket.resume();
+  });
+}
+
+/** Reads exactly n bytes from a socket (SOCKS5 replies). */
+function readBytes(socket, n) {
+  return new Promise((resolve, reject) => {
+    let buffer = Buffer.alloc(0);
+    const onData = chunk => {
+      buffer = Buffer.concat([buffer, chunk]);
+      if (buffer.length < n) return;
+      cleanup();
+      if (buffer.length > n) socket.unshift(buffer.subarray(n));
+      resolve(buffer.subarray(0, n));
+    };
+    const onEnd = () => { cleanup(); reject(new Error("The upstream proxy closed the connection.")); };
+    const cleanup = () => { socket.pause(); socket.off("data", onData); socket.off("end", onEnd); socket.off("error", onEnd); };
+    socket.on("data", onData); socket.once("end", onEnd); socket.once("error", onEnd); socket.resume();
+  });
+}
+
+function dialTcp(host, port, ms = 10_000) {
+  return new Promise((resolve, reject) => {
+    const socket = connect({ host, port, allowHalfOpen: true });
+    socket.setNoDelay(true);
+    const timer = setTimeout(() => { socket.destroy(); reject(Object.assign(new Error("timeout"), { code: "ETIMEDOUT" })); }, ms);
+    socket.once("connect", () => { clearTimeout(timer); socket.removeAllListeners("error"); resolve(socket); });
+    socket.once("error", error => { clearTimeout(timer); reject(error); });
+  });
+}
+
+function ipv6Bytes(ip) {
+  const [left, right = ""] = ip.split("::");
+  const parts = text => text ? text.split(":") : [];
+  const head = parts(left), tail = parts(right);
+  const all = ip.includes("::") ? [...head, ...Array(8 - head.length - tail.length).fill("0"), ...tail] : head;
+  return Buffer.from(all.flatMap(part => { const value = parseInt(part, 16); return [value >> 8, value & 0xff]; }));
+}
+
+/** Opens a tunnel to host:port through the --via proxy. Errors name the proxy without its password. */
+async function viaTunnel(via, host, port) {
+  const socket = await dialTcp(via.host, via.port).catch(error => {
+    throw Object.assign(new Error(`The upstream proxy ${viaLabel(via)} did not answer (${error.code ?? "error"}).`), { code: "via_unreachable" });
+  });
+  try {
+    if (via.protocol === "http") {
+      const name = isIP(host) === 6 ? `[${host}]` : host;
+      const auth = via.user || via.pass ? `Proxy-Authorization: Basic ${Buffer.from(`${via.user}:${via.pass}`).toString("base64")}\r\n` : "";
+      socket.write(`CONNECT ${name}:${port} HTTP/1.1\r\nHost: ${name}:${port}\r\n${auth}\r\n`);
+      const reply = await readReplyHead(socket);
+      const status = Number(/^HTTP\/1\.[01] (\d{3})/.exec(reply.line)?.[1]);
+      if (status === 407) throw Object.assign(new Error(`The upstream proxy ${viaLabel(via)} refused the user name or password.`), { code: "via_auth" });
+      if (status !== 200) throw Object.assign(new Error(`The upstream proxy ${viaLabel(via)} refused ${host}:${port} (${status || "bad reply"}).`), { code: "via_refused" });
+      if (reply.rest.length) socket.unshift(reply.rest);
+      return socket;
+    }
+    const auth = Boolean(via.user || via.pass);
+    socket.write(Buffer.from(auth ? [5, 2, 0, 2] : [5, 1, 0]));
+    const [version, method] = await readBytes(socket, 2);
+    if (version !== 5 || method === 0xff || (method === 2 && !auth)) {
+      throw Object.assign(new Error(`The upstream proxy ${viaLabel(via)} needs a user name and password.`), { code: "via_auth" });
+    }
+    if (method === 2) {
+      const user = Buffer.from(via.user), pass = Buffer.from(via.pass);
+      if (user.length > 255 || pass.length > 255) throw new Error("The --via user name or password is too long.");
+      socket.write(Buffer.concat([Buffer.from([1, user.length]), user, Buffer.from([pass.length]), pass]));
+      const [, ok] = await readBytes(socket, 2);
+      if (ok !== 0) throw Object.assign(new Error(`The upstream proxy ${viaLabel(via)} refused the user name or password.`), { code: "via_auth" });
+    }
+    const family = isIP(host);
+    const address = family === 4 ? Buffer.from([1, ...host.split(".").map(Number)])
+      : family === 6 ? Buffer.concat([Buffer.from([4]), ipv6Bytes(host)])
+      : Buffer.concat([Buffer.from([3, Buffer.byteLength(host)]), Buffer.from(host)]);
+    socket.write(Buffer.concat([Buffer.from([5, 1, 0]), address, Buffer.from([port >> 8, port & 0xff])]));
+    const head = await readBytes(socket, 4);
+    if (head[1] !== 0) throw Object.assign(new Error(`The upstream proxy ${viaLabel(via)} refused ${host}:${port} (SOCKS code ${head[1]}).`), { code: "via_refused" });
+    const length = head[3] === 1 ? 4 : head[3] === 4 ? 16 : (await readBytes(socket, 1))[0];
+    await readBytes(socket, length + 2);
+    return socket;
+  } catch (error) { socket.destroy(); throw error; }
+}
+
+/**
+ * The CONNECT server on 127.0.0.1 that the phone's link reaches. It only takes CONNECT (the
+ * runner gateway sends nothing else). Without --allow-lan it refuses this computer's loopback
+ * and LAN, so a phone app cannot scan the user's network.
+ */
+function startLocalProxy({ via, allowLan, lookup = dnsLookup }) {
+  const counters = { connections: 0, refused: 0, failed: 0 };
+  const server = createNetServer({ allowHalfOpen: true }, client => {
+    counters.connections++;
+    client.on("error", () => client.destroy());
+    let buffer = Buffer.alloc(0);
+    const timer = setTimeout(() => client.destroy(), 10_000);
+    const onData = async chunk => {
+      buffer = Buffer.concat([buffer, chunk]);
+      const end = buffer.indexOf("\r\n\r\n");
+      if (end < 0) { if (buffer.length > 16_384) client.destroy(); return; }
+      clearTimeout(timer);
+      client.off("data", onData);
+      client.pause();
+      const match = /^CONNECT (\[[0-9a-fA-F:.]+\]|[^\s:]+):(\d{1,5}) HTTP\/1\.[01]\r\n/.exec(buffer.toString("latin1", 0, end + 2));
+      const refuse = status => { counters.refused++; client.end(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`); };
+      if (!match) return refuse("405 Method Not Allowed");
+      const host = match[1].replace(/^\[(.*)\]$/, "$1"), port = Number(match[2]);
+      if (port < 1 || port > 65535) return refuse("400 Bad Request");
+      let upstream;
+      try {
+        let target = host;
+        if (!allowLan) {
+          if (isIP(host)) { if (lanAddress(host)) return refuse("403 Forbidden"); }
+          else if (!via) {
+            // Connect to the checked address, so a second lookup cannot point the name at the LAN.
+            target = await new Promise((resolve, reject) => lookup(host, { family: 0 }, (error, address) => error ? reject(error) : resolve(address)));
+            if (lanAddress(target)) return refuse("403 Forbidden");
+          }
+        }
+        upstream = via ? await viaTunnel(via, target, port) : await dialTcp(target, port);
+      } catch (error) {
+        counters.failed++;
+        if (error.code === "via_auth" || error.code === "via_unreachable") sayProxy(error.message);
+        return client.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n");
+      }
+      if (client.destroyed) return upstream.destroy();
+      upstream.on("error", () => { upstream.destroy(); client.destroy(); });
+      client.once("close", () => upstream.destroy());
+      upstream.once("close", () => client.destroy());
+      client.write("HTTP/1.1 200 Connection established\r\n\r\n");
+      const rest = buffer.subarray(end + 4);
+      if (rest.length) upstream.write(rest);
+      client.pipe(upstream); upstream.pipe(client);
+      client.resume();
+    };
+    client.on("data", onData);
+  });
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve({ server, port: server.address().port, counters }));
+  });
+}
+
+async function proxy(args) {
+  const options = proxyArgs(args);
+  const { phone, action, via } = options;
+  if (action === "local") {
+    // Only the local CONNECT server, for checks and tests. No link, no Emuly call.
+    const local = await startLocalProxy(options);
+    emit({ ok: true, local_port: local.port, via: viaLabel(via), lan: options.allowLan ? "allowed" : "blocked" });
+    for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => { local.server.close(); process.exit(0); });
+    return;
+  }
+  const path = `/v1/phones/${encodeURIComponent(phone)}/proxy`;
+  if (action === "status") { emit(await api("GET", path)); return; }
+  if (action === "off") { emit(await api("DELETE", path)); return; }
+
+  // Check the upstream proxy first, so a wrong password fails here and not inside the phone.
+  if (via) {
+    try { (await viaTunnel(via, "1.1.1.1", 443)).destroy(); }
+    catch (error) {
+      emit({ ok: false, error: error.code ?? "via_failed", message: error.message });
+      process.exitCode = 1;
+      return;
+    }
+  }
+  const local = await startLocalProxy(options);
+  const stop = new AbortController();
+  for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => stop.abort());
+  const targets = new Map([[PROXY_LINK_PORT, { host: "127.0.0.1", port: local.port }]]);
+  let on = false;
+  const onUp = async route => {
+    try {
+      await api("POST", path, { mode: "laptop", port: PROXY_LINK_PORT, lock: options.lock });
+      on = true;
+      const check = await api("POST", `${path}/check`).catch(error => ({ ok: false, error: error.message }));
+      const status = await api("GET", path).catch(() => ({}));
+      emit({ ok: true, phone, mode: "laptop", route, via: viaLabel(via), exit_ip: check.exit_ip ?? null,
+        check: check.ok ? "passed" : check.error ?? "failed", dns: status.dns ?? "unknown", udp: status.udp ?? "unknown",
+        lock: options.lock, lan: options.allowLan ? "allowed" : "blocked" });
+      sayProxy(`all phone traffic now leaves from ${viaLabel(via)}. Ctrl-C ${options.lock
+        ? `keeps the phone offline until: emuly proxy ${phone} off` : "puts the phone back on its own network"}.`);
+    } catch (error) {
+      emit({ ok: false, error: error.body?.error ?? "proxy_failed", message: error.message });
+      process.exitCode = 1;
+      stop.abort();
+    }
+  };
+  await holdLink({ phone, ports: [PROXY_LINK_PORT], targets, forced: options.route, stop, onUp });
+  local.server.close();
+  if (!on) return;
+  if (options.lock) { sayProxy(`the phone stays offline (locked). Run: emuly proxy ${phone} off`); return; }
+  await api("DELETE", path).then(() => sayProxy("the phone uses its own network again."),
+    error => sayProxy(`could not turn the proxy off: ${error.message}. Run: emuly proxy ${phone} off`));
+}
+
 const usage = `Usage: emuly <command>
 
   up      Check gh, migrate the database and start Emuly (--prod adds --production)
@@ -888,9 +1166,16 @@ const usage = `Usage: emuly <command>
           Connect the phone to adb here, so flutter run, expo run:android and Android Studio
           see it and hot reload works. Extra ports become links. Needs adb and gh.
           Runs until Ctrl-C. Prints one line of JSON when adb is ready.
+  proxy   emuly proxy <phone> [--via url] [--lock] [--allow-lan] [--route ssh|relay]
+          Send all phone traffic out from this computer, or from the --via proxy
+          (http:// or socks5://, with user:pass@ if needed; or set EMULY_PROXY_VIA).
+          The password stays here. This computer's LAN is blocked unless --allow-lan.
+          Runs until Ctrl-C, then the phone uses its own network again. With --lock
+          the phone stays offline until: emuly proxy <phone> off
+          emuly proxy <phone> status | off
   unlink  emuly unlink <phone> [port]   Remove one link, or all links of the phone
   links   emuly links <phone>           List the links of the phone as JSON`;
-const commands = { up, login, doctor, install, link, dev, unlink, links: listLinks };
+const commands = { up, login, doctor, install, link, dev, proxy, unlink, links: listLinks };
 const [command, ...args] = process.argv.slice(2);
 // Help is checked over command and args together, so `emuly --help` exits 0 too.
 const wantHelp = [command, ...args].some(a => a === "--help" || a === "-h");
