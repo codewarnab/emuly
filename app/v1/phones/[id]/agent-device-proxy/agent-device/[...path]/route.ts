@@ -1,6 +1,7 @@
 import { recordPhoneAgentDevice } from "../../../../../../../lib/phone/phone-activity";
 import { agentDeviceCommand, agentDevicePath, agentDeviceUnavailable, bearerToken, proxyRequestHeaders } from "../../../../../../../lib/phone/agent-device";
 import { runnerProxy } from "../../../../../../../lib/phone/phone-runner";
+import { withApiUsage } from "@/lib/diagnostics/api-usage-route";
 
 type Context = { params: Promise<{ id: string; path: string[] }> };
 
@@ -34,4 +35,6 @@ async function commandOf(request: Request): Promise<string | null | undefined> {
   try { return agentDeviceCommand(await request.clone().json()); } catch { return null; }
 }
 
-export { route as GET, route as POST, route as PUT, route as DELETE, route as PATCH };
+// Each call is counted anonymously (docs/diagnostics-overhaul-plan.md, Part 3).
+const counted = withApiUsage(route);
+export { counted as GET, counted as POST, counted as PUT, counted as DELETE, counted as PATCH };

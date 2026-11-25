@@ -1,5 +1,7 @@
 import type { DatabaseQueries } from "../data/async-database.ts";
 import { diagnosticId, operationKinds, outcomes, validateStep } from "./diagnostic-contract.ts";
+import { apiUsageReport } from "./api-usage.ts";
+import { stateReport } from "./state-usage.ts";
 
 const safeRelease = (v: unknown) => v === "unknown" || (typeof v === "string" && /^[a-f0-9]{7,40}$/.test(v));
 const integer = (v: unknown) => Number.isSafeInteger(v) && Number(v) >= 0;
@@ -11,11 +13,16 @@ export async function diagnosticReport(database: DatabaseQueries, mode: string, 
       ? [{ operation: r.id, kind: r.kind, outcome: r.outcome, stale: Date.now() - Date.parse(String(r.started_at)) > 3600000,
         droppedRecords: integer(r.dropped_records) ? r.dropped_records : null }] : []);
   if (mode === "health") return {
-    counters: (await database.execute({ sql: "SELECT code, count FROM diagnostic_health LIMIT 4", args: [] })).rows.filter(r =>
-      ["writeFailures", "invalidRecords", "droppedRecords", "collectorFailures"].includes(String(r.code)) && integer(r.count)),
+    counters: (await database.execute({ sql: "SELECT code, count FROM diagnostic_health LIMIT 16", args: [] })).rows.filter(r =>
+      (["writeFailures", "invalidRecords", "droppedRecords", "collectorFailures"].includes(String(r.code))
+        || /^writeFailures_(constraint|busy|timeout|schema|other)$/.test(String(r.code))) && integer(r.count)),
     databaseBytes: Number((await database.execute({ sql: "PRAGMA page_count", args: [] })).rows[0]?.page_count ?? 0) * Number((await database.execute({ sql: "PRAGMA page_size", args: [] })).rows[0]?.page_size ?? 0),
   };
   if (mode === "aggregate") return aggregate(database);
+  // Anonymous /v1 usage for the last 7 days. Groups with fewer than 10 samples are hidden.
+  if (mode === "api") return apiUsageReport(database);
+  // Anonymous phone state changes for the last 7 days. Groups with fewer than 10 samples are hidden.
+  if (mode === "states") return stateReport(database);
   if (mode !== "timeline" || !diagnosticId(operationId)) throw new Error("Invalid report request");
   const operation = (await database.execute({ sql: "SELECT run_id, started_at FROM diagnostic_operations WHERE id = ?", args: [operationId] })).rows[0];
   if (!operation) throw new Error("Operation unavailable");

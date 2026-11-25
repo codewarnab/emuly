@@ -14,6 +14,7 @@ import type { Client } from "@libsql/client";
 import { decidePhoneTransition, decideRunChanges, START_PENDING_DETAIL } from "./phone-lifecycle.ts";
 import { candidatePhoneName, PHONE_ID } from "../shared/phone-name.ts";
 import { createDiagnostics, measure, newDiagnosticId } from "../diagnostics/diagnostics.ts";
+import { createStateCounts, stateErrorOf, type StateReason } from "../diagnostics/state-usage.ts";
 import { publicAddress } from "../webhooks/webhook-security.ts";
 
 type GitHub = ReturnType<typeof createGitHubClient>;
@@ -75,6 +76,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     else void settled;
   };
   const diagnostics = createDiagnostics(database);
+  // Diagnostics (anonymous): state-change counts. record() never waits; on Vercel, waitUntil keeps the flush alive.
+  const states = createStateCounts(() => database, task => { if (process.env.VERCEL) waitUntil(task); });
   void diagnostics.reconcile();
   const iso = () => new Date(clock()).toISOString();
   const settingUp = new Set<string>();
@@ -217,7 +220,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       } catch { status = "failed"; }
       // Recheck the attempt and phone inside the transaction after the remote call.
       const committed = await transaction(database, async queries => {
-        const current = (await queries.execute({ sql: `SELECT p.machine FROM phone_setup_attempts a JOIN phones p ON p.id = a.phone_id
+        const current = (await queries.execute({ sql: `SELECT p.machine, p.last_started_at FROM phone_setup_attempts a JOIN phones p ON p.id = a.phone_id
           WHERE a.phone_id = ? AND a.attempt_id = ? AND p.state = 'booting' AND p.user_id = ? AND p.codespace_name = ?`, args: [id, attemptId, userId, codespaceName] })).rows[0];
         if (!current) return false;
         if (status !== "ready") {
@@ -229,6 +232,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         } else {
           await queries.execute({ sql: "DELETE FROM phone_setup_attempts WHERE phone_id = ? AND attempt_id = ?", args: [id, attemptId] });
           await queries.execute({ sql: "UPDATE phones SET state = 'running', state_detail = NULL WHERE user_id = ? AND id = ?", args: [userId, id] });
+          // Diagnostics (anonymous): booting to running is the cold-start time, measured from the start request.
+          states.record({ from: "booting", to: "running", reason: "user", since: current.last_started_at as string | null });
           await event(userId, id, "step", "Phone runner ready", queries);
           await emit({ userId, type: "phone.ready", createdAt: iso(), data: {
             phone: { id, name: codespaceName, state: "running", machine: current.machine }, reason: "user" } }, queries);
@@ -361,6 +366,12 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       retention_at = ?, cores = COALESCE(?, cores), location = COALESCE(?, location) WHERE user_id = ? AND id = ?`,
       args: [state, detail, lastStarted, lastStopped, retention, codespace.machine?.cpus ?? null, codespace.location || null, userId, id] });
     if (previous.state !== state) {
+      // Diagnostics (anonymous): poller.ts and reconcile.ts change state only through apply(), so this counts their changes too.
+      const reason: StateReason = state === "error" ? "error" : isKeeping ? "retention"
+        : ["user", "hours_budget", "retention"].includes(previous.stop_reason ?? "") ? previous.stop_reason as StateReason
+        : source === "reconciled" ? (state === "stopped" || state === "stopping" ? "idle" : "provider") : "user";
+      states.record({ from: previous.state, to: state, reason, error: state === "error" ? stateErrorOf(detail) : "none", region: codespace.location,
+        since: ["booting", "running"].includes(previous.state) ? previous.last_started_at : previous.last_stopped_at });
       await event(userId, id, "step", `Codespace ${codespace.state}`, queries);
       // A requested start already emitted before HTTP. Reconciliation catches external starts.
       const type = state === "booting" ? (source === "reconciled" ? "phone.starting" : undefined)
@@ -454,8 +465,10 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
           diagnosticOperation = await diagnostics.operation(userId, id, "resume");
           const result = await diagnostics.scope(diagnosticOperation, () => measure("github_start", () => github.startCodespace(userId, id)));
           // Show the start at once; the transition keeps "booting" while GitHub still reports Shutdown.
-          await database.execute({ sql: `UPDATE phones SET state = 'booting', state_detail = ?, last_started_at = ?
+          const started = await database.execute({ sql: `UPDATE phones SET state = 'booting', state_detail = ?, last_started_at = ?
             WHERE user_id = ? AND id = ? AND state IN ('stopped', 'error')`, args: [START_PENDING_DETAIL, iso(), userId, id] });
+          // Diagnostics (anonymous): a requested start. The time counted is how long the phone was stopped.
+          if (started.rowsAffected) states.record({ from: stored.state, to: "booting", reason: "user", since: stored.last_stopped_at });
           await database.execute({ sql: "UPDATE phones SET last_started_at = ? WHERE user_id = ? AND id = ?", args: [iso(), userId, id] });
           if (result) { observed = result.state; await apply(userId, id, result); }
         }
@@ -540,6 +553,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         await transaction(database, async queries => {
         await queries.execute({ sql: "DELETE FROM phone_setup_attempts WHERE phone_id = ?", args: [id] });
         await queries.execute({ sql: "UPDATE phones SET stop_reason = ? WHERE id = ?", args: [automatic ? "hours_budget" : "user", id] });
+        // Diagnostics (anonymous): a requested stop, by the owner or by the hours budget.
+        states.record({ from: stored.state, to: "stopping", reason: automatic ? "hours_budget" : "user", since: stored.last_started_at });
         await queries.execute({ sql: "UPDATE phones SET state = 'stopping', state_detail = ? WHERE user_id = ? AND id = ?", args: [runner ? "Android stopped. GitHub is stopping the codespace." : "GitHub is stopping the codespace. Runner snapshot saving is not connected yet.", userId, id] });
         });
         disconnect?.(userId, id, stored.codespace_name);
@@ -598,6 +613,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         void diagnostics.finish(operationId, "succeeded");
         await database.execute({ sql: "UPDATE phones SET stop_reason = 'retention' WHERE id = ?", args: [id] });
         await database.execute({ sql: "UPDATE phones SET state = 'stopping' WHERE user_id = ? AND id = ?", args: [userId, id] });
+        // Diagnostics (anonymous): the Keep it stop after its short run.
+        states.record({ from: "running", to: "stopping", reason: "retention" });
       }
       await event(userId, id, "step", `Keep it: ${operation} accepted`);
     } catch (error) {
@@ -679,6 +696,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         const previous = await phone(userId, id, queries);
         await trackRun(previous, { id: 0, name: previous.codespace_name, state: "Deleted" }, "deleted", "emuly", queries);
         await queries.execute({ sql: "UPDATE phones SET state = 'deleted', state_detail = NULL WHERE user_id = ? AND id = ?", args: [userId, id] });
+        // Diagnostics (anonymous): a delete. The time counted is the phone's whole life since its last start or stop.
+        states.record({ from: previous.state, to: "deleted", reason: "user", since: previous.last_stopped_at ?? previous.last_started_at });
         await event(userId, id, "step", "delete accepted", queries);
         return previous;
       });
@@ -766,6 +785,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         await transaction(database, async queries => {
           if (failed) await queries.execute({ sql: "UPDATE phone_creations SET outcome = 'failed' WHERE phone_id = ?", args: [id] });
           await queries.execute({ sql: "UPDATE phones SET state = 'error', state_detail = ? WHERE user_id = ? AND id = ?", args: [message, userId, id] });
+          // Diagnostics (anonymous): a failed create. Only a fixed error code is kept, never the message.
+          states.record({ from: "creating", to: "error", reason: "error", error: stateErrorOf(error) });
           await event(userId, id, "error", message, queries);
           await outgoing(userId, id, "phone.error", { message }, queries);
         });

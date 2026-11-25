@@ -16,7 +16,10 @@ export async function importDatabase(source: Client, target: Client) {
     await read.commit();
   } finally { read.close(); }
   return transaction(target, async queries => {
-    for (const name of tables) {
+    // A later migration can drop a table that an earlier one created. Import only the tables that exist now.
+    const current = new Set((await queries.execute("SELECT name FROM sqlite_master WHERE type = 'table'")).rows.map(row => String(row.name)));
+    for (const name of tables) if (!current.has(name)) snapshot.delete(name);
+    for (const name of snapshot.keys()) {
       if (Number((await queries.execute(`SELECT count(*) AS n FROM "${name}"`)).rows[0]!.n)) throw new Error("Import target must be empty");
     }
     const counts: Record<string, number> = {};

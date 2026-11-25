@@ -55,8 +55,9 @@ Only when the task needs it:
 | Take a screenshot, or record the screen | `references/tasks/screenshots.md` |
 | Add captions to a video, or a before/after video for a PR | `references/tasks/annotate.md` |
 | Delete a phone, or an error you do not know | `references/tasks/delete-and-errors.md` |
-| The user asks for native adb or scrcpy | `references/tasks/native-adb.md` |
+| The user asks for native adb or scrcpy, or hot reload with flutter, expo or Android Studio | `references/tasks/native-adb.md` |
 | The app calls a server (always check before a test) | `references/tasks/local-servers.md` |
+| Phone traffic must leave from the user's computer, network or a proxy they name | `references/tasks/proxy.md` |
 | See or tap the screen for the first time | `references/tasks/agent-device.md` |
 | Set up T3 Code (see "T3 Code") | `references/t3code/<your OS>.md`, one file only |
 | The `GET /v1/phones` reply has `skill_update`, `update` or `network_hint` | `references/notices.md` |

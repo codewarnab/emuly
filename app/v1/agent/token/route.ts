@@ -1,9 +1,10 @@
 import { asyncDb } from "../../../../lib/data/async-db";
 import { AgentInputError, exchangeSetupCode } from "../../../../lib/data/agents";
 import { agentKeyCommands, allowAgentExchange, clientIp } from "../../../../lib/auth/agent";
+import { withApiUsage } from "@/lib/diagnostics/api-usage-route";
 
 /** Exchanges a one-time setup code for a 90-day agent key. No cookie is needed. */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const json = (body: unknown, status = 200, headers?: Record<string, string>) =>
     Response.json(body, { status, headers: { "Cache-Control": "private, no-store", ...headers } });
   if (!request.headers.get("content-type")?.startsWith("application/json")) return json({ error: "invalid_input" }, 415);
@@ -28,3 +29,6 @@ export async function POST(request: Request) {
     return json({ error: "request_failed", message: "The setup code could not be exchanged. Try again." }, 500);
   }
 }
+
+// Each call is counted anonymously (docs/diagnostics-overhaul-plan.md, Part 3).
+export const POST = withApiUsage(handlePOST);

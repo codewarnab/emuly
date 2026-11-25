@@ -2,9 +2,10 @@ import { allowAgentDeviceStart, clientIp } from "../../../../lib/auth/agent";
 import { asyncDb } from "../../../../lib/data/async-db";
 import { AgentDeviceLimitError, createDeviceCode } from "../../../../lib/data/agents";
 import { env } from "../../../../lib/env";
+import { withApiUsage } from "@/lib/diagnostics/api-usage-route";
 
 /** Starts an RFC 8628 device login. No cookie or key is needed. */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const json = (body: unknown, status = 200, headers?: Record<string, string>) =>
     Response.json(body, { status, headers: { "Cache-Control": "private, no-store", ...headers } });
   try {
@@ -29,3 +30,6 @@ export async function POST(request: Request) {
     return json({ error: "request_failed", message: "The sign-in request could not be started. Try again." }, 500);
   }
 }
+
+// Each call is counted anonymously (docs/diagnostics-overhaul-plan.md, Part 3).
+export const POST = withApiUsage(handlePOST);

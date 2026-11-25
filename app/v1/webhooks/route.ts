@@ -1,4 +1,6 @@
 import { webhookApi } from "../../../lib/api";
+import { withApiUsage } from "@/lib/diagnostics/api-usage-route";
 
-export const GET = (request: Request) => webhookApi()(request);
-export const POST = (request: Request) => webhookApi()(request);
+// Each call is counted anonymously (docs/diagnostics-overhaul-plan.md, Part 3).
+export const GET = withApiUsage((request: Request) => webhookApi()(request));
+export const POST = withApiUsage((request: Request) => webhookApi()(request));

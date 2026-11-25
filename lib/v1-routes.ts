@@ -13,6 +13,7 @@ export const V1_ROUTES: readonly string[] = [
   "GET /v1/phones/{id}/app-events", "GET /v1/phones/{id}/net-check",
   "POST /v1/phones/{id}/delete-requests", "GET /v1/phones/{id}/delete-requests/{requestId}",
   "GET /v1/phones/{id}/links", "POST /v1/phones/{id}/links", "DELETE /v1/phones/{id}/links", "GET /v1/phones/{id}/links/relay",
+  "GET /v1/phones/{id}/proxy", "POST /v1/phones/{id}/proxy", "DELETE /v1/phones/{id}/proxy", "POST /v1/phones/{id}/proxy/check",
   "POST /v1/phones/{id}/recording/{start|stop|mark|discard}", "GET /v1/phones/{id}/recording/{status|file|grid|notes}",
   "GET /v1/phones/{id}/apps", "POST /v1/phones/{id}/apps/open", "POST /v1/phones/{id}/apps/update",
   "GET /v1/phones/{id}/app-installs", "POST /v1/phones/{id}/app-installs", "GET /v1/phones/{id}/app-installs/{operationId}",

@@ -15,6 +15,7 @@ import { ADB_DOWNLOAD_MAX_BYTES, ADB_FILES_MAX, ADB_OUTPUT_MAX_BYTES, ADB_UPLOAD
 import { AppError } from "./apk-download.mjs";
 import { createFileFetches } from "./file-fetch.mjs";
 import { createLinks } from "./links.mjs";
+import { createEgress } from "./egress.mjs";
 import { pasteText } from "./paste-text.mjs";
 import { createDirectServer } from "./direct-server.mjs";
 import { createRunnerKey } from "./runner-key.mjs";
@@ -322,6 +323,48 @@ const fetches = await createFileFetches({ root: join(ROOT, "data", "file-fetches
 // The runner owns SIGTERM (see the recorder below); the proxy stops in its exit handler.
 const agentDevice = startAgentDeviceProxy({ sdk: SDK, signals: false });
 const links = createLinks({ adb, booted });
+
+// Egress gateway (egress.mjs): the emulator sends all TCP here. The mode survives a stop in
+// /workspaces/.emuly/egress.json. In laptop mode, UDP other than DNS is dropped inside the
+// phone, because CONNECT cannot carry it. The rules live in their own chain, so off is a flush.
+const egress = createEgress({ log: message => console.log(message) });
+await egress.load();
+egress.listen().catch(error => console.log(`egress gateway failed: ${error.code ?? error.message}`));
+queueMicrotask(() => { void applyUdpRules().catch(() => {}); });
+let udpBlocked = false;
+// Without --lock, a laptop proxy that dies with no Ctrl-C (a killed process, a closed laptop) must not
+// leave the phone offline. After EGRESS_LOST_MS with no listener on the link port, go back to direct.
+// With --lock the phone stays fail closed until `emuly proxy <phone> off`.
+const EGRESS_LOST_MS = 90_000;
+let egressLostAt;
+setInterval(async () => {
+  const now = egress.setting();
+  if (now.mode !== "laptop" || now.lock) { egressLostAt = undefined; return; }
+  if (await egress.upstreamOpen()) { egressLostAt = undefined; return; }
+  egressLostAt ??= Date.now();
+  if (Date.now() - egressLostAt < EGRESS_LOST_MS) return;
+  egressLostAt = undefined;
+  console.log("egress: the laptop proxy is gone, so the phone uses direct again");
+  await egress.set({ mode: "direct" }).then(() => applyUdpRules()).catch(() => {});
+}, 15_000).unref();
+async function applyUdpRules() {
+  const laptop = egress.setting().mode === "laptop";
+  if (!await booted()) { udpBlocked = false; return; }
+  const rules = laptop
+    ? "for t in iptables ip6tables; do $t -N emuly_udp 2>/dev/null; $t -F emuly_udp; $t -C OUTPUT -j emuly_udp 2>/dev/null || $t -I OUTPUT -j emuly_udp; done; "
+      + "iptables -A emuly_udp -p udp ! -d 10.0.2.3 -j DROP; ip6tables -A emuly_udp -p udp -j DROP; echo emuly-ok"
+    : "for t in iptables ip6tables; do $t -F emuly_udp 2>/dev/null; done; echo emuly-ok";
+  // su 0 keeps adbd as it is. adb root would restart adbd and cut scrcpy and every adb session.
+  const out = String(await adb(["shell", `su 0 sh -c '${rules}'`], { timeout: 15_000 }).catch(error => error.stdout ?? ""));
+  udpBlocked = laptop && out.includes("emuly-ok");
+  if (laptop && !udpBlocked) console.log("egress: could not drop UDP in the phone");
+}
+async function egressStatus() {
+  const status = egress.status();
+  const dns = await readFile("/tmp/emuly-dns.log", "utf8").then(text => text.includes("emuly dns on"), () => false);
+  return { ...status, laptop_connected: status.mode === "laptop" ? await egress.upstreamOpen() : null,
+    dns: dns ? (status.mode === "laptop" ? "laptop" : "codespace") : "codespace", udp: udpBlocked ? "blocked" : "open" };
+}
 // A new runner has no links, so any reverse rule on the phone is left from the last runner.
 void links.sweep().catch(() => {});
 
@@ -348,7 +391,7 @@ function screenshot() {
 const ui = createUiReader({ adb });
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 22, key: await runnerKey.fingerprint(), scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale", "fileFetch", "uiTree"], avd: "t", api_level: 36, booted: await booted(),
+  "GET /health": async () => ({ ok: true, version: 24, key: await runnerKey.fingerprint(), scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale", "fileFetch", "uiTree", "egress"], avd: "t", api_level: 36, booted: await booted(),
     busy: { viewers: scrcpy.viewers(), links: links.count(), work: requestsInFlight + lifecycleWork + fetches.active() + (adbBusy ? 1 : 0) + (boot || stopping ? 1 : 0),
       idle_ms: Date.now() - lastRequestAt } }),
 
@@ -365,6 +408,7 @@ const routes = {
       apps.resume();
       // A new emulator has no adb reverse rules. Put back the links of this runner.
       await links.reapply();
+      await applyUdpRules().catch(() => {});
       return { booted: await booted(), seconds: Math.round((Date.now() - start) / 1000) };
     }).then(result => { pushBoot(result.booted); return result; }, error => { pushBoot(false); throw error; })
       .finally(() => { boot = undefined; });
@@ -431,6 +475,11 @@ const routes = {
   "POST /links/remove": body => links.remove(body),
   "POST /net-check": body => links.netCheck(body),
   "GET /link-hints": async () => ({ logcat: await links.hints() }),
+
+  // Egress (egress.mjs). POST /egress { mode: "direct" | "laptop", port?, lock? }.
+  "GET /egress": () => egressStatus(),
+  "POST /egress": async body => { await egress.set(body); await applyUdpRules(); return egressStatus(); },
+  "POST /egress/check": () => egress.check(),
 
   // Screen recording (recording.mjs): an MP4 made from the shared video stream, with no second encoder.
   "POST /recording/start": body => recorder.start(body),

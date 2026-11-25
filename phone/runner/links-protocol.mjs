@@ -4,7 +4,7 @@
 // emuly.mjs keeps its own copy of the frame format, because it ships as one file.
 
 /** Ports that the runner, adb or the emulator use in the codespace. A link must not take them. */
-export const RESERVED_PORTS = new Set([4310, 5037, 5554, 5555, 8790]);
+export const RESERVED_PORTS = new Set([4310, 5037, 5554, 5555, 8790, 8791, 8792]);
 export const LINK_PORTS_MAX = 8;
 export const LINKS_MAX = 16;
 /** A relay frame carries at most this many payload bytes. */

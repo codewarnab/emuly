@@ -417,4 +417,58 @@ export const MIGRATIONS = [
   END;`,
   // GitHub region of the codespace, for example "CentralIndia". Filled from GitHub on create and on each sync.
   `ALTER TABLE phones ADD COLUMN location TEXT;`,
+  // Anonymous diagnostics. Operations no longer store owner_id or phone_id. The only link from a phone
+  // to its records is phones.diagnostic_run_id, a random id for the current phone life. It changes on
+  // each create or resume and goes away with the phone, so older records cannot be linked to anyone.
+  // The old rows held ids, so they are deleted. The anonymous diagnostic_daily counts stay.
+  `
+  DELETE FROM diagnostic_cursors;
+  DELETE FROM diagnostic_steps;
+  DELETE FROM diagnostic_operations;
+  DROP TABLE diagnostic_cursors;
+  DROP TABLE diagnostic_steps;
+  DROP TABLE diagnostic_operations;
+  DROP TABLE diagnostic_phone_runs;
+  CREATE TABLE diagnostic_operations (
+    id TEXT PRIMARY KEY, run_id TEXT NOT NULL, kind TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT,
+    outcome TEXT NOT NULL DEFAULT 'running', schema_version INTEGER NOT NULL DEFAULT 2,
+    instrumentation_version INTEGER NOT NULL DEFAULT 1, release TEXT NOT NULL, observer_id TEXT NOT NULL,
+    dropped_records INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX diagnostic_run ON diagnostic_operations(run_id, kind, outcome);
+  CREATE INDEX diagnostic_retention ON diagnostic_operations(started_at, outcome);
+  CREATE TABLE diagnostic_steps (
+    operation_id TEXT NOT NULL REFERENCES diagnostic_operations(id) ON DELETE CASCADE,
+    step_id TEXT NOT NULL, producer TEXT NOT NULL, producer_run_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL, code TEXT NOT NULL, attempt INTEGER NOT NULL,
+    outcome TEXT NOT NULL, observed_at TEXT NOT NULL, record TEXT NOT NULL CHECK(length(record) <= 2048),
+    PRIMARY KEY(operation_id, step_id), UNIQUE(operation_id, producer, producer_run_id, sequence)
+  );
+  CREATE INDEX diagnostic_steps_status ON diagnostic_steps(operation_id, outcome);
+  CREATE TABLE diagnostic_cursors (
+    operation_id TEXT NOT NULL REFERENCES diagnostic_operations(id) ON DELETE CASCADE,
+    producer_run_id TEXT NOT NULL, sequence INTEGER NOT NULL,
+    PRIMARY KEY(operation_id, producer_run_id)
+  );
+  ALTER TABLE phones ADD COLUMN diagnostic_run_id TEXT;
+  `,
+  // Anonymous /v1 API usage counts (lib/diagnostics/api-usage.ts). No user, phone, key or IP; day only; route templates.
+  `
+  CREATE TABLE diagnostic_api (
+    day TEXT NOT NULL, release TEXT NOT NULL, route TEXT NOT NULL, client TEXT NOT NULL, client_version TEXT NOT NULL,
+    auth TEXT NOT NULL, status_class TEXT NOT NULL, error_code TEXT NOT NULL, bucket_ms INTEGER NOT NULL, samples INTEGER NOT NULL,
+    PRIMARY KEY(day, release, route, client, client_version, auth, status_class, error_code, bucket_ms)
+  );
+  CREATE TABLE diagnostic_api_patterns (
+    day TEXT NOT NULL, pattern TEXT NOT NULL, samples INTEGER NOT NULL, PRIMARY KEY(day, pattern)
+  );
+  `,
+  // Anonymous phone state-change counts (lib/diagnostics/state-usage.ts). No user, phone or codespace; day only; fixed codes.
+  `
+  CREATE TABLE diagnostic_states (
+    day TEXT NOT NULL, release TEXT NOT NULL, from_state TEXT NOT NULL, to_state TEXT NOT NULL, reason TEXT NOT NULL,
+    error_code TEXT NOT NULL, region TEXT NOT NULL, bucket_ms INTEGER NOT NULL, samples INTEGER NOT NULL,
+    PRIMARY KEY(day, release, from_state, to_state, reason, error_code, region, bucket_ms)
+  );
+  `,
 ];

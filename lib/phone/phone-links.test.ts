@@ -169,3 +169,27 @@ test("remove sends one port or all", async () => {
   await links.remove(new Request("https://emuly.test/v1/phones/p1/links", { method: "DELETE" }), "p1");
   assert.deepEqual(calls.map(call => (call as { body: unknown }).body), [{ port: 3000 }, {}]);
 });
+
+test("proxy: input is checked before the runner, off is direct, and an old runner asks for an update", async () => {
+  const { links, calls } = api();
+  const proxyPost = (body: unknown) => new Request("https://emuly.test/v1/phones/p1/proxy",
+    { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  for (const body of [{ mode: "vpn" }, { mode: "laptop" }, { mode: "laptop", port: 8790 }, { mode: "laptop", port: "18792" }]) {
+    assert.equal((await links.proxySet(proxyPost(body), "p1")).status, 400, JSON.stringify(body));
+  }
+  assert.equal((await links.proxySet(new Request("https://emuly.test/v1/phones/p1/proxy", { method: "POST", body: "nope" }), "p1")).status, 400);
+  assert.deepEqual(calls, []);
+
+  assert.equal((await links.proxySet(proxyPost({ mode: "laptop", port: 18792, lock: true, via: "http://me:pw@x" }), "p1")).status, 200);
+  assert.deepEqual(calls.at(-1), { userId: 7, id: "p1", path: "/egress", body: { mode: "laptop", port: 18792, lock: true } });
+  assert.equal((await links.proxyOff(new Request("https://emuly.test/v1/phones/p1/proxy", { method: "DELETE" }), "p1")).status, 200);
+  assert.deepEqual((calls.at(-1) as unknown as { body?: unknown }).body, { mode: "direct" });
+  await links.proxyCheck(new Request("https://emuly.test/v1/phones/p1/proxy/check", { method: "POST" }), "p1");
+  assert.equal((calls.at(-1) as unknown as { path?: string }).path, "/egress/check");
+  assert.equal((await links.proxyStatus(new Request("https://emuly.test/v1/phones/p1/proxy"), "nope")).status, 404);
+
+  const old = api({ runner: async () => ({ codespaceName: "cs-1", response: Response.json({ error: "not found" }, { status: 404 }) }) });
+  const reply = await old.links.proxyStatus(new Request("https://emuly.test/v1/phones/p1/proxy"), "p1");
+  assert.equal(reply.status, 503);
+  assert.equal((await reply.json() as { error: string }).error, "runner_update_required");
+});

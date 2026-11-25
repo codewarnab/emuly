@@ -36,6 +36,11 @@ export async function purgeDeletedPhones(database: Client, clock: () => number =
         await queries.execute({ sql: `DELETE FROM "${child.table}" WHERE "${child.column}" IN (${parentIds})`, args: Array(parentIds.split("?").length - 1).fill(id) });
       };
       for (const child of children) await remove(child, "?");
+      // Diagnostics hold no phone id. Remove the records of the phone's last life through its run id.
+      const operations = "SELECT o.id FROM diagnostic_operations o JOIN phones p ON p.diagnostic_run_id = o.run_id WHERE p.id = ?";
+      await queries.execute({ sql: `DELETE FROM diagnostic_steps WHERE operation_id IN (${operations})`, args: [id] });
+      await queries.execute({ sql: `DELETE FROM diagnostic_cursors WHERE operation_id IN (${operations})`, args: [id] });
+      await queries.execute({ sql: `DELETE FROM diagnostic_operations WHERE id IN (${operations})`, args: [id] });
       await queries.execute({ sql: "DELETE FROM phones WHERE id = ? AND state = 'deleted'", args: [id] });
     });
   }
