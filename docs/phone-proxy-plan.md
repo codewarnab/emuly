@@ -1,6 +1,6 @@
 # Phone traffic through the laptop (`emuly proxy`)
 
-Status: plan. Phase 0 must pass before we build.
+Status: Phase 0 passed (2026-11-25). Build next.
 
 ## Goal
 
@@ -53,7 +53,7 @@ app on phone ─TCP─▶ qemu slirp ─CONNECT─▶ runner gateway 127.0.0.1:8
 ### 3. DNS and UDP (no leaks)
 
 - The guest resolves names through slirp, which uses the codespace's resolver. The IP does not leak, but the lookup location does, and CDNs then pick servers near the codespace.
-- Fix: the emulator gets `-dns-server 127.0.0.53`. The runner runs a small DNS forwarder there. Binding port 53 uses `sudo setcap` on node, or a tiny helper started with sudo. Phase 0 picks one.
+- Fix: the emulator gets `-dns-server 127.0.0.77` (127.0.0.53 is taken by systemd-resolved). The runner runs a small DNS forwarder there. A setcap copy of node binds port 53 (Phase 0 check 5).
 - In `laptop` mode, the forwarder sends each query as DNS over TCP, inside a CONNECT to the resolver on the laptop side (by default `1.1.1.1:53`, or as the user sets it). With an upstream proxy, DNS also leaves from the upstream proxy.
 - UDP other than DNS cannot go through CONNECT. In `laptop` mode, the runner drops it inside the guest: `adb root` (allowed on the `google_apis` image; runner use only, the user passthrough still blocks `root`), then `iptables` and `ip6tables` `OUTPUT` drop UDP except to the slirp DNS address. QUIC then falls back to TCP.
 - IPv6: drop it in `laptop` mode, unless Phase 0 shows that slirp sends IPv6 through the proxy.
@@ -90,12 +90,45 @@ Each item gets a yes or a no with proof. A "no" changes the design.
 2. When the proxy refuses, the guest connection fails. It does not go direct.
 3. The `10.0.2.2` and `adb reverse` links still work with `-http-proxy` on.
 4. Overhead in `direct` mode: page load and a 50 MB download, with and without the flag.
-5. `-dns-server 127.0.0.53` with our forwarder works, and the forwarder can bind port 53.
+5. `-dns-server` with our forwarder works, and the forwarder can bind port 53.
 6. `adb root` plus `iptables` UDP drop works on the API 36 `google_apis` image.
 7. What IPv6 does with the flag on.
 8. Can the mode change without an emulator restart. (Yes by design, because only the gateway changes.)
 
 If 1 or 2 fail, use the VPN app option for `laptop` mode.
+
+### Phase 0 results (2026-11-25, codespace `phone-bright-fox`, emulator 37.3.10, API 36)
+
+A test gateway (Node, ~20 lines) ran on `127.0.0.1:8792`. It logged each request and could
+allow or refuse. All 8 checks pass. The design stays.
+
+| # | Result | Proof |
+|---|---|---|
+| 1 | Yes | The gateway log shows `CONNECT 140.82.112.4:443`, `:22` and `:8080`. Port 80 comes as a plain proxy request (`GET http://example.com/ HTTP/1.0`), not as CONNECT. The gateway must handle both forms. |
+| 2 | Yes | In refuse mode, port 80 gets `403 Forbidden` and CONNECT gets a closed socket. With the gateway process stopped, every guest connect gets `Connection refused`. Nothing went direct. |
+| 3 | Yes, with one change | `adb reverse` works (`HTTP/1.1 200 OK`). `10.0.2.2:3998` also works, but it reaches the gateway as `CONNECT 127.0.0.1:3998`. So the gateway must pass `127.0.0.1` targets to the codespace loopback in every mode, as before. A guest app cannot name the host loopback in another way. |
+| 4 | Faster with the flag | See the table below. |
+| 5 | Yes, on another address | `127.0.0.53:53` is taken by systemd-resolved. A forwarder on `127.0.0.77:53` works: `sudo setcap cap_net_bind_service=+ep` on a copy of node, then `-dns-server 127.0.0.77`. The forwarder logged every guest lookup. Lookups never go through the gateway. |
+| 6 | Yes | `adb root` gives uid 0. `iptables -A OUTPUT -p udp ! -d 10.0.2.3 -j DROP` and the `ip6tables` rule apply. UDP send gets `Operation not permitted`. DNS still works. `adb unroot` gives uid 2000 again. |
+| 7 | No IPv6 egress | The guest has only `fec0::` slirp addresses. A connect to `2606:4700:4700::1111` gets `Connection refused`. No leak. |
+| 8 | Yes | The mode file changed between allow and refuse with no restart. The next connection used the new mode. |
+
+Other findings:
+
+- Android Private DNS sends `CONNECT 10.0.2.3:853` (DNS over TLS to the slirp DNS address). In `laptop` mode, refuse it. Android then uses port 53, which goes to the forwarder.
+- The gateway sockets must use `allowHalfOpen: true`. Without it, a client that closes its send side cuts the download (2.8 MB of 50 MB arrived).
+- Boot with `-http-proxy` took 36.6 s, the same as before.
+
+Speed inside the guest (10 ms clock, 20 runs, phone idle):
+
+| Test | No flag | With flag, `direct` |
+|---|---|---|
+| TCP connect to `1.1.1.1:443` | 10-20 ms | 10-20 ms |
+| HTTP GET `example.com` (port 80) | ~520 ms | 30-40 ms |
+| 50 MB from a codespace TCP source via `10.0.2.2` | 6,330-7,190 ms (~7 MB/s) | 910-930 ms (~54 MB/s) |
+
+The gateway hop costs less than the 10 ms clock can show. Throughput is about 7 times higher,
+because the host side of each connection is a real kernel socket and not slirp's TCP.
 
 ## Test plan
 
