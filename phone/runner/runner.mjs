@@ -572,10 +572,7 @@ server.on("upgrade", async (req, socket, head) => {
   socket.on("error", () => {});
   lastRequestAt = Date.now();
   const url = new URL(req.url ?? "/", "http://localhost");
-  if (!await runnerKey.allows(req.headers["x-phone-secret"])) return socket.end("HTTP/1.1 401 Unauthorized
-Connection: close
-
-");
+  if (!await runnerKey.allows(req.headers["x-phone-secret"])) return socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
   if (url.pathname === "/links/relay") {
     const ports = (url.searchParams.get("ports") ?? "").split(",").filter(Boolean).map(Number);
     return relays.handleUpgrade(req, socket, head, client => links.relay(client, ports));
