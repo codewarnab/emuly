@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Emuly CLI: `emuly up|login|doctor|install|link|unlink|links`. Plain Node, no dependencies. Used on the host
+// Emuly CLI: `emuly up|login|doctor|install|link|dev|unlink|links`. Plain Node, no dependencies. Used on the host
 // (`pnpm emuly up`) and as the container command (`node bin/emuly.mjs up --prod --no-browser`).
 // All interactive child output is inherited, so the user sees gh's device-flow code and the
 // server log. Checks run with piped output so their stderr can be shown on failure.
@@ -374,9 +374,10 @@ async function linkReady(phone, ports, route, alive, ms = 30_000) {
 }
 
 /** Route A. Resolves "stopped" on Ctrl-C, or rejects with the reason when ssh ends. */
-function runSsh(codespace, targets, onReady, stopSignal, env = process.env) {
+function runSsh(codespace, targets, onReady, stopSignal, env = process.env, locals = []) {
   return new Promise((resolve, reject) => {
     const args = ["codespace", "ssh", "-c", codespace, "--", "-N", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=30",
+      ...(locals.length ? ["-C"] : []), ...locals.flatMap(spec => ["-L", spec]),
       ...[...targets].flatMap(([port, target]) => ["-R", `${port}:${target.host.includes(":") ? `[${target.host}]` : target.host}:${target.port}`])];
     const child = spawn("gh", args, { env, stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "", running = true;
@@ -548,6 +549,224 @@ async function link(args) {
   for (const port of ports) await api("DELETE", `${path}?port=${port}`).catch(() => {});
 }
 
+// ---------------------------------------------------------------------------------------------
+// `emuly dev`: connects the phone to adb on this computer, so flutter, expo and Android Studio see it.
+// One `gh codespace ssh` carries adb (-L to the emulator's adbd on 5555) and the extra ports (-R).
+// Metro needs no link: Expo and the React Native CLI run `adb reverse`, which goes through adb.
+// The relay cannot carry adb (it only goes from the phone to here), so dev needs gh. See docs/emuly-dev-plan.md.
+
+const sayDev = message => console.error(`emuly dev: ${message}`);
+const DEV_FIRST_PORT = 15555; // A local emulator scans 5555-5585. Stay out of that range.
+
+/** Resolves the exit code and all output. Never rejects: a missing file is code -1. */
+function run(file, args, ms = 30_000) {
+  return new Promise(resolve => {
+    let child;
+    try { child = spawn(file, args, { stdio: ["ignore", "pipe", "pipe"] }); } catch { resolve({ code: -1, output: "" }); return; }
+    let output = "";
+    const timer = setTimeout(() => child.kill(), ms);
+    child.stdout.on("data", chunk => { output += chunk; });
+    child.stderr.on("data", chunk => { output += chunk; });
+    child.on("error", () => { clearTimeout(timer); resolve({ code: -1, output }); });
+    child.on("close", code => { clearTimeout(timer); resolve({ code, output: output.trim() }); });
+  });
+}
+
+function devArgs(args) {
+  const ports = [];
+  let phone, adbPort;
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === "--adb-port" || arg.startsWith("--adb-port=")) {
+      const value = arg.includes("=") ? arg.split("=")[1] : args[++index];
+      if (!/^\d{1,5}$/.test(value ?? "") || Number(value) < 1024 || Number(value) > 65535) throw new Error("--adb-port is a port from 1024 to 65535.");
+      adbPort = Number(value);
+      continue;
+    }
+    if (arg.startsWith("-")) throw new Error(`Unknown option ${arg}.`);
+    if (!phone) { phone = arg; continue; }
+    if (!/^\d{1,5}$/.test(arg) || Number(arg) < 1 || Number(arg) > 65535) throw new Error(`"${arg}" is not a port.`);
+    ports.push(Number(arg));
+  }
+  if (!phone) throw new Error("Usage: emuly dev <phone> [port...] [--adb-port N]");
+  return { phone, ports: [...new Set(ports)], adbPort };
+}
+
+/** adb on PATH first, then the SDK folders. Undefined when there is none. */
+async function findAdb() {
+  const exe = process.platform === "win32" ? "adb.exe" : "adb";
+  const roots = [process.env.ANDROID_HOME, process.env.ANDROID_SDK_ROOT,
+    process.platform === "win32" && process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, "Android", "Sdk") : undefined,
+    process.platform === "darwin" ? join(homedir(), "Library", "Android", "sdk") : undefined,
+    process.platform === "linux" ? join(homedir(), "Android", "Sdk") : undefined];
+  for (const candidate of ["adb", ...roots.filter(Boolean).map(root => join(root, "platform-tools", exe))]) {
+    if ((await run(candidate, ["version"], 10_000)).code === 0) return candidate;
+  }
+  return undefined;
+}
+
+/** WSL 2 with a Windows SDK has two adb servers. The IDE sees only one of them. */
+async function wslWarning() {
+  if (process.platform !== "linux") return;
+  let version = "";
+  try { version = readFileSync("/proc/version", "utf8"); } catch {}
+  if (!/microsoft/i.test(version)) return;
+  if ((await run("adb.exe", ["version"], 10_000)).code === 0) {
+    sayDev("this is WSL, and Windows has adb too. Run emuly dev on the side whose adb your IDE uses.");
+  }
+}
+
+const lockPath = phone => join(homedir(), ".config", "emuly", `dev-${phone.replace(/[^\w.-]/g, "_")}.json`);
+function readLock(phone) {
+  try { const lock = JSON.parse(readFileSync(lockPath(phone), "utf8")); return Number.isInteger(lock.port) && Number.isInteger(lock.pid) ? lock : undefined; }
+  catch { return undefined; }
+}
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (error) { return error.code === "EPERM"; }
+}
+
+async function freePort(from) {
+  for (let port = from; port < from + 100; port++) if (!await portOpen("127.0.0.1", port)) return port;
+  throw new Error(`No free local port from ${from} to ${from + 99}. Use --adb-port.`);
+}
+
+async function waitPort(port, alive, ms = 20_000) {
+  const until = Date.now() + ms;
+  while (Date.now() < until && alive()) {
+    if (await portOpen("127.0.0.1", port)) return true;
+    await wait(500);
+  }
+  return false;
+}
+
+/** `adb connect`, then wait for the device state. An unauthorized phone fails at once: a loop cannot fix it. */
+async function connectAdb(adb, serial, alive = () => true, ms = 20_000) {
+  const until = Date.now() + ms;
+  let last = "";
+  while (Date.now() < until && alive()) {
+    const connected = await run(adb, ["connect", serial], 10_000);
+    const state = await run(adb, ["-s", serial, "get-state"], 10_000);
+    if (state.code === 0 && state.output === "device") return { ok: true };
+    last = `${connected.output} ${state.output}`.trim();
+    if (/unauthorized/i.test(last)) return { ok: false, error: "adb_unauthorized", message: "adb says the phone is unauthorized. Restart the phone, then run emuly dev again." };
+    await wait(1000);
+  }
+  return { ok: false, error: "adb_connect_failed",
+    message: `adb could not connect to ${serial}${last ? ` (${last.split("\n").pop()})` : ""}. If another adb version runs here, run adb kill-server once, then try again.` };
+}
+
+async function devReady(adb, phone, serial, route, ports) {
+  const level = Number((await run(adb, ["-s", serial, "shell", "getprop", "ro.build.version.sdk"], 10_000)).output) || undefined;
+  if (level && level < 30) sayDev(`the phone is API ${level}. Compose Live Edit needs API 30 or later.`);
+  emit({ ok: true, phone, serial, route, ports, api_level: level, env: { ANDROID_SERIAL: serial },
+    next: [`flutter run -d ${serial}`, `npx expo run:android --device ${serial}`, `npx react-native run-android --deviceId ${serial}`] });
+  sayDev(`adb sees the phone as ${serial}. ${route === "ssh" ? "Keep this running. Ctrl-C disconnects it." : ""}`.trim());
+}
+
+async function dev(args) {
+  const { phone, ports, adbPort } = devArgs(args);
+  const path = `/v1/phones/${encodeURIComponent(phone)}/links`;
+  const fail = (error, message) => { emit({ ok: false, error, message }); process.exitCode = 1; };
+
+  const adb = await findAdb();
+  if (!adb) return fail("no_adb", "adb is not installed here. It comes with Android platform-tools, the Android SDK, Flutter and Android Studio. Or set ANDROID_HOME.");
+  await wslWarning();
+  let current;
+  try { current = await api("GET", path); } catch (error) { return fail(error.body?.error ?? "dev_failed", error.message); }
+  if (!current.codespace_name) return fail("no_codespace", "This phone has no codespace yet.");
+  if (!await phoneRunning(phone)) return fail("phone_not_running", "The phone is not running. Start it first.");
+  void updateCli();
+
+  // Inside the phone's own codespace, adb already sees the emulator. No tunnel.
+  if (process.env.CODESPACE_NAME === current.codespace_name) {
+    const serial = /^(emulator-\d+)\s+device\b/m.exec((await run(adb, ["devices"])).output)?.[1];
+    if (!serial) return fail("adb_not_ready", "adb in this codespace does not list the emulator yet. Wait for the boot, then try again.");
+    if (ports.length) sayDev("no links are needed here. The app reaches this codespace at 10.0.2.2:<port>.");
+    return devReady(adb, phone, serial, "local", []);
+  }
+
+  // Another emuly dev already holds the tunnel. Reuse it and exit.
+  const lock = readLock(phone);
+  if (lock && lock.pid !== process.pid && pidAlive(lock.pid) && await portOpen("127.0.0.1", lock.port)) {
+    const serial = `127.0.0.1:${lock.port}`;
+    const connected = await connectAdb(adb, serial);
+    if (connected.ok) {
+      if (ports.length) sayDev(`the running emuly dev (pid ${lock.pid}) owns the tunnel. For more ports, run: emuly link ${phone} ${ports.join(" ")}`);
+      return devReady(adb, phone, serial, "shared", []);
+    }
+  }
+
+  const loginHint = `gh auth login -h github.com -s codespace${current.github_login ? ` (as ${current.github_login})` : ""}`;
+  if ((await run("gh", ["--version"], 10_000)).code !== 0) return fail("needs_gh", `emuly dev needs the GitHub CLI. Install gh, then run: ${loginHint}`);
+  const ghEnv = await ghEnvFor(current.codespace_name, current.github_login);
+  if (!ghEnv) return fail("needs_gh", `No gh account here can open this phone's codespace. Run: ${loginHint}`);
+
+  const local = adbPort ?? await freePort(DEV_FIRST_PORT);
+  if (adbPort && await portOpen("127.0.0.1", adbPort)) return fail("port_in_use", `Port ${adbPort} is in use on this computer. Pick another --adb-port.`);
+  const serial = `127.0.0.1:${local}`;
+  try { mkdirSync(dirname(lockPath(phone)), { recursive: true }); writeFileSync(lockPath(phone), JSON.stringify({ port: local, pid: process.pid })); }
+  catch (error) { sayDev(`could not write the lock file: ${error.message}`); }
+
+  const stop = new AbortController();
+  for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => stop.abort());
+  const targets = new Map(ports.map(port => [port, { host: "127.0.0.1", port }]));
+  for (const port of ports) if (!await portOpen("127.0.0.1", port)) sayDev(`nothing listens on port ${port} here yet. Start the server; the link waits for it.`);
+
+  let announced = false, failures = 0;
+  const onReady = alive => void (async () => {
+    if (!await waitPort(local, alive)) return;
+    await run(adb, ["disconnect", serial], 10_000); // An "offline" entry from the last tunnel blocks a new connect.
+    const result = await connectAdb(adb, serial, alive);
+    if (!alive()) return;
+    if (!result.ok) {
+      sayDev(result.message);
+      if (!announced) { fail(result.error, result.message); stop.abort(); }
+      return;
+    }
+    if (ports.length && !await linkReady(phone, ports, "ssh", alive)) sayDev("adb works, but the runner does not see the extra ports yet.");
+    failures = 0;
+    if (announced) { sayDev("reconnected. Flutter lost its debug connection, so run flutter run again. Metro apps reconnect by themselves."); return; }
+    announced = true;
+    await devReady(adb, phone, serial, "ssh", ports);
+  })();
+
+  while (!stop.signal.aborted) {
+    let created = !ports.length;
+    if (ports.length) {
+      try { await api("POST", path, { ports, route: "ssh" }); created = true; }
+      catch (error) {
+        if ([400, 401, 404, 409].includes(error.status)) { fail(error.body?.error ?? "link_failed", error.message); break; }
+        sayDev(`could not create the links: ${error.message}`);
+      }
+    }
+    if (created) {
+      try {
+        const result = await runSsh(current.codespace_name, targets, onReady, stop.signal, ghEnv, [`127.0.0.1:${local}:127.0.0.1:5555`]);
+        if (result === "stopped") break;
+      } catch (error) {
+        if (stop.signal.aborted) break;
+        const detail = (error.stderr ?? "").trim().split("\n").pop();
+        sayDev(`${error.message}${detail ? ` ${detail}` : ""}`);
+      }
+    }
+    if (stop.signal.aborted) break;
+    if (!await phoneRunning(phone)) {
+      sayDev("the phone stopped, so emuly dev ended.");
+      if (!announced) fail("phone_not_running", "The phone is not running.");
+      break;
+    }
+    failures++;
+    if (!announced && failures >= 3) {
+      fail("tunnel_failed", "The tunnel did not start after 3 tries. Read the lines above. The codespace may have no SSH server, or the port may be in use.");
+      break;
+    }
+    await wait(Math.min(30_000, 1000 * 2 ** Math.min(failures, 5)));
+  }
+  await run(adb, ["disconnect", serial], 10_000);
+  for (const port of ports) await api("DELETE", `${path}?port=${port}`).catch(() => {});
+  if (readLock(phone)?.pid === process.pid) rmSync(lockPath(phone), { force: true });
+}
+
 // The host refuses a request body over 4.5 MB with an HTML page, so /adb takes at most 4 MB of files.
 const INLINE_MAX = 4 * 1024 * 1024;
 const APP_CHUNK = 4 * 1024 * 1024;
@@ -665,9 +884,13 @@ const usage = `Usage: emuly <command>
           Get this file from your Emuly server: curl -fsSL "$EMULY_BASE_URL/v1/cli" -o emuly.mjs
           Make the phone's localhost:<port> (and 10.0.2.2:<port>) reach <port> on this
           computer, or on --to. Runs until Ctrl-C. Prints one line of JSON when the link works.
+  dev     emuly dev <phone> [port...] [--adb-port N]
+          Connect the phone to adb here, so flutter run, expo run:android and Android Studio
+          see it and hot reload works. Extra ports become links. Needs adb and gh.
+          Runs until Ctrl-C. Prints one line of JSON when adb is ready.
   unlink  emuly unlink <phone> [port]   Remove one link, or all links of the phone
   links   emuly links <phone>           List the links of the phone as JSON`;
-const commands = { up, login, doctor, install, link, unlink, links: listLinks };
+const commands = { up, login, doctor, install, link, dev, unlink, links: listLinks };
 const [command, ...args] = process.argv.slice(2);
 // Help is checked over command and args together, so `emuly --help` exits 0 too.
 const wantHelp = [command, ...args].some(a => a === "--help" || a === "-h");

@@ -1,14 +1,35 @@
 # Native adb or scrcpy
 
-> Read this file only if the user asks for native adb or scrcpy. If not, stop reading now, and do not read the
+> Read this file only if the user asks for native adb, scrcpy, or hot reload with flutter, expo or Android Studio. If not, stop reading now, and do not read the
 > other files in this folder.
 
-Use this when the user asks for native adb or scrcpy, or says yes to the scrcpy offer in
+Use this when the user asks for native adb, hot reload with local tools, or scrcpy, or says yes to the scrcpy offer in
 `references/tasks/phones.md`. Always keep the browser link too. Without a yes, do not run any
 step below.
 
 You do all the steps. Do not give the user a list of commands to run, and do not ask them
 to open terminals. Ask the user to act only for a sign-in that needs their browser.
+
+## Hot reload: `emuly dev`
+
+Use this when the user runs Flutter, Expo, React Native or Android Studio, and wants the
+phone in `adb devices`. It is the same CLI as `emuly link` (see `local-servers.md` section 3).
+
+```sh
+node ~/.config/emuly/emuly.mjs dev <phone> [port...]
+# {"ok":true,"serial":"127.0.0.1:15555","route":"ssh","next":["flutter run -d 127.0.0.1:15555", ...]}
+```
+
+- Run it on the machine where `flutter` or `expo` runs. On a remote VM, run it on the VM.
+- Start it in the background. It runs until Ctrl-C and prints one line of JSON when adb is ready.
+- Then run the command from `next`. Hot reload works with no other step.
+- Metro needs no link. Expo and React Native run `adb reverse tcp:8081` through adb. Add
+  other ports, such as an API on 3000, after the phone id.
+- It needs `adb` and gh with the account that owns the codespace. On `ok:false`, read
+  `message` and tell the user the fix in one line. Install nothing without a yes.
+- After a reconnect, Flutter loses its debug connection. Run `flutter run` again.
+
+The steps below are for scrcpy, or when `emuly dev` cannot run.
 
 On a remote machine (SSH or Tailscale, no display), scrcpy cannot open a window here. Do
 steps 1 and 2 here with gh only, then follow `references/machine/remote.md` section 4.
