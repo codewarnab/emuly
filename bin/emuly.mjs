@@ -723,11 +723,11 @@ async function dev(args) {
       if (!announced) { fail(result.error, result.message); stop.abort(); }
       return;
     }
-    if (ports.length && !await linkReady(phone, ports, "ssh", alive)) sayDev("adb works, but the runner does not see the extra ports yet.");
     failures = 0;
-    if (announced) { sayDev("reconnected. Flutter lost its debug connection, so run flutter run again. Metro apps reconnect by themselves."); return; }
-    announced = true;
-    await devReady(adb, phone, serial, "ssh", ports);
+    // Announce adb first: the IDE needs only adb. The extra ports are checked after, so a slow runner does not hold up the ready line.
+    if (announced) sayDev("reconnected. Flutter lost its debug connection, so run flutter run again. Metro apps reconnect by themselves.");
+    else { announced = true; await devReady(adb, phone, serial, "ssh", ports); }
+    if (ports.length && !await linkReady(phone, ports, "ssh", alive)) sayDev("adb works, but the runner does not see the extra ports yet.");
   })();
 
   while (!stop.signal.aborted) {

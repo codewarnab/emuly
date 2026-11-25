@@ -168,6 +168,24 @@ because the host side of each connection is a real kernel socket and not slirp's
 | Errors | No gh, the wrong gh account, no adb, and the phone stopped each give the right `error`. |
 | Platforms | Windows, and Linux or macOS if available. |
 
+#### Results (2026-11-25, Windows 11, `phone-bright-fox` on the ditipriya02 account)
+
+A fake API on `127.0.0.1:4399` gave the codespace name, because the phone is in another Emuly
+account. The tunnel, gh and adb parts were real.
+
+| Test | Result |
+|---|---|
+| Tunnel | Pass. `127.0.0.1:15555 device` in 13.2 s. gh picked the owner account by itself. `adb shell echo` takes 140 ms. |
+| Flutter | Not run. Flutter is not installed on this laptop. |
+| Expo / Metro | Partly. `adb reverse tcp:8081` through the tunnel reached a laptop server (`METRO-LAPTOP /status`). A full Expo build was not run. |
+| Extra port | Bug found and fixed: the ready line waited up to 30 s for the runner to confirm the extra port. Now adb is announced first (11 s), and the port check runs after. A full test needs the real runner. |
+| Second run | Pass. It reused the tunnel and exited in 0.35 s (`route: "shared"`). |
+| Reconnect | Pass. After the ssh process was killed, adb was back in 9 s, with the "run flutter run again" line. |
+| Ctrl-C | Pass. adb disconnected, `DELETE /links?port=3000` was sent, and the lock file was removed. |
+| Hard kill | The lock file and an `offline` adb entry stay. The next run recovers: the dead PID is ignored and the entry is replaced. |
+| Errors | Pass: `phone_not_running`, `no_adb`, `needs_gh` (no gh, and the wrong owner with the right login hint), `unauthorized`. |
+| Speed | `adb push` of 20 MB of random data: 0.2-0.6 MB/s. The laptop upload is 0.42 MB/s (Cloudflare test), so the uplink is the limit, not the tunnel. `-C` does not help random data. A 60 MB debug APK takes about 2.5 min on this link. Hot reload sends only small deltas. |
+
 ## Order of work
 
 1. Phase 0 spike, with a written result in this file.
