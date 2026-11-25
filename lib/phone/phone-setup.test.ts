@@ -87,18 +87,18 @@ test("setup uploads autostart.sh and a scripts version, and run.sh marks a finis
 test("the quick check skips SSH only for a runner with this server's scripts", () => {
   const result = execFileSync(process.execPath, ["--conditions=react-server", ...transform,
     "--input-type=module", "--eval", `
-      const { createPhoneSetup, scriptsVersion } = await import(process.argv[1]);
+      const { createPhoneSetup, scriptsVersion, RUNNER_VERSION } = await import(process.argv[1]);
       const setup = createPhoneSetup({ token: async () => "token" });
       const reply = body => async (url, init) => {
         if (url !== "https://space-a-8790.app.github.dev/health" || init.headers["X-Github-Token"] !== "token") throw new Error("bad request");
         return Response.json(body);
       };
-      const current = { ok: true, version: 21, scripts: scriptsVersion() };
+      const current = { ok: true, version: RUNNER_VERSION, scripts: scriptsVersion() };
       const late = body => { let asks = 0; return async (url, init) => ++asks < 3 ? new Response("", { status: 502 }) : reply(body)(url, init); };
       process.stdout.write(JSON.stringify([
         await setup.quickCheck(1, "space-a", 0, reply(current)),
         await setup.quickCheck(1, "space-a", 0, reply({ ...current, scripts: "0000000000000000" })),
-        await setup.quickCheck(1, "space-a", 0, reply({ ok: true, version: 21 })),
+        await setup.quickCheck(1, "space-a", 0, reply({ ok: true, version: RUNNER_VERSION })),
         await setup.quickCheck(1, "space-a", 0, async () => { throw new Error("offline"); }),
         await setup.quickCheck(1, "bad name/..", 0, reply(current)),
         // A wake asks again until the autostarted runner answers; a create asks once.
@@ -107,4 +107,26 @@ test("the quick check skips SSH only for a runner with this server's scripts", (
       ]));
     `, pathToFileURL(resolve("lib/phone/phone-setup.ts")).href], { encoding: "utf8", timeout: 10_000 });
   assert.deepEqual(JSON.parse(result), [true, false, false, false, false, true, false]);
+});
+
+function scriptWithRunnerKey(runnerKey?: string) {
+  return execFileSync(process.execPath, ["--conditions=react-server", ...transform,
+    "--input-type=module", "--eval", `
+      const { setupScript } = await import(process.argv[1]);
+      process.stdout.write(setupScript(undefined, 0, undefined, undefined, undefined, process.argv[2] || undefined));
+    `, pathToFileURL(resolve("lib/phone/phone-setup.ts")).href, runnerKey ?? ""], {
+    encoding: "utf8", timeout: 10_000, maxBuffer: 2 * 1024 * 1024,
+  });
+}
+
+test("setup writes .runner-key with umask 077 when given a key and removes it otherwise", () => {
+  const key = "c".repeat(64);
+  const withKey = scriptWithRunnerKey(key);
+  const encoded = Buffer.from(key).toString("base64");
+  assert.ok(withKey.includes(`(umask 077 && echo '${encoded}' | base64 -d > .runner-key.next && mv -f .runner-key.next .runner-key)`));
+  assert.ok(!withKey.includes("rm -f .runner-key"));
+  assert.ok(!withKey.includes(key), "the key is never in plain text");
+  const without = scriptWithRunnerKey();
+  assert.ok(without.includes("rm -f .runner-key"));
+  assert.ok(!without.includes(".runner-key.next"));
 });

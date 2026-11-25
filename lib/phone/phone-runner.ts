@@ -6,12 +6,13 @@ import { createEmulyLinks, type RunnerPath, type AppsPath, type LinksPath, type 
 import { agentDeviceInfo, agentDeviceTokenHash, agentDeviceTokenMatches } from "./agent-device.ts";
 import { phoneObservations } from "./phone-observation.ts";
 import { createActivity, androidIdleMs, ANDROID_IDLE_COMMAND } from "./last-activity.ts";
+import { runnerSecret } from "./direct-ticket.ts";
 
 const global = globalThis as unknown as { __emulyLinks?: ReturnType<typeof createEmulyLinks>; __emulyLinksVersion?: number; __emulyActivity?: ReturnType<typeof createActivity> };
 const activity = () => global.__emulyActivity ??= createActivity(asyncDb());
 const links = () => {
-  if (global.__emulyLinksVersion !== 9) { global.__emulyLinks = undefined; global.__emulyLinksVersion = 9; }
-  return global.__emulyLinks ??= createEmulyLinks({ token: getAccessToken, tunnel: openCodespacePort,
+  if (global.__emulyLinksVersion !== 10) { global.__emulyLinks = undefined; global.__emulyLinksVersion = 10; }
+  return global.__emulyLinks ??= createEmulyLinks({ token: getAccessToken, tunnel: openCodespacePort, runnerKey: name => runnerSecret(name),
   observations: phoneObservations(asyncDb()), activity: activity(),
   // Command completion is measured; provider idle-timer reset remains unverified.
   keepAwake: (token, codespaceName) => codespaceExec({ token, codespaceName, command: "echo emuly-awake", pty: true, timeoutMs: 90_000 }) });

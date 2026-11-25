@@ -3,7 +3,9 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 /** AES-256-GCM. Layout: version(1) || iv(12) || tag(16) || ciphertext.
     Version 1: legacy, no AAD. Read only.
     Version 2: the context string (for example `users:gh:42:access`) is the AAD, so a value
-    copied into another row or column fails to decrypt. */
+    copied into another row or column fails to decrypt.
+    AUDIT: this is encryption at rest with one server key, not end-to-end encryption.
+    Whoever holds EMULY_TOKEN_KEY and the database can decrypt every value. */
 const LEGACY = 1;
 const BOUND = 2;
 

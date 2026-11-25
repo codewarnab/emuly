@@ -1,5 +1,5 @@
 import "server-only";
-import { createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { signTicket, signUploadTicket, TICKET_TTL_MS, UPLOAD_TICKET_TTL_MS } from "../../phone/runner/direct-ticket.mjs";
 
 /**
@@ -9,6 +9,21 @@ import { signTicket, signUploadTicket, TICKET_TTL_MS, UPLOAD_TICKET_TTL_MS } fro
 export function phoneDirectKey(codespaceName: string, secret = process.env.EMULY_DIRECT_SECRET): string | undefined {
   if (!secret || secret.length < 32 || !/^[\w-]{1,100}$/.test(codespaceName)) return undefined;
   return createHmac("sha256", secret).update(`emuly-direct-phone-v1:${codespaceName}`).digest("hex");
+}
+
+/**
+ * The runner key for one codespace: the second lock on the private port 8790 (phone/runner/runner-key.mjs).
+ * Derived from EMULY_DIRECT_SECRET with its own label, so it differs from the direct key and Emuly stores nothing.
+ * Undefined without the secret: then the runner has no key file and port privacy is the only lock.
+ */
+export function runnerSecret(codespaceName: string, secret = process.env.EMULY_DIRECT_SECRET): string | undefined {
+  if (!secret || secret.length < 32 || !/^[\w-]{1,100}$/.test(codespaceName)) return undefined;
+  return createHmac("sha256", secret).update(`emuly-runner-key-v1:${codespaceName}`).digest("hex");
+}
+
+/** What the runner reports as `key` in GET /health: 8 hex of sha256(key), or null with no key. */
+export function runnerKeyFingerprint(key: string | undefined): string | null {
+  return key ? createHash("sha256").update(key, "utf8").digest("hex").slice(0, 8) : null;
 }
 
 /** The content of ~/emuly/.direct-key in the codespace. */

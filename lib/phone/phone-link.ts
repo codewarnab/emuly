@@ -54,8 +54,10 @@ export type RecordingAction = "start" | "stop" | "status" | "file" | "discard" |
 export type ProxyRequest = { method: string; headers: Headers; body?: ReadableStream<Uint8Array> | null; signal?: AbortSignal };
 
 /** One connection per owned phone. Only a read-only probe may fall back; never replay a mutation. */
-export function createEmulyLinks({ token, tunnel, keepAwake, activity, observations, fetch: request = fetch, idleMs = 120_000 }: {
+export function createEmulyLinks({ token, tunnel, keepAwake, activity, observations, fetch: request = fetch, idleMs = 120_000, runnerKey = () => undefined }: {
   token: (userId: number) => Promise<string>;
+  /** The runner key for a codespace, sent as `x-phone-secret` (phone/runner/runner-key.mjs). Undefined sends none. */
+  runnerKey?: (codespaceName: string) => string | undefined;
   tunnel: (token: string, name: string, signal: AbortSignal) => Promise<Bridge>;
   keepAwake?: (token: string, name: string) => Promise<unknown>;
   /** Records human and agent actions, and says whether the phone had one within its idle time. */
@@ -78,6 +80,12 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
     if (entry.awake) observations?.mark(phone, "awake_timer_stop", { count: entry.viewers, errorCode: "observer_shutdown" });
     entry.abort.abort(reason);
     void entry.connection.then(connection => connection.close(), () => {});
+  };
+  /** Adds the runner key to every runner request. Never log it. */
+  const withKey = <T extends Headers | Record<string, string>>(phone: Owner, headers: T): T => {
+    const value = runnerKey(phone.codespaceName);
+    if (value) { if (headers instanceof Headers) headers.set("x-phone-secret", value); else (headers as Record<string, string>)["x-phone-secret"] = value; }
+    return headers;
   };
   async function connect(phone: Owner, signal: AbortSignal): Promise<Connection> {
     const secret = await measure("credential_lookup", () => token(phone.userId));
@@ -135,6 +143,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
    * token is safe. Only for bodies that can be sent twice (string or Buffer).
    */
   async function send(connection: Connection, phone: Owner, url: string, init: RequestInit & { headers: Headers }) {
+    withKey(phone, init.headers);
     if (!connection.forwarded) return request(url, init);
     const cookie = connection.relayCookie;
     if (cookie) {
@@ -230,7 +239,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
       const { entry, release } = acquire(phone);
       try {
         const connection = await entry.connection;
-        const headers = new Headers(init.headers);
+        const headers = withKey(phone, new Headers(init.headers));
         if (connection.forwarded) headers.set("X-Github-Token", await token(phone.userId));
         const signals = init.signal ? [entry.abort.signal, init.signal] : [entry.abort.signal];
         const response = await request(`${connection.url}${path}`, {
@@ -266,7 +275,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
       const { entry, release } = acquire(phone);
       try {
         const connection = await entry.connection;
-        const headers: Record<string, string> = {};
+        const headers: Record<string, string> = withKey(phone, {});
         if (connection.forwarded) headers["X-Github-Token"] = await token(phone.userId);
         entry.abort.signal.throwIfAborted();
         entry.viewers++;
@@ -422,7 +431,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
       const { entry, release } = acquire(phone);
       try {
         const connection = await entry.connection;
-        const headers: Record<string, string> = {};
+        const headers: Record<string, string> = withKey(phone, {});
         if (connection.forwarded) headers["X-Github-Token"] = await token(phone.userId);
         entry.abort.signal.throwIfAborted();
         activity?.mark(phone);

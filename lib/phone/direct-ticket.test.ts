@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { directKeyFile, issueDirectTicket, phoneDirectKey } from "./direct-ticket.ts";
+import { directKeyFile, issueDirectTicket, phoneDirectKey, runnerKeyFingerprint, runnerSecret } from "./direct-ticket.ts";
 import { createNonceStore, createRateLimiter, signTicket, verifyTicket } from "../../phone/runner/direct-ticket.mjs";
 
 const SECRET = "s".repeat(40);
@@ -115,4 +115,27 @@ test("upload tickets: valid once, locked to their kind, phone and time", async (
   payload.args = ["shell", "rm", "-rf", "/sdcard"];
   assert.equal(verify(`${Buffer.from(JSON.stringify(payload)).toString("base64url")}.${sig}`).reason, "signature");
   assert.equal(issueUploadTicket(upload, {}), undefined);
+});
+
+test("runnerSecret is deterministic per codespace, separate from the direct key, and absent without a secret", async () => {
+  const { runnerSecret } = await import("./direct-ticket.ts");
+  const a = runnerSecret("phone-a", SECRET)!;
+  assert.match(a, /^[0-9a-f]{64}$/);
+  assert.equal(runnerSecret("phone-a", SECRET), a);
+  assert.notEqual(runnerSecret("phone-b", SECRET), a);
+  assert.notEqual(runnerSecret("phone-a", "t".repeat(40)), a);
+  assert.notEqual(phoneDirectKey("phone-a", SECRET), a);
+  assert.equal(runnerSecret("phone-a", ""), undefined);
+  assert.equal(runnerSecret("phone-a", "short"), undefined);
+  assert.equal(runnerSecret("bad/name", SECRET), undefined);
+});
+
+test("the server's runner key fingerprint matches what the runner reports in /health", async () => {
+  const { createRunnerKey } = await import("../../phone/runner/runner-key.mjs");
+  const key = runnerSecret("space-a", "s".repeat(40))!;
+  const runner = createRunnerKey({ file: "/k", read: async () => `${key}\n` });
+  await runner.load();
+  assert.equal(await runner.fingerprint(), runnerKeyFingerprint(key));
+  assert.equal(runnerKeyFingerprint(undefined), null);
+  assert.notEqual(runnerKeyFingerprint(runnerSecret("space-a", "t".repeat(40))), runnerKeyFingerprint(key));
 });

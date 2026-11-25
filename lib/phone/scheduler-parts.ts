@@ -10,6 +10,7 @@ import { createSyncGate } from "./sync-gate.ts";
 import type { SchedulerParts } from "./scheduler.ts";
 import { createPhoneSetup, RUNNER_VERSION, scriptsVersion } from "./phone-setup.ts";
 import { createRunnerUpdater } from "./runner-update.ts";
+import { runnerKeyFingerprint, runnerSecret } from "./direct-ticket.ts";
 import { getAccessToken } from "../github/github-token.ts";
 import { withLease } from "../data/coordination.ts";
 import { DEFAULT_DEVICE_PRESET } from "../shared/device-presets.ts";
@@ -29,6 +30,8 @@ export function schedulerParts(): SchedulerParts {
   // In-place runner update: a running phone gets a new runner after a deploy, without a phone stop.
   const runners = createRunnerUpdater({ database, version: RUNNER_VERSION, scripts: () => scripts ??= scriptsVersion(),
     health: phone => setup.readHealth(phone.userId, phone.codespaceName),
+    // A runner with an old key (after EMULY_DIRECT_SECRET changes) gets setup again, which writes the new key.
+    keyFingerprint: name => runnerKeyFingerprint(runnerSecret(name)),
     androidIdleMs: phone => runnerAndroidIdleMs(phone.userId, phone.id, phone.codespaceName),
     install: phone => setup(phone.userId, phone.codespaceName, (phone.devicePreset ?? DEFAULT_DEVICE_PRESET) as Parameters<typeof setup>[2]),
     // The same lease as a user's start, stop and create (phone-mutations.ts), so they never overlap.

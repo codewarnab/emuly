@@ -17,6 +17,7 @@ import { createFileFetches } from "./file-fetch.mjs";
 import { createLinks } from "./links.mjs";
 import { pasteText } from "./paste-text.mjs";
 import { createDirectServer } from "./direct-server.mjs";
+import { createRunnerKey } from "./runner-key.mjs";
 import { RELAY_MAX_PAYLOAD } from "./links-protocol.mjs";
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
@@ -33,7 +34,9 @@ const SCRIPTS_VERSION = await readFile(join(ROOT, ".scripts-version"), "utf8").t
 const SDK = process.env.SDK_DIR ?? "/opt/android-sdk";
 const ADB = join(SDK, "platform-tools", "adb");
 const SERIAL = "emulator-5554";
-const SECRET = process.env.PHONE_SECRET ?? "";
+// Second lock on this port, after GitHub port privacy. See runner-key.mjs for its exact limits.
+const runnerKey = createRunnerKey({ file: join(ROOT, ".runner-key") });
+await runnerKey.load();
 const PORT = Number(process.env.RUNNER_PORT ?? 8790);
 let lifecycle = Promise.resolve();
 let boot;
@@ -345,7 +348,7 @@ function screenshot() {
 const ui = createUiReader({ adb });
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 21, scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale", "fileFetch", "uiTree"], avd: "t", api_level: 36, booted: await booted(),
+  "GET /health": async () => ({ ok: true, version: 22, key: await runnerKey.fingerprint(), scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale", "fileFetch", "uiTree"], avd: "t", api_level: 36, booted: await booted(),
     busy: { viewers: scrcpy.viewers(), links: links.count(), work: requestsInFlight + lifecycleWork + fetches.active() + (adbBusy ? 1 : 0) + (boot || stopping ? 1 : 0),
       idle_ms: Date.now() - lastRequestAt } }),
 
@@ -451,9 +454,12 @@ const server = createServer(async (req, res) => {
     res.end(JSON.stringify(value));
   };
   try {
-    if (SECRET && req.headers["x-phone-secret"] !== SECRET) return send(401, { error: "unauthorized" });
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
+    // GET /health stays open for the setup script's local curl. Everything else needs the runner key.
+    if (!(req.method === "GET" && path === "/health") && !await runnerKey.allows(req.headers["x-phone-secret"])) {
+      return send(401, { error: "unauthorized" });
+    }
     if (path !== "/health") {
       requestsInFlight++; lastRequestAt = Date.now();
       res.once("close", () => { requestsInFlight--; lastRequestAt = Date.now(); });
@@ -562,15 +568,19 @@ const direct = createDirectServer({ ws, keyFile: join(ROOT, ".direct-key"), port
 void direct.start();
 const streams = new ws.WebSocketServer({ noServer: true, maxPayload: 16_384, perMessageDeflate: false });
 const relays = new ws.WebSocketServer({ noServer: true, maxPayload: RELAY_MAX_PAYLOAD, perMessageDeflate: false });
-server.on("upgrade", (req, socket, head) => {
+server.on("upgrade", async (req, socket, head) => {
+  socket.on("error", () => {});
   lastRequestAt = Date.now();
   const url = new URL(req.url ?? "/", "http://localhost");
+  if (!await runnerKey.allows(req.headers["x-phone-secret"])) return socket.end("HTTP/1.1 401 Unauthorized
+Connection: close
+
+");
   if (url.pathname === "/links/relay") {
-    if (SECRET && req.headers["x-phone-secret"] !== SECRET) return socket.destroy();
     const ports = (url.searchParams.get("ports") ?? "").split(",").filter(Boolean).map(Number);
     return relays.handleUpgrade(req, socket, head, client => links.relay(client, ports));
   }
-  if (url.pathname !== "/stream" || (SECRET && req.headers["x-phone-secret"] !== SECRET)) return socket.destroy();
+  if (url.pathname !== "/stream") return socket.destroy();
   streams.handleUpgrade(req, socket, head, client => {
     const quality = url.searchParams.get("quality") ?? "auto";
     scrcpy.attach(client, Object.hasOwn(liveQualities, quality) ? quality : "auto", { audio: url.searchParams.get("audio") === "1" });

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { codespaceExec } from "../github/codespace-tunnel.ts";
-import { directKeyFile } from "./direct-ticket.ts";
+import { directKeyFile, runnerKeyFingerprint, runnerSecret } from "./direct-ticket.ts";
 import { AGENT_DEVICE_VERSION } from "../agent-device-version.ts";
 import { collectProgress, measure, progressCursor, diagnosticHealth, diagnosticOperation } from "../diagnostics/diagnostics.ts";
 import { validateStep, type Step } from "../diagnostics/diagnostic-contract.ts";
@@ -12,10 +12,10 @@ import type { RunnerHealth } from "./runner-update.ts";
 import { runnerEventsFile } from "./runner-events.ts";
 import { env } from "../env.ts";
 // Must match the version that phone/runner/runner.mjs reports in GET /health.
-export const RUNNER_VERSION = 21;
+export const RUNNER_VERSION = 22;
 
 /** Files copied into each codespace, relative to `phone/` in this repository. */
-export const FILES = ["scripts/progress.sh", "scripts/node-path.sh", "scripts/read-progress.py", "scripts/bounded-log.py", "scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "scripts/autostart.sh", "runner/runner.mjs", "runner/agent-device-proxy.mjs", "runner/apps.mjs", "runner/apps-protocol.mjs", "runner/adb-protocol.mjs", "runner/apk-download.mjs", "runner/safe-download.mjs", "runner/file-fetch.mjs", "runner/scrcpy.mjs", "runner/scrcpy-hub.mjs", "runner/scrcpy-protocol.mjs", "runner/paste-text.mjs", "runner/recording.mjs", "runner/grid.mjs", "runner/ui-tree.mjs", "runner/mp4-mux.mjs", "runner/links.mjs", "runner/links-protocol.mjs", "runner/direct-ticket.mjs", "runner/direct-server.mjs", "runner/events.mjs"];
+export const FILES = ["scripts/progress.sh", "scripts/node-path.sh", "scripts/read-progress.py", "scripts/bounded-log.py", "scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "scripts/autostart.sh", "runner/runner.mjs", "runner/agent-device-proxy.mjs", "runner/apps.mjs", "runner/apps-protocol.mjs", "runner/adb-protocol.mjs", "runner/apk-download.mjs", "runner/safe-download.mjs", "runner/file-fetch.mjs", "runner/scrcpy.mjs", "runner/scrcpy-hub.mjs", "runner/scrcpy-protocol.mjs", "runner/paste-text.mjs", "runner/recording.mjs", "runner/grid.mjs", "runner/ui-tree.mjs", "runner/mp4-mux.mjs", "runner/links.mjs", "runner/links-protocol.mjs", "runner/direct-ticket.mjs", "runner/direct-server.mjs", "runner/events.mjs", "runner/runner-key.mjs"];
 
 /** The pinned version reaches shell scripts, so refuse anything that is not a plain release version. */
 function agentDeviceExport() {
@@ -60,7 +60,7 @@ touch .failed
  * EMULY_WORKING while setup runs (and starts setup when nothing runs), and
  * exits 1 with a fixed failure marker after a failed run, allowing a later retry.
  */
-export function setupScript(root = join(process.cwd(), "phone"), cursor = 0, preset = DEFAULT_DEVICE_PRESET, directKey?: string, eventsFile?: string) {
+export function setupScript(root = join(process.cwd(), "phone"), cursor = 0, preset = DEFAULT_DEVICE_PRESET, directKey?: string, eventsFile?: string, runnerKey?: string) {
   // Windows checkouts and editors can add CRLF; bash on the codespace rejects it.
   const files: [string, string][] = [...FILES.map(file => [file, Buffer.from(readFileSync(join(root, file), "utf8").replace(/\r\n/g, "\n")).toString("base64")] as [string, string]),
     ["runner/ws.cjs", readFileSync(join(process.cwd(), "node_modules/next/dist/compiled/ws/index.js")).toString("base64")],
@@ -79,6 +79,8 @@ ${directKey ? `# The direct port key goes only through this private SSH input. T
 (umask 077 && echo '${Buffer.from(directKey).toString("base64")}' | base64 -d > .direct-key.next && mv -f .direct-key.next .direct-key)` : "rm -f .direct-key"}
 ${eventsFile ? `# Push events (runner/events.mjs): the Emuly URL and the phone key, through this private SSH input.
 (umask 077 && echo '${Buffer.from(eventsFile).toString("base64")}' | base64 -d > .events.next && mv -f .events.next .events)` : "rm -f .events"}
+${runnerKey ? `# The runner key (runner/runner-key.mjs) goes only through this private SSH input. The runner reads it every 5 s.
+(umask 077 && echo '${Buffer.from(runnerKey).toString("base64")}' | base64 -d > .runner-key.next && mv -f .runner-key.next .runner-key)` : "rm -f .runner-key"}
 # Current means the same runner version and the same file hash. A changed file without a
 # version change still replaces the runner.
 emuly_current() {
@@ -176,7 +178,9 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
   }
   async function askHealth(userId: number, codespaceName: string, fetcher: typeof fetch) {
     const health = await readHealth(userId, codespaceName, fetcher);
-    return health?.ok === true && health.version === RUNNER_VERSION && health.scripts === scriptsVersion();
+    // A changed EMULY_DIRECT_SECRET leaves the old key on disk; a mismatch sends setup over SSH, which writes the new one.
+    return health?.ok === true && health.version === RUNNER_VERSION && health.scripts === scriptsVersion()
+      && (health.key ?? null) === runnerKeyFingerprint(runnerSecret(codespaceName));
   }
   /** The runner's GET /health through GitHub's port forward, or null when it does not answer. */
   async function readHealth(userId: number, codespaceName: string, fetcher: typeof fetch = fetch): Promise<RunnerHealth | null> {
@@ -192,10 +196,11 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
   }
   return Object.assign(async function setupPhone(userId: number, codespaceName: string, preset = DEFAULT_DEVICE_PRESET): Promise<SetupResult> {
     const secret = await measure("credential_lookup", () => token(userId));
+    const runnerKey = runnerSecret(codespaceName);
     const events = runnerEventsFile(codespaceName, { baseUrl: process.env.EMULY_BASE_URL, secret: env.tokenKeys[0] });
     let result;
     try {
-      result = await exec({ token: secret, codespaceName, command: "bash --noprofile --norc -s", stdin: setupScript(undefined, await progressCursor(), preset, directKeyFile(codespaceName), events), timeoutMs: 90_000, outputLimit: 32768 });
+      result = await exec({ token: secret, codespaceName, command: "bash --noprofile --norc -s", stdin: setupScript(undefined, await progressCursor(), preset, directKeyFile(codespaceName), events, runnerKey), timeoutMs: 90_000, outputLimit: 32768 });
     } catch (error) {
       throw new PhoneSetupError("Could not reach the codespace. Emuly will retry setup.");
     }
@@ -204,6 +209,7 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
     if (directKey) output = output.replaceAll(directKey, "[redacted]");
     const eventsKey = events?.split("\n")[1];
     if (eventsKey) output = output.replaceAll(eventsKey, "[redacted]");
+    if (runnerKey) output = output.replaceAll(runnerKey, "[redacted]");
     const progress = await ingest(output);
     if (result.code === 0 && output.includes("EMULY_READY")) return { state: "ready", ...progress };
     if (result.code === 0 && output.includes("EMULY_WORKING")) return { state: "working", ...progress };

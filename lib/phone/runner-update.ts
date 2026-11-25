@@ -5,6 +5,8 @@ import { CoordinationBusyError } from "../data/coordination.ts";
 /** What GET /health on a runner returns. `busy` exists from runner version 17. */
 export type RunnerHealth = {
   ok?: boolean; version?: number; scripts?: string;
+  /** Fingerprint of the runner key the runner loaded (phone/runner/runner-key.mjs). Null or absent: no key. */
+  key?: string | null;
   busy?: { viewers?: number; links?: number; work?: number; idle_ms?: number };
 };
 
@@ -22,8 +24,10 @@ export const RUNNER_UPDATE = {
   backoffMs: [5 * 60_000, 15 * 60_000, 60 * 60_000],
 } as const;
 
-export function runnerCurrent(health: RunnerHealth | null, version: number, scripts: string) {
-  return health?.ok === true && health.version === version && health.scripts === scripts;
+/** `key`: the expected runner key fingerprint. Undefined skips that check (callers without a key source). */
+export function runnerCurrent(health: RunnerHealth | null, version: number, scripts: string, key?: string | null) {
+  return health?.ok === true && health.version === version && health.scripts === scripts
+    && (key === undefined || (health.key ?? null) === key);
 }
 
 /**
@@ -48,6 +52,8 @@ export type RunnerUpdateDeps = {
   androidIdleMs: (phone: UpdatePhone) => Promise<number | null>;
   /** Writes the new files and restarts only the runner (setupPhone). Android keeps running. */
   install: (phone: UpdatePhone) => Promise<{ state: string }>;
+  /** Expected runner key fingerprint for a codespace (direct-ticket.ts). Undefined: no key check. */
+  keyFingerprint?: (codespaceName: string) => string | null | undefined;
   /** Runs work under the user's phone lease, so a start or a stop waits. Throws when the lease is busy. */
   withUserLease: <T>(userId: number, work: () => Promise<T>) => Promise<T>;
   clock?: () => number;
@@ -60,7 +66,7 @@ export type RunnerUpdateDeps = {
  * phone file. Only phones that are running and ready, with no boot or stop in progress, and
  * only at a quiet time. A failure waits with a growing backoff.
  */
-export function createRunnerUpdater({ database, version, scripts, health, androidIdleMs, install, withUserLease,
+export function createRunnerUpdater({ database, version, scripts, health, androidIdleMs, install, withUserLease, keyFingerprint = () => undefined,
   clock = Date.now, pause = ms => new Promise(resolve => setTimeout(resolve, ms)), log = message => console.log(message) }: RunnerUpdateDeps) {
   const failures = new Map<string, { count: number; until: number }>();
   const active = new Set<string>();
@@ -103,7 +109,7 @@ export function createRunnerUpdater({ database, version, scripts, health, androi
     const before = await health(phone).catch(() => null);
     // No answer: the phone may be booting or stopping; the sync and setup paths own that.
     if (!before) return "busy";
-    if (runnerCurrent(before, version, scripts())) { failures.delete(phone.id); return "current"; }
+    if (runnerCurrent(before, version, scripts(), keyFingerprint(phone.codespaceName))) { failures.delete(phone.id); return "current"; }
     if (!runnerIdle(before)) return "busy";
     const android = await androidIdleMs(phone).catch(() => null);
     if (android !== null && android < RUNNER_UPDATE.quietMs) return "busy";
@@ -119,7 +125,7 @@ export function createRunnerUpdater({ database, version, scripts, health, androi
         if (setup.state === "failed") return fail(phone, "setup failed");
         const until = clock() + RUNNER_UPDATE.confirmMs;
         for (;;) {
-          if (runnerCurrent(await health(phone).catch(() => null), version, scripts())) {
+          if (runnerCurrent(await health(phone).catch(() => null), version, scripts(), keyFingerprint(phone.codespaceName))) {
             failures.delete(phone.id);
             log(`[runner-update] ${phone.id}: runner ${version} answers; Android kept running`);
             return "updated";

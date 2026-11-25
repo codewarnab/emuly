@@ -345,3 +345,34 @@ test("forwarded calls reuse GitHub's relay cookie, and a refused cookie falls ba
     assert.equal(seen[0].token, null);
   } finally { links.close(phone); }
 });
+
+test("every runner call carries x-phone-secret when a runner key is set, and none otherwise", async () => {
+  for (const forwarded of [true, false]) for (const runnerKey of ["k".repeat(64), undefined]) {
+    const seen: Record<string, string | null> = {};
+    const links = createEmulyLinks({ token: async () => "synthetic", runnerKey: name => { assert.equal(name, "owned-space"); return runnerKey; },
+      tunnel: async () => ({ url: "http://127.0.0.1:10009", close() {} }),
+      fetch: async (url, init) => {
+        const u = new URL(String(url));
+        if (u.pathname === "/health" && u.protocol === "https:") return forwarded ? Response.json({ ok: true }) : new Response(null, { status: 403 });
+        seen[u.pathname] = new Headers(init?.headers).get("x-phone-secret");
+        return Response.json({ ok: true });
+      } });
+    try {
+      await links.request(phone, "/screenshot");
+      await links.request(phone, "/tap", { x: 1, y: 1 });
+      await links.apps(phone, "/apps", { method: "GET" });
+      await links.adb(phone, { args: ["shell", "true"], timeout_s: 5 });
+      await links.links(phone, "/links");
+      await links.recording(phone, "status");
+      await (await links.proxy(phone, "/agent-device/x", { method: "GET", headers: new Headers() })).arrayBuffer();
+      for (const path of ["/screenshot", "/tap", "/apps", "/adb", "/links", "/recording", "/agent-device/x"]) {
+        assert.equal(seen[path], runnerKey ?? null, `${path} forwarded=${forwarded}`);
+      }
+      const stream = await links.stream(phone);
+      const relay = await links.relay(phone, [3000]);
+      for (const ws of [stream, relay]) assert.equal(ws.headers["x-phone-secret"], runnerKey);
+      if (!runnerKey) assert.ok(!("x-phone-secret" in stream.headers));
+      stream.release(); relay.release();
+    } finally { links.close(phone); }
+  }
+});
