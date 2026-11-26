@@ -30,6 +30,16 @@ click shows the command. Rules for the note:
 curl -sS -X POST "$base/v1/phones/$id/adb" -H "Authorization: Bearer $EMULY_KEY"   -H "Content-Type: application/json" -H "X-Emuly-Note: Open Wi-Fi settings"   -d '{"args":["shell","am","start","-a","android.settings.WIFI_SETTINGS"]}'
 ```
 
+**Many steps in one call.** Each call is one network trip. For a fast or timing-sensitive
+sequence, send all steps as one `shell` string. The phone runs them, so the timing is exact:
+
+```json
+["shell","input tap 540 1200; sleep 0.15; input tap 540 1400; sleep 0.5; input swipe 900 1800 120 600 300"]
+```
+
+Use `sleep` in seconds (`0.15` is 150 ms). Use `&&` in place of `;` to stop at the first failure.
+Keep the whole sequence under the call timeout (`timeout_s`, default 30).
+
 Example argument arrays:
 
 ```json

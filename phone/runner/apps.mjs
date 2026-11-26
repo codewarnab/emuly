@@ -15,7 +15,7 @@ const validId = value => typeof value === "string" && /^[0-9a-f-]{36}$/.test(val
 
 const errors = [
   [/UPDATE_INCOMPATIBLE|INCONSISTENT_CERTIFICATES/, "signature_mismatch", "The installed app uses a different signing certificate. Its data was kept."],
-  [/VERSION_DOWNGRADE/, "version_downgrade", "This APK is older than the installed app. Choose a newer version."],
+  [/VERSION_DOWNGRADE/, "version_downgrade", "This APK is older than the installed app. Its data was kept. Install again with -d (allowDowngrade: true) to keep the data, or choose a newer version."],
   [/INSUFFICIENT_STORAGE|ENOSPC/, "storage_full", "The phone does not have enough free storage."],
   [/NO_MATCHING_ABIS|CPU_ABI_INCOMPATIBLE/, "unsupported_abi", "This APK does not support this phone's processor. Try a universal APK."],
   [/OLDER_SDK|NEWER_SDK|DEPRECATED_SDK/, "unsupported_sdk", "This APK does not support this Android version."],
@@ -172,7 +172,7 @@ export async function createApps({ root, sdk, run, adb, exclusive, booted }) {
       await guardReady();
       await locked(async () => { signal.throwIfAborted(); record.stage = "installing"; await save(record); });
       // Cancellation cannot race past the persisted installing transition.
-      try { await adb(["install", "-r", ...(record.testOnly ? ["-t"] : []), file(record.id)], { timeout: 300_000 }); }
+      try { await adb(["install", "-r", ...(record.allowDowngrade ? ["-d"] : []), ...(record.testOnly ? ["-t"] : []), file(record.id)], { timeout: 300_000 }); }
       catch (error) {
         if (!error.killed && /INSTALL_(?:FAILED|PARSE_FAILED)/.test(String(error.stdout) + String(error.stderr))) {
           await finish(record, "failed", safeFailure(error)); return;
@@ -206,7 +206,8 @@ export async function createApps({ root, sdk, run, adb, exclusive, booted }) {
       if (input.source === "url") apkUrl(input.url);
       if (input.source === "upload" && (!Number.isSafeInteger(input.totalBytes) || input.totalBytes <= 0 || input.totalBytes > MAX_APK))
         fail(413, "too_large", "Choose an APK between 1 byte and 1 GiB.");
-      const fingerprint = createHash("sha256").update(JSON.stringify([input.source, input.source === "url" ? input.url : [input.filename, input.totalBytes]])).digest("hex");
+      const allowDowngrade = input.allowDowngrade === true;
+      const fingerprint = createHash("sha256").update(JSON.stringify([input.source, input.source === "url" ? input.url : [input.filename, input.totalBytes], allowDowngrade])).digest("hex");
       const previous = [...records.values()].find(item => item.key === input.key);
       if (previous) {
         if (previous.fingerprint !== fingerprint) fail(409, "key_conflict", "This request key belongs to another file.");
@@ -220,7 +221,7 @@ export async function createApps({ root, sdk, run, adb, exclusive, booted }) {
       await stagingSpace(input.source === "upload" ? input.totalBytes : MAX_APK);
       const record = { id: randomUUID(), key: input.key, fingerprint, source: input.source,
         filename: input.source === "upload" ? String(input.filename ?? "APK").replace(/[\x00-\x1f\x7f]/g, "").slice(0, 150) : apkUrl(input.url).hostname,
-        stage: input.source === "upload" ? "uploading" : "downloading", bytesReceived: 0,
+        stage: input.source === "upload" ? "uploading" : "downloading", bytesReceived: 0, allowDowngrade,
         totalBytes: input.source === "upload" ? input.totalBytes : null, chunks: [], createdAt: new Date().toISOString() };
       await mkdir(dir(record.id), { mode: 0o700 });
       await writeFile(file(record.id), "", { mode: 0o600, flag: "wx" });

@@ -145,8 +145,10 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmissi
           if ((!previous || previous.key !== input.key) && [...admission.values()].filter(item => item.userId === identity.id).length >= 2) bad(429, "Two installations are already active. Refresh their status first.");
           admission.set(admissionId, { userId: identity.id, key: input.key, expires: Date.now() + 1_800_000 });
           }
-          options.json = input.source === "upload" ? { source: "upload", key: input.key, filename: input.filename, totalBytes: input.totalBytes }
-            : { source: "url", key: input.key, url: input.url };
+          if (input.allowDowngrade !== undefined && typeof input.allowDowngrade !== "boolean") bad(400, "allowDowngrade must be true or false.");
+          const downgrade = input.allowDowngrade === true ? { allowDowngrade: true } : {};
+          options.json = input.source === "upload" ? { source: "upload", key: input.key, filename: input.filename, totalBytes: input.totalBytes, ...downgrade }
+            : { source: "url", key: input.key, url: input.url, ...downgrade };
         }
       }
       const response = await runner(identity.id, id, `/${route}` as AppsPath, options);

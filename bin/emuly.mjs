@@ -325,9 +325,11 @@ function portOpen(host, port) {
  * EMULY_CLI_AUTO_UPDATE=0. Then it only says how to update. A network failure is silent.
  */
 const sha256 = text => createHash("sha256").update(text).digest("hex");
+const sayCli = message => console.error(`emuly: ${message}`);
 async function updateCli() {
   const self = fileURLToPath(import.meta.url);
-  const url = `${emulyBase()}/v1/cli`;
+  let url;
+  try { url = `${emulyBase()}/v1/cli`; } catch { return; }
   const manual = `the server has a newer emuly.mjs. Get it with: curl -fsSL ${url} -o "${self}"`;
   try {
     const mine = sha256(readFileSync(self, "utf8").split(String.fromCharCode(13)).join(""));
@@ -335,22 +337,22 @@ async function updateCli() {
     const theirs = response.headers.get("x-emuly-cli-sha256");
     if (!response.ok || !theirs || theirs === mine) return;
   } catch { return; }
-  if (process.env.EMULY_CLI_AUTO_UPDATE === "0" || existsSync(join(dirname(self), "..", ".git"))) { say(manual); return; }
+  if (process.env.EMULY_CLI_AUTO_UPDATE === "0" || existsSync(join(dirname(self), "..", ".git"))) { sayCli(manual); return; }
   const temporary = `${self}.${process.pid}.tmp`;
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
     const body = await response.text();
     const sent = response.headers.get("x-emuly-cli-sha256");
     if (!response.ok || !sent || sha256(body) !== sent) {
-      say(`the new emuly.mjs did not match its SHA-256, so this copy stays. ${manual}`);
+      sayCli(`the new emuly.mjs did not match its SHA-256, so this copy stays. ${manual}`);
       return;
     }
     writeFileSync(temporary, body);
     renameSync(temporary, self);
-    say("updated emuly.mjs from the server. The new copy runs from the next command.");
+    sayCli("updated emuly.mjs from the server. The new copy runs from the next command.");
   } catch {
     rmSync(temporary, { force: true });
-    say(manual);
+    sayCli(manual);
   }
 }
 
@@ -480,7 +482,6 @@ async function holdLink({ phone, ports, targets, forced, stop, onUp }) {
       tip: "gh auth login -s codespace with the account that owns the codespace makes links faster" };
   }
   if (choice.reason) say(`using the relay: ${choice.reason}.${choice.tip ? ` Tip: ${choice.tip}.` : ""}`);
-  void updateCli();
   // The link works without a server on this computer, but the app gets no reply. Say so now.
   const listeningHere = new Map();
   for (const [port, target] of targets) {
@@ -685,7 +686,6 @@ async function dev(args) {
   try { current = await api("GET", path); } catch (error) { return fail(error.body?.error ?? "dev_failed", error.message); }
   if (!current.codespace_name) return fail("no_codespace", "This phone has no codespace yet.");
   if (!await phoneRunning(phone)) return fail("phone_not_running", "The phone is not running. Start it first.");
-  void updateCli();
 
   // Inside the phone's own codespace, adb already sees the emulator. No tunnel.
   if (process.env.CODESPACE_NAME === current.codespace_name) {
@@ -794,10 +794,10 @@ async function emulyFetch(path, init) {
 }
 
 /** One APK through the Apps endpoint: 4 MiB chunks through Emuly, then poll until the install ends. */
-async function installByChunks(id, path, bytes) {
+async function installByChunks(id, path, bytes, allowDowngrade) {
   const base = `/v1/phones/${id}/app-installs`;
   const json = body => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  let operation = await emulyFetch(base, json({ source: "upload", key: randomUUID(), filename: basename(path), totalBytes: bytes.length }));
+  let operation = await emulyFetch(base, json({ source: "upload", key: randomUUID(), filename: basename(path), totalBytes: bytes.length, ...(allowDowngrade ? { allowDowngrade: true } : {}) }));
   for (let offset = 0; offset < bytes.length; offset += APP_CHUNK) {
     const chunk = bytes.subarray(offset, offset + APP_CHUNK);
     await emulyFetch(`${base}/${operation.id}/content`, { method: "PUT", body: chunk, headers: { "content-type": "application/octet-stream",
@@ -830,7 +830,8 @@ async function install(args) {
     return { path, bytes: readFileSync(path) };
   });
   const id = encodeURIComponent(phone);
-  const installFlags = flags.length ? [...new Set(flags)] : ["-r"];
+  // Android needs -r to replace an installed app, and a downgrade (-d) is always a replace.
+  const installFlags = [...new Set(["-r", ...flags])];
   const adbArgs = [files.length > 1 ? "install-multiple" : "install", ...installFlags, ...files.map((_, i) => `@file${i}`)];
   const total = files.reduce((sum, file) => sum + file.bytes.length, 0);
   const done = result => { emit(result); if (result.ok === false) process.exitCode = 1; };
@@ -852,7 +853,7 @@ async function install(args) {
   } catch (error) {
     if (error.body?.error !== "direct_upload_unavailable" || files.length > 1) throw error;
     console.error("emuly install: the direct upload is not available. Using the Apps endpoint.");
-    return done(await installByChunks(id, files[0].path, files[0].bytes));
+    return done(await installByChunks(id, files[0].path, files[0].bytes, installFlags.includes("-d")));
   }
   let response;
   try {
@@ -862,7 +863,7 @@ async function install(args) {
     // The PUT never reached the phone (app.github.dev is blocked here, for example), so the ticket was not used.
     if (files.length > 1) throw new Error(`The direct upload to the phone failed: ${error.message}`);
     console.error("emuly install: the phone's direct URL is not reachable. Using the Apps endpoint.");
-    return done(await installByChunks(id, files[0].path, files[0].bytes));
+    return done(await installByChunks(id, files[0].path, files[0].bytes, installFlags.includes("-d")));
   }
   let result = {};
   try { result = await response.json(); } catch {}
@@ -1179,8 +1180,17 @@ const commands = { up, login, doctor, install, link, dev, proxy, unlink, links: 
 const [command, ...args] = process.argv.slice(2);
 // Help is checked over command and args together, so `emuly --help` exits 0 too.
 const wantHelp = [command, ...args].some(a => a === "--help" || a === "-h");
+// The agent commands talk to the Emuly server, so each one also checks for a newer CLI in parallel.
+const AGENT_COMMANDS = new Set(["install", "link", "dev", "proxy", "unlink", "links"]);
 if (!command || !Object.hasOwn(commands, command) || wantHelp) {
   console.log(usage);
+  // An unknown command can mean this copy is old. The update makes new commands appear on the next run.
+  if (command && !wantHelp && !Object.hasOwn(commands, command)) {
+    console.error(`emuly: unknown command ${command}. This copy may be old. Checking the server for a newer emuly.mjs.`);
+    await updateCli();
+  }
   process.exit(wantHelp ? 0 : 1);
 }
+const update = AGENT_COMMANDS.has(command) ? updateCli() : Promise.resolve();
 await commands[command](args).catch(error => { report(error); process.exitCode = 1; });
+await update;

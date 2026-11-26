@@ -76,6 +76,7 @@ progress. Every operation needs a fresh UUID in `key`.
 
 - **Direct HTTPS URL:** body `{"source":"url","key":"<uuid>","url":"https://..."}`. Then poll
   `GET /v1/phones/<id>/app-installs/<operation-id>`.
+- **Older version:** add `"allowDowngrade":true` to either body. It installs an older build and keeps the app data.
 - **Local file:** body `{"source":"upload","key":"<uuid>","filename":"app.apk","totalBytes":N}`.
   Send 4 MiB chunks with `PUT /v1/phones/<id>/app-installs/<operation-id>/content`. Each chunk
   needs `content-type: application/octet-stream`, `x-upload-offset` and `x-chunk-sha256`
