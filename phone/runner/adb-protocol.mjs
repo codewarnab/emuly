@@ -276,6 +276,18 @@ export function isDownload(args) {
   return args[0] === "pull" || args[0] === "bugreport";
 }
 
+/**
+ * The size in bytes of a phone path, from `adb shell du -sk`, so a pull that is too large is refused
+ * before adb copies it to the codespace disk. Undefined when du gives no total; the check after the pull still runs.
+ * @param {string} path @param {(args: string[]) => Promise<string>} run @returns {Promise<number | undefined>}
+ */
+export async function pullSize(path, run) {
+  const quoted = `'${path.replace(/'/g, "'\\''")}'`;
+  const output = await run(["shell", "du", "-sk", quoted]).catch(() => "");
+  const total = /^(\d+)\s/.exec(output.trim().split("\n").at(-1) ?? "");
+  return total ? Number(total[1]) * 1024 : undefined;
+}
+
 /** Validate the runner's JSON result before handing it to a client.
  * @param {unknown} value */
 export function adbResult(value) {
