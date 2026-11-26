@@ -1,5 +1,6 @@
 import { recordPhoneAgentDevice } from "../../../../../../../lib/phone/phone-activity";
-import { agentDeviceCommand, agentDevicePath, agentDeviceUnavailable, bearerToken, proxyRequestHeaders } from "../../../../../../../lib/phone/agent-device";
+import { agentDeviceCommand, agentDevicePath, agentDeviceUnavailable, proxyRequestHeaders } from "../../../../../../../lib/phone/agent-device";
+import { bearerValue } from "../../../../../../../lib/auth/agent";
 import { runnerProxy } from "../../../../../../../lib/phone/phone-runner";
 import { withApiUsage } from "@/lib/diagnostics/api-usage-route";
 
@@ -12,7 +13,7 @@ type Context = { params: Promise<{ id: string; path: string[] }> };
  */
 async function route(request: Request, context: Context) {
   const { id, path } = await context.params;
-  const token = bearerToken(request.headers.get("authorization"));
+  const token = bearerValue(request.headers.get("authorization"));
   if (!token) {
     return Response.json({ error: "unauthorized" }, { status: 401, headers: { "Cache-Control": "no-store" } });
   }

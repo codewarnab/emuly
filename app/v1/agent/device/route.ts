@@ -1,3 +1,4 @@
+import { json } from "../../../../lib/http";
 import { allowAgentDeviceStart, clientIp } from "../../../../lib/auth/agent";
 import { asyncDb } from "../../../../lib/data/async-db";
 import { AgentDeviceLimitError, createDeviceCode } from "../../../../lib/data/agents";
@@ -6,8 +7,6 @@ import { withApiUsage } from "@/lib/diagnostics/api-usage-route";
 
 /** Starts an RFC 8628 device login. No cookie or key is needed. */
 async function handlePOST(request: Request) {
-  const json = (body: unknown, status = 200, headers?: Record<string, string>) =>
-    Response.json(body, { status, headers: { "Cache-Control": "private, no-store", ...headers } });
   try {
     if (!await allowAgentDeviceStart(clientIp(request))) {
       return json({ error: "rate_limited", message: "Too many sign-in attempts. Wait a minute and try again." }, 429,

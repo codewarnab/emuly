@@ -1,4 +1,5 @@
 import "server-only";
+import { apiError } from "../http.ts";
 import { crossOrigin } from "../auth/origin.ts";
 import { issueStreamTicket } from "./phone-stream-ticket.ts";
 
@@ -8,6 +9,14 @@ type Direct = (input: { userId: number; phoneId: string; codespaceName: string; 
 const QUALITIES = new Set(["auto", "sharp", "saver"]);
 type Lease = Awaited<ReturnType<Parameters<typeof issueStreamTicket>[0]["open"]>>;
 type StoredPhone = { state: string; android_state: string; codespace_name?: string | null };
+const EMPTY_ERRORS: Record<number, [string, string]> = {
+  400: ["invalid_input", "The request body is not valid."], 401: ["unauthorized", "Sign in again."],
+  403: ["forbidden", "This request must come from the Emuly page."], 404: ["not_found", "Phone not found."],
+  405: ["method_not_allowed", "Use POST."], 409: ["phone_not_ready", "The phone is not running."],
+  413: ["upload_too_large", "The request body is too large."], 415: ["invalid_input", "Send the body as application/json."],
+  503: ["request_failed", "The stream could not start. Try again."],
+};
+
 export function createPhoneStreamApi({ user, phone, open, observation, issue, direct }: {
   user: () => Promise<Identity | null>;
   phone: (userId: number, id: string) => StoredPhone | undefined | Promise<StoredPhone | undefined>;
@@ -18,16 +27,16 @@ export function createPhoneStreamApi({ user, phone, open, observation, issue, di
 }) {
   return async (request: Request, id: string) => {
     const origin = new URL(request.url).origin;
-    if (request.method !== "POST") return new Response(null, { status: 405 });
-    if (crossOrigin(request, "session", { requireOrigin: true })) return new Response(null, { status: 403 });
+    if (request.method !== "POST") return apiError(...EMPTY_ERRORS[405]!, 405);
+    if (crossOrigin(request, "session", { requireOrigin: true })) return apiError(...EMPTY_ERRORS[403]!, 403);
     const identity = await user();
-    if (!identity) return new Response(null, { status: 401 });
+    if (!identity) return apiError(...EMPTY_ERRORS[401]!, 401);
     const stored = await phone(identity.id, id);
-    if (!stored) return new Response(null, { status: 404 });
+    if (!stored) return apiError(...EMPTY_ERRORS[404]!, 404);
     // GitHub reports ShuttingDown/Shutdown/Queued while the forwarded port may still answer /health.
     // A retry or tunnel cannot work then, so give the page a distinct code it can show as "Phone stopped".
     if (stored.state !== "running") return Response.json({ errorCode: "phone_stopped" }, { status: 409 });
-    if (stored.android_state !== "ready") return new Response(null, { status: 409 });
+    if (stored.android_state !== "ready") return apiError(...EMPTY_ERRORS[409]!, 409);
     try {
       const cookie = request.headers.get("cookie") ?? "";
       const asked = new URL(request.url).searchParams.get("quality") ?? "auto";
@@ -44,6 +53,6 @@ export function createPhoneStreamApi({ user, phone, open, observation, issue, di
           : undefined,
       ]);
       return Response.json({ ticket, ...(attemptId ? { attemptId } : {}), ...(directStream ? { direct: directStream } : {}) }, { headers: { "Cache-Control": "private, no-store" } });
-    } catch { return new Response(null, { status: 503 }); }
+    } catch { return apiError(...EMPTY_ERRORS[503]!, 503); }
   };
 }

@@ -1,11 +1,10 @@
+import { errorResponse, json, readJsonObject } from "../http.ts";
 import { crossOrigin } from "../auth/origin.ts";
 import { DEFAULT_DEVICE_PRESET, DEVICE_PRESETS, devicePreset } from "../shared/device-presets.ts";
 import type { createPhoneService } from "./phone-mutations.ts";
 import { PhoneInputError } from "./phone-mutations.ts";
-import { githubRefused } from "./github-refused.ts";
-import { GitHubError, PHONE_MACHINE } from "../github/github.ts";
+import { PHONE_MACHINE } from "../github/github.ts";
 import { IDLE_MAX, IDLE_MIN, validIdle } from "../shared/idle.ts";
-import { RateLimitError } from "../data/rate-limit.ts";
 import type { Usage } from "../data/usage.ts";
 
 /** HTTP boundary shared by route handlers. Identity always comes from the session. */
@@ -18,8 +17,6 @@ export function createPhoneApi({ user, service, template, usage, defaults, clien
   /** The caller IP. GitHub creates the codespace in the region closest to it. */
   clientIp?: (request: Request) => string;
 }) {
-  const json = (body: unknown, status = 200, headers?: Record<string, string>) =>
-    Response.json(body, { status, headers: { "Cache-Control": "private, no-store", ...headers } });
   return {
     async keep(request: Request, id: string) {
       const identity = await user();
@@ -31,10 +28,8 @@ export function createPhoneApi({ user, service, template, usage, defaults, clien
         await service.keep(identity.id, id);
         return json({ id, status: "keeping" }, 202);
       } catch (error) {
-        if (error instanceof GitHubError) return json(githubRefused(error, identity.login), 409);
-        if (error instanceof RateLimitError) return json({ error: "rate_limited", message: error.message }, 429, { "Retry-After": String(error.retryAfter) });
         if (error instanceof PhoneInputError) return json({ error: "invalid_input", message: error.message }, 400);
-        return json({ error: "request_failed", message: "Keep it could not be confirmed. Refresh to check progress." }, 502);
+        return errorResponse(error, identity.login, "Keep it could not be confirmed. Refresh to check progress.");
       }
     },
     /** The GitHub account that owns the phones. Agents use it to name the account in billing problems. */
@@ -53,11 +48,10 @@ export function createPhoneApi({ user, service, template, usage, defaults, clien
       if (crossOrigin(request, identity.authKind)) {
         return json({ error: "forbidden" }, 403);
       }
-      if (!request.headers.get("content-type")?.startsWith("application/json")) return json({ error: "invalid_input" }, 415);
+      const read = await readJsonObject(request);
+      if (read.response) return read.response;
       try {
-        const input: unknown = await request.json();
-        if (!input || typeof input !== "object" || Array.isArray(input)) throw new PhoneInputError("Expected a JSON object");
-        const body = input as Record<string, unknown>;
+        const body = read.value;
         const settings = await defaults(identity.id);
         // Every phone uses the 4-core machine; see PHONE_MACHINE.
         const machine = PHONE_MACHINE.name;
@@ -73,10 +67,8 @@ export function createPhoneApi({ user, service, template, usage, defaults, clien
           clientIp: clientIp?.(request) });
         return json({ id }, 201);
       } catch (error) {
-        if (error instanceof GitHubError) return json(githubRefused(error, identity.login), 409);
-        if (error instanceof RateLimitError) return json({ error: "rate_limited", message: error.message }, 429, { "Retry-After": String(error.retryAfter) });
-        if (error instanceof PhoneInputError || error instanceof SyntaxError) return json({ error: "invalid_input", message: error.message }, 400);
-        return json({ error: "request_failed", message: "The request could not be confirmed. Check GitHub before trying again." }, 502);
+        if (error instanceof PhoneInputError) return json({ error: "invalid_input", message: error.message }, 400);
+        return errorResponse(error, identity.login, "The request could not be confirmed. Check GitHub before trying again.");
       }
     },
   };

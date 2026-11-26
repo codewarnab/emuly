@@ -1,3 +1,4 @@
+import { json, readJsonObject } from "../http.ts";
 import { crossOrigin } from "../auth/origin.ts";
 import type { createWebhookService } from "./webhooks.ts";
 import { WebhookInputError } from "./webhook-security.ts";
@@ -9,7 +10,6 @@ export function createWebhookApi({ user, service }: {
   user: () => Promise<{ id: number; authKind?: "session" | "agent" } | null>; service: ReturnType<typeof createWebhookService>;
 }) {
   return async function handle(request: Request, id?: string, resource?: "test" | "deliveries", deliveryId?: string) {
-    const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "private, no-store" } });
     const identity = await user();
     if (!identity) return json({ error: "unauthorized" }, 401);
     const method = request.method;
@@ -34,9 +34,9 @@ export function createWebhookApi({ user, service }: {
       }
       if (method === "POST" && id && resource === "deliveries" && deliveryId) return json(await service.resend(identity.id, id, deliveryId), 202);
       if ((method === "POST" && !id) || (method === "PATCH" && id && !resource)) {
-        if (!request.headers.get("content-type")?.startsWith("application/json")) return json({ error: "invalid_input" }, 415);
-        const body: unknown = await request.json();
-        return method === "POST" ? json(await service.create(identity.id, body), 201) : json(await service.update(identity.id, id!, body));
+        const body = await readJsonObject(request);
+        if (body.response) return body.response;
+        return method === "POST" ? json(await service.create(identity.id, body.value), 201) : json(await service.update(identity.id, id!, body.value));
       }
       return json({ error: "method_not_allowed" }, 405);
     } catch (error) {

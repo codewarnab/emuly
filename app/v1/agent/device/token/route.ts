@@ -1,3 +1,4 @@
+import { json, readJsonObject } from "../../../../../lib/http";
 import { asyncDb } from "../../../../../lib/data/async-db";
 import { pollDeviceCode } from "../../../../../lib/data/agents";
 import { agentKeyCommands } from "../../../../../lib/auth/agent";
@@ -5,13 +6,10 @@ import { withApiUsage } from "@/lib/diagnostics/api-usage-route";
 
 /** The agent polls this route until the browser approves or denies the device login. */
 async function handlePOST(request: Request) {
-  const json = (body: unknown, status = 200) =>
-    Response.json(body, { status, headers: { "Cache-Control": "private, no-store" } });
-  if (!request.headers.get("content-type")?.startsWith("application/json")) return json({ error: "invalid_input" }, 415);
+  const body = await readJsonObject(request);
+  if (body.response) return body.response;
   try {
-    const body: unknown = await request.json();
-    if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "invalid_input" }, 400);
-    const result = await pollDeviceCode(asyncDb(), (body as Record<string, unknown>).device_code);
+    const result = await pollDeviceCode(asyncDb(), body.value.device_code);
     switch (result.status) {
       case "pending":
         return json({ error: "authorization_pending", message: "The user has not approved this sign-in yet." }, 400);
@@ -27,7 +25,6 @@ async function handlePOST(request: Request) {
         return json({ error: "invalid_grant", message: "This sign-in request is invalid or was already used." }, 400);
     }
   } catch (error) {
-    if (error instanceof SyntaxError) return json({ error: "invalid_input", message: error.message }, 400);
     return json({ error: "request_failed", message: "The sign-in request could not be checked. Try again." }, 500);
   }
 }

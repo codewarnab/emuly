@@ -181,7 +181,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
           redirect: "manual", cache: "no-store", signal: AbortSignal.any(signals) });
         if (!response.headers.get("content-type")?.includes("application/json")) {
           await response.body?.cancel();
-          return Response.json({ error: runnerUpdateMessage(phone.id, "Apps"), errorCode: "runner_update_required" }, { status: 503 });
+          return Response.json({ error: "runner_update_required", message: runnerUpdateMessage(phone.id, "Apps") }, { status: 503 });
         }
         const reader = response.body?.getReader();
         if (!reader) throw new Error("Empty Apps response");
@@ -393,7 +393,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
           signal: AbortSignal.any([entry.abort.signal, AbortSignal.timeout(40_000)]) });
         const bytes = await response.arrayBuffer();
         if (!response.headers.get("content-type")?.includes("application/json")) {
-          return Response.json({ error: runnerUpdateMessage(phone.id, "Links"), errorCode: "runner_update_required" }, { status: 503 });
+          return Response.json({ error: "runner_update_required", message: runnerUpdateMessage(phone.id, "Links") }, { status: 503 });
         }
         return new Response(bytes, { status: response.status, headers: { "content-type": "application/json" } });
       } finally { release(); }
@@ -445,7 +445,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
           return new Response(bytes, { status: 200, headers: forwarded });
         }
         if (!type.includes("application/json")) {
-          return Response.json({ error: runnerUpdateMessage(phone.id, "Recording"), errorCode: "runner_update_required" }, { status: 503 });
+          return Response.json({ error: "runner_update_required", message: runnerUpdateMessage(phone.id, "Recording") }, { status: 503 });
         }
         return new Response(bytes, { status: response.status, headers: { "content-type": "application/json" } });
       } catch (error) { done(); throw error; }

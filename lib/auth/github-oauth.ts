@@ -1,4 +1,5 @@
 import "server-only";
+import { isRecord } from "../http.ts";
 import { env } from "../env.ts";
 import { githubFetch } from "../github/github.ts";
 
@@ -79,10 +80,6 @@ export async function githubIdentity(token: string, fetcher?: typeof fetch) {
     name: typeof data.name === "string" ? data.name : null,
     avatarUrl: typeof data.avatar_url === "string" ? data.avatar_url : null,
   };
-}
-
-function isRecord(data: unknown): data is Record<string, unknown> {
-  return typeof data === "object" && data !== null && !Array.isArray(data);
 }
 
 function nonempty(value: unknown): value is string {

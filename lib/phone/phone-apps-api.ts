@@ -1,3 +1,4 @@
+import { apiError, NO_STORE } from "../http.ts";
 import "server-only";
 import { unknownRouteBody } from "../v1-routes.ts";
 import { crossOrigin } from "../auth/origin.ts";
@@ -10,7 +11,10 @@ import { PhoneResponseError, parseAppsResponse, parseFileFetch, parseFileFetches
 type Phone = { state: string; android_state: string };
 const global = globalThis as unknown as { __appAdmission?: Map<string, { userId: number; key: string; expires: number }>; __appTransfers?: number };
 const admission = global.__appAdmission ??= new Map();
-const headers = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
+const headers = { "Cache-Control": NO_STORE, "X-Content-Type-Options": "nosniff" };
+/** The API code for each refusal status. */
+const CODES: Record<number, string> = { 401: "unauthorized", 403: "forbidden", 404: "not_found", 408: "timeout", 409: "phone_not_ready",
+  413: "upload_too_large", 415: "invalid_input", 429: "rate_limited" };
 class InputError extends Error {
   readonly status: number;
   constructor(status: number, message: string) { super(message); this.status = status; }
@@ -96,7 +100,7 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmissi
         || (request.method === "PUT" && resource?.[2] === "content");
       if (!allowed) {
         const body = unknownRouteBody(request.method, new URL(request.url).pathname);
-        return Response.json({ ...body, error: body.message, errorCode: "not_found" }, { status: 404 });
+        return Response.json({ ...body, error: "not_found" }, { status: 404, headers });
       }
       const options: AppsRequest = { method: request.method as AppsRequest["method"], signal: request.signal };
       const admissionId = `${identity.id}:${id}`;
@@ -184,9 +188,9 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmissi
       // The claim named an operation the runner never created. Holding it would block
       // every retry on this account until the lease expired.
       if (claimed) try { await sharedAdmission?.release(claimed.userId, id, claimed.key); } catch {}
-      if (error instanceof PhoneResponseError) return Response.json({ error: error.message, errorCode: "invalid_response" }, { status: 502, headers });
-      return Response.json({ error: error instanceof InputError ? error.message : "Phone connection unavailable. Refresh status before retrying.", errorCode: error instanceof InputError ? "invalid_request" : "connection_unavailable" },
-        { status: error instanceof InputError ? error.status : 502, headers });
+      if (error instanceof PhoneResponseError) return apiError("invalid_response", error.message, 502, headers);
+      if (error instanceof InputError) return apiError(CODES[error.status] ?? "invalid_input", error.message, error.status, headers);
+      return apiError("connection_unavailable", "Phone connection unavailable. Refresh status before retrying.", 502, headers);
     } finally { if (transfer) global.__appTransfers = Math.max(0, (global.__appTransfers ?? 1) - 1); }
   };
 }

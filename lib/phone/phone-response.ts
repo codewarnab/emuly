@@ -55,10 +55,18 @@ export function parseAppInstalls(value: unknown): { operations: AppInstall[] } {
   return result as { operations: AppInstall[] };
 }
 
-export function parsePhoneError(value: unknown): { error: string; errorCode?: string } {
+/**
+ * An error in the one API shape, `{ error: code, message }`. The runner still sends
+ * `{ error: message, errorCode? }`; that form is read too and turned into the API shape.
+ */
+export function parsePhoneError(value: unknown): { error: string; message: string } {
   const result = object(value);
+  if (result.message !== undefined) {
+    requireField(code(result.error) && text(result.message, 2048));
+    return { error: result.error as string, message: result.message as string };
+  }
   requireField(text(result.error, 2048) && (result.errorCode === undefined || code(result.errorCode)));
-  return result as { error: string; errorCode?: string };
+  return { error: (result.errorCode as string | undefined) ?? "request_failed", message: result.error as string };
 }
 
 export function parseAppOpened(value: unknown): { ok: true } {

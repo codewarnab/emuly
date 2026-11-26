@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { agentDeviceBaseUrl, agentDeviceInfo, agentDevicePath, agentDeviceSession, agentDeviceTokenHash,
-  agentDeviceCommand, agentDeviceTokenMatches, agentDeviceUnavailable, bearerToken, proxyRequestHeaders } from "./agent-device.ts";
+  agentDeviceCommand, agentDeviceTokenMatches, agentDeviceUnavailable, proxyRequestHeaders } from "./agent-device.ts";
+import { bearerValue as bearerToken } from "../auth/agent.ts";
 
 test("the activity log keeps only a short command name from an agent-device request", () => {
   assert.equal(agentDeviceCommand({ jsonrpc: "2.0", method: "agent_device.command", params: { command: "press", args: ["@e2"] } }), "press");

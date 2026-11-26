@@ -1,3 +1,4 @@
+import { json } from "../http.ts";
 import { crossOrigin } from "../auth/origin.ts";
 import { LinkError, linkPort, linkPorts, linkRoute, parseTarget } from "./phone-links-contract.ts";
 import { classifyTarget, netCheckFix } from "./net-check.ts";
@@ -23,7 +24,6 @@ export function createPhoneLinksApi({ user, phone, runner, issue, baseUrl, owner
   /** The GitHub login that owns the user's codespaces. The CLI uses it to pick the gh account. */
   owner?: (userId: number) => Promise<string | undefined>;
 }) {
-  const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "private, no-store" } });
   const bad = (message: string, status = 400) => json({ error: "invalid_input", message }, status);
 
   /** Owner, origin and state checks shared by every route. Returns a Response on failure. */
@@ -45,8 +45,8 @@ export function createPhoneLinksApi({ user, phone, runner, issue, baseUrl, owner
     let value: Record<string, unknown> = {};
     try { value = await response.json() as Record<string, unknown>; } catch {}
     if (response.ok) return { ok: true as const, value };
-    const message = typeof value.error === "string" ? value.error : "The phone runner could not do this. Try again.";
-    if (value.errorCode === "runner_update_required" || response.status === 404) {
+    const message = typeof value.message === "string" ? value.message : typeof value.error === "string" ? value.error : "The phone runner could not do this. Try again.";
+    if (value.errorCode === "runner_update_required" || value.error === "runner_update_required" || response.status === 404) {
       return { ok: false as const, response: json({ error: "runner_update_required",
         message: runnerUpdateMessage(id, "Links") }, 503) };
     }

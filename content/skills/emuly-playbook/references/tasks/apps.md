@@ -9,6 +9,9 @@ same key and base URL as the API. It checks the size and picks `/adb`, `/adb/upl
 endpoint. It prints one line of JSON with `ok`, `route` and the adb output. Use the routes below
 only when the CLI cannot run.
 
+A failed Apps or file-fetch request answers `{"error": "<code>", "message": "<text>"}`, the same
+shape as every other `/v1` route. Show `message` to the user. Act on `error`.
+
 Send files as `multipart/form-data`. The `args` field is the same JSON array, `timeout_s`
 is optional, and `file0`, `file1`, … are the uploads. In args, `@file0` stands for the
 first file. The runner picks a temporary path, uses it for one command, and deletes it.

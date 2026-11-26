@@ -63,13 +63,6 @@ export function agentDevicePath(segments: readonly string[], search = ""): strin
   return `/agent-device/${encoded.join("/")}${search}`;
 }
 
-/** The proxy token is a bearer credential; a cookie or a bare value is not one. */
-export function bearerToken(authorization: string | null | undefined): string | null {
-  if (!authorization) return null;
-  const match = /^Bearer\s+(\S+)$/i.exec(authorization.trim());
-  return match ? match[1] : null;
-}
-
 const COMMAND = /^[a-z][a-z0-9_.:-]{0,39}$/i;
 
 /** The command name for the activity log, such as `press`. Never refs, selectors, typed text or file data. */

@@ -1,3 +1,4 @@
+import { json, readJsonObject } from "../http.ts";
 import { crossOrigin } from "../auth/origin.ts";
 import type { Client } from "@libsql/client";
 import { SettingsInputError, chosenPlan, updateSettings, userSettings } from "./settings.ts";
@@ -8,7 +9,6 @@ import { AGENT_SETTINGS_MESSAGE, forbidAgent, manageUrl } from "../auth/scope.ts
 export function createSettingsApi({ database, user }: {
   database: Client; user: () => Promise<{ id: number; authKind?: "session" | "agent" } | null>;
 }) {
-  const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "private, no-store" } });
   return {
     /** Read-only view of every Settings page. It never includes a secret or a key value. */
     async get() {
@@ -40,10 +40,11 @@ export function createSettingsApi({ database, user }: {
       if (crossOrigin(request, identity.authKind)) {
         return json({ error: "forbidden" }, 403);
       }
-      if (!request.headers.get("content-type")?.startsWith("application/json")) return json({ error: "invalid_input" }, 415);
-      try { return json(await updateSettings(database, identity.id, await request.json())); }
+      const body = await readJsonObject(request);
+      if (body.response) return body.response;
+      try { return json(await updateSettings(database, identity.id, body.value)); }
       catch (error) {
-        if (error instanceof SettingsInputError || error instanceof SyntaxError) {
+        if (error instanceof SettingsInputError) {
           return json({ error: "invalid_input", message: error.message }, 400);
         }
         return json({ error: "request_failed", message: "Settings could not be saved. Try again." }, 500);

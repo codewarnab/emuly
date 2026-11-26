@@ -1,3 +1,4 @@
+import { json, readJsonObject } from "../../../../lib/http";
 import { asyncDb } from "../../../../lib/data/async-db";
 import { AgentInputError, exchangeSetupCode } from "../../../../lib/data/agents";
 import { agentKeyCommands, allowAgentExchange, clientIp } from "../../../../lib/auth/agent";
@@ -5,17 +6,14 @@ import { withApiUsage } from "@/lib/diagnostics/api-usage-route";
 
 /** Exchanges a one-time setup code for a 90-day agent key. No cookie is needed. */
 async function handlePOST(request: Request) {
-  const json = (body: unknown, status = 200, headers?: Record<string, string>) =>
-    Response.json(body, { status, headers: { "Cache-Control": "private, no-store", ...headers } });
-  if (!request.headers.get("content-type")?.startsWith("application/json")) return json({ error: "invalid_input" }, 415);
   try {
     if (!await allowAgentExchange(clientIp(request))) {
       return json({ error: "rate_limited", message: "Too many setup attempts. Wait a minute and try again." }, 429,
         { "Retry-After": "60" });
     }
-    const body: unknown = await request.json();
-    if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "invalid_input" }, 400);
-    const input = body as Record<string, unknown>;
+    const body = await readJsonObject(request);
+    if (body.response) return body.response;
+    const input = body.value;
     const result = await exchangeSetupCode(asyncDb(), input.code, input.name);
     if (!result) {
       return json({ error: "invalid_code",
@@ -23,7 +21,7 @@ async function handlePOST(request: Request) {
     }
     return json({ key: result.key, expires_at: result.expiresAt, ...agentKeyCommands(result.key) });
   } catch (error) {
-    if (error instanceof AgentInputError || error instanceof SyntaxError) {
+    if (error instanceof AgentInputError) {
       return json({ error: "invalid_input", message: error.message }, 400);
     }
     return json({ error: "request_failed", message: "The setup code could not be exchanged. Try again." }, 500);

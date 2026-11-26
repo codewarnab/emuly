@@ -1,4 +1,5 @@
 import "server-only";
+import { apiError, json as okJson } from "../http.ts";
 import { crossOrigin } from "../auth/origin.ts";
 import type { RunnerPath } from "./phone-link.ts";
 
@@ -9,7 +10,9 @@ export function createPhoneScreenApi({ user, phone, runner }: {
   phone: (userId: number, id: string) => ScreenPhone | undefined | Promise<ScreenPhone | undefined>;
   runner: (userId: number, id: string, path: RunnerPath, body?: Record<string, unknown>) => Promise<Response>;
 }) {
-  const json = (error: string, status: number) => Response.json({ error }, { status, headers: { "Cache-Control": "private, no-store" } });
+  const CODES: Record<number, string> = { 400: "invalid_input", 401: "unauthorized", 403: "forbidden", 404: "not_found", 405: "method_not_allowed",
+    409: "phone_not_ready", 413: "upload_too_large", 415: "invalid_input", 502: "request_failed" };
+  const json = (message: string, status: number) => apiError(CODES[status] ?? "request_failed", message, status);
   return async function screen(request: Request, id: string) {
     const identity = await user();
     if (!identity) return json("Sign in again.", 401);
@@ -41,7 +44,7 @@ export function createPhoneScreenApi({ user, phone, runner }: {
         } else if (input.type === "key" && ["home", "back"].includes(input.key)) {
           await runner(identity.id, id, "/key", { key: input.key });
         } else return json("Invalid input.", 400);
-        return Response.json({ ok: true }, { headers: { "Cache-Control": "private, no-store" } });
+        return okJson({ ok: true });
       } catch (error) { return json(error instanceof SyntaxError ? "Invalid JSON." : "Phone input failed. Try again.", error instanceof SyntaxError ? 400 : 502); }
     }
     if (request.method !== "GET") return json("Method not allowed.", 405);

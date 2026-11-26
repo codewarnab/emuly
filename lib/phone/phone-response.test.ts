@@ -47,12 +47,12 @@ test("installation contracts reject unsafe progress, unknown stages, and malform
 
 test("errors and action responses validate their fields without rejecting new error codes", () => {
   assert.deepEqual(parsePhoneError({ error: "Runner needs an update.", errorCode: "runner_update_required" }),
-    { error: "Runner needs an update.", errorCode: "runner_update_required" });
-  assert.deepEqual(parsePhoneError({ error: "Future failure", errorCode: "future_error" }), { error: "Future failure", errorCode: "future_error" });
-  assert.deepEqual(parsePhoneError({ error: "Failure" }), { error: "Failure" });
+    { error: "runner_update_required", message: "Runner needs an update." });
+  assert.deepEqual(parsePhoneError({ error: "future_error", message: "Future failure" }), { error: "future_error", message: "Future failure" });
+  assert.deepEqual(parsePhoneError({ error: "Failure" }), { error: "request_failed", message: "Failure" });
   assert.deepEqual(parseAppOpened({ ok: true }), { ok: true });
   for (const status of ["ready", "working"]) assert.deepEqual(parseRunnerUpdate({ status }), { status });
-  for (const value of [null, {}, { error: {} }, { error: "" }, { error: "Failed", errorCode: 3 }]) {
+  for (const value of [null, {}, { error: {} }, { error: "" }, { error: "Failed", errorCode: 3 }, { error: "Not a code", message: "x" }]) {
     assert.throws(() => parsePhoneError(value), PhoneResponseError);
   }
   assert.throws(() => parseAppOpened({ ok: "true" }), PhoneResponseError);

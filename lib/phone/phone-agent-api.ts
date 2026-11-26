@@ -1,15 +1,14 @@
+import { parsePhoneError } from "./phone-response.ts";
 import "server-only";
+import { errorResponse, json } from "../http.ts";
 import { INLINE_MAX } from "../../phone/runner/contracts.mjs";
 import { idleStopAt } from "./idle-stop.ts";
 import { crossOrigin } from "../auth/origin.ts";
-import { RateLimitError } from "../data/rate-limit.ts";
 import { CoordinationBusyError } from "../data/coordination.ts";
-import { GitHubError } from "../github/github.ts";
 import {
   ADB_FILES_MAX, ADB_UPLOAD_MAX_BYTES, AdbError, adbArguments, adbResult, adbTimeout, isDownload, isScreencap,
 } from "./phone-adb-contract.ts";
 import { PhoneInputError, type createPhoneService } from "./phone-mutations.ts";
-import { githubRefused } from "./github-refused.ts";
 import { readAgentNote } from "./agent-note.ts";
 import { RunnerTimeoutError } from "./runner-errors.ts";
 import { agentDeviceBaseUrl, agentDeviceInfo, agentDeviceSession, agentDeviceUnavailable } from "./agent-device.ts";
@@ -31,6 +30,11 @@ type AdbCall = { userId: number; phoneId: string; args: string[]; agentKeyId?: n
 const WAIT_STATES = new Set(["stopped", "running", "ready"]);
 
 /** Did the phone reach `target`, or did it fail on the way? */
+/** The runner's error in the API shape, or undefined when the body is not an error. */
+function runnerFailure(value: unknown) {
+  try { return parsePhoneError(value); } catch { return undefined; }
+}
+
 export function waitResult(stored: Pick<PhoneView, "state" | "android_state">, target: string): { done: boolean; failed: boolean } {
   const done = target === "stopped" ? stored.state === "stopped"
     : target === "running" ? stored.state === "running"
@@ -162,8 +166,6 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
   /** The wait between reads of a `wait_for` request. Tests make it short. */
   waitStepMs?: number;
 }) {
-  const json = (body: unknown, status = 200, headers?: Record<string, string>) =>
-    Response.json(body, { status, headers: { "Cache-Control": "private, no-store", ...headers } });
   const view = (stored: PhoneView) => ({
     id: stored.id, name: stored.name, state: stored.state, android_state: stored.android_state,
     idle_timeout_min: stored.idle_timeout_min, idle_stop_at: idleStopAt(stored), device_preset: stored.device_preset ?? "generic",
@@ -178,15 +180,13 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
     try { await action?.({ userId: identity.id, phoneId: id, agentKeyId: identity.agentKeyId, label, command, note: readAgentNote(request) }); } catch {}
   };
   const fail = (identity: Identity, error: unknown, fallback: string) => {
-    if (error instanceof GitHubError) return json(githubRefused(error, identity.login), 409);
     if (error instanceof CoordinationBusyError) return json({ error: "busy", message: "Another request for this phone is still running. Retry in a few seconds." }, 409, { "Retry-After": "5" });
     // A slow phone (often just after boot) is not a broken one: say so, and say when to retry.
     if (error instanceof RunnerTimeoutError) return json({ error: "timeout", message: `${error.message} Retry in ${error.retryAfter} s.`,
       retry_after: error.retryAfter }, 504, { "Retry-After": String(error.retryAfter) });
-    if (error instanceof RateLimitError) return json({ error: "rate_limited", message: error.message }, 429, { "Retry-After": String(error.retryAfter) });
     if (error instanceof PhoneInputError || error instanceof AdbError) return json({ error: "invalid_input", message: error.message }, 400);
     if (error instanceof InputError) return json({ error: "invalid_input", message: error.message }, error.status);
-    return json({ error: "request_failed", message: fallback }, 502);
+    return errorResponse(error, identity.login, fallback);
   };
   async function change(request: Request, id: string, operation: "start" | "stop") {
     const identity = await user();
@@ -321,12 +321,13 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         let value: Record<string, unknown> = {};
         try { value = await response.json() as Record<string, unknown>; } catch {}
         // A runner without the recording routes answers its generic 404 with no errorCode.
-        if (response.status === 404 && typeof value.errorCode !== "string") {
+        if (response.status === 404 && typeof value.errorCode !== "string" && value.message === undefined) {
           return json({ error: "runner_update_required", message: runnerUpdateMessage(id, "Recording") }, 503);
         }
         if (!response.ok) {
-          const code = typeof value.errorCode === "string" ? value.errorCode : "recording_failed";
-          const message = typeof value.error === "string" ? value.error : "The recording request failed. Retry.";
+          const failure = runnerFailure(value);
+          const code = failure?.error === "request_failed" ? "recording_failed" : failure?.error ?? "recording_failed";
+          const message = failure?.message ?? "The recording request failed. Retry.";
           return json({ error: code, message }, [400, 404, 409, 413, 503].includes(response.status) ? response.status : 502);
         }
         if (route.action === "notes" && query.get("format") === "vtt") {
@@ -393,12 +394,13 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         let value: Record<string, unknown> = {};
         try { value = await response.json() as Record<string, unknown>; } catch {}
         // A runner without /ui answers its generic 404 with no errorCode.
-        if (response.status === 404 && typeof value.errorCode !== "string") {
+        if (response.status === 404 && typeof value.errorCode !== "string" && value.message === undefined) {
           return json({ error: "runner_update_required", message: `${runnerUpdateMessage(id, "This route")} GET /screenshot works now.` }, 503);
         }
         if (!response.ok) {
-          const code = typeof value.errorCode === "string" ? value.errorCode : "ui_failed";
-          const message = typeof value.error === "string" ? value.error : "The UI tree could not be read. Retry, or use GET /screenshot.";
+          const failure = runnerFailure(value);
+          const code = failure?.error === "request_failed" ? "ui_failed" : failure?.error ?? "ui_failed";
+          const message = failure?.message ?? "The UI tree could not be read. Retry, or use GET /screenshot.";
           return json({ error: code, message }, response.status === 503 ? 503 : 502);
         }
         await act(identity, id, "Read the UI tree", `GET ui${all ? "?all=1" : ""}`, request);

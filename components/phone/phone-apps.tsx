@@ -40,8 +40,8 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
     const response = await fetch(`${base}/${path}`, { ...options, cache: "no-store", signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(95_000)]) : AbortSignal.timeout(95_000) });
     if (!response.ok) {
       const result = await readPhoneResponse(response, parsePhoneError);
-      if (result.errorCode === "runner_update_required") setNeedsUpdate(true);
-      throw new Error(result.error);
+      if (result.error === "runner_update_required") setNeedsUpdate(true);
+      throw new Error(result.message);
     }
     return readPhoneResponse(response, parse);
   }, [base]);

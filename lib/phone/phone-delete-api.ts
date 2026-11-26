@@ -1,4 +1,5 @@
 import "server-only";
+import { json } from "../http.ts";
 import { crossOrigin } from "../auth/origin.ts";
 import { AGENT_DELETE_PHONE_MESSAGE } from "../auth/scope.ts";
 import type { DatabaseQueries } from "../data/async-database.ts";
@@ -8,9 +9,6 @@ type Identity = { id: number; login?: string; authKind?: "session" | "agent"; ag
 type PhoneView = { id: string; name: string };
 type Removal = { ok: true } | { ok: false; status: number; error: string; message: string; retryAfter?: string };
 
-const noStore = { "Cache-Control": "private, no-store" };
-const json = (body: unknown, status = 200, headers?: Record<string, string>) =>
-  Response.json(body, { status, headers: { ...noStore, ...headers } });
 
 /** DELETE /v1/phones/<id>. A session always deletes; an agent key needs the user's switch. */
 const MAX_WAIT_S = 25;

@@ -30,7 +30,7 @@ test("Apps preserves runner conflicts and missing-operation errors and keeps res
   const api = createPhoneAppsApi({ user: async () => ({ id: 9 }), phone: () => ({ state: "running", android_state: "ready" }),
     runner: async () => Response.json({ error: "Operation error", errorCode: status === 409 ? "offset_conflict" : "not_found" }, { status }) });
   const response = await api(request("POST"), "one", ["app-installs", "11111111-1111-1111-1111-111111111111", "complete"]);
-  assert.equal(response.status, status); assert.equal((await response.json()).errorCode, status === 409 ? "offset_conflict" : "not_found");
+  assert.equal(response.status, status); assert.equal((await response.json()).error, status === 409 ? "offset_conflict" : "not_found");
   assert.equal(response.headers.get("cache-control"), "private, no-store");
   }
 });
@@ -71,7 +71,7 @@ test("Apps returns safe 502 errors for malformed runner successes, errors, and J
       runner: async () => new Response(scenario.body, { status: scenario.status }) });
     const response = await api(request("GET"), "one", scenario.route);
     assert.equal(response.status, 502);
-    assert.deepEqual(await response.json(), { error: "Invalid phone response. Refresh status before retrying.", errorCode: "invalid_response" });
+    assert.deepEqual(await response.json(), { error: "invalid_response", message: "Invalid phone response. Refresh status before retrying." });
     assert.equal(response.headers.get("cache-control"), "private, no-store");
   }
 });

@@ -25,7 +25,7 @@ test("ticket issuance enforces session, origin, ownership and readiness without 
   state = "running"; android_state = "booting";
   const booting = await api(request(), "owned");
   assert.equal(booting.status, 409);
-  assert.equal(await booting.text(), "");
+  assert.equal((await booting.json()).error, "phone_not_ready");
   android_state = "ready";
   assert.equal((await api(request("https://evil.test"), "owned")).status, 403);
   const response = await api(request(), "owned");
