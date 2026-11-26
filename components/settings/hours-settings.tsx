@@ -1,4 +1,5 @@
 "use client";
+import { PLANS } from "@/lib/shared/plans";
 import { useEffect, useRef, useState } from "react";
 import { IDLE_MAX, IDLE_MIN, IDLE_PRESETS, idleLabel, validIdle } from "@/lib/shared/idle";
 import { useSettingsControls } from "@/components/settings/settings-provider";
@@ -42,7 +43,7 @@ export function HoursSettings() {
     <fieldset className={s.idleField} disabled={pending}>
       <legend>Your GitHub plan</legend>
       <div className={s.idleChoices} role="radiogroup" aria-label="Your GitHub plan">
-        {([["free", "Free · 120"], ["pro", "Pro · 180"], ["custom", "Custom"]] as const).map(([value, label]) =>
+        {([["free", `Free · ${PLANS.free.coreHours}`], ["pro", `Pro · ${PLANS.pro.coreHours}`], ["custom", "Custom"]] as const).map(([value, label]) =>
           <label key={value} className={s.idleChip}>
             <input type="radio" name="plan" checked={value === "custom" ? planCustom : !planCustom && values.plan === value}
               onChange={() => {

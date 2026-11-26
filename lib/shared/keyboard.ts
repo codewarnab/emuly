@@ -18,6 +18,11 @@ export const SETTINGS_TABS = [
   { label: "Agents", href: "/app/settings/agents", key: "4", shortcut: "g a" },
 ] as const;
 export const SETTINGS_KEYS = { endpoint: "n", autoStop: "Enter", autoKeep: "Enter", test: "Enter" } as const;
+/** The dashboard page of one phone. */
+export function phoneHref(id: string) {
+  return `/app/phones/${encodeURIComponent(id)}`;
+}
+
 export function phoneTabHref(id: string, tab: string) {
-  return `/app/phones/${encodeURIComponent(id)}?tab=${tab}`;
+  return `${phoneHref(id)}?tab=${tab}`;
 }

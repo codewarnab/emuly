@@ -1,5 +1,6 @@
 "use client";
 
+import { GITHUB_BILLING_URL } from "@/lib/shared/plans";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { SyncError } from "@/lib/shared/sync-error";
@@ -49,7 +50,7 @@ export function SyncNotice({ error }: { error: SyncError }) {
     </span>
     {error.kind === "signin" ? <a className={s.syncAction} href="/auth/start">Reconnect</a>
       : error.kind === "quota" ? <a className={s.syncAction}
-        href="https://github.com/settings/billing/usage" target="_blank" rel="noreferrer">Open billing</a>
+        href={GITHUB_BILLING_URL} target="_blank" rel="noreferrer">Open billing</a>
       : <button type="button" className={s.syncAction} onClick={retry} disabled={retrying} aria-busy={retrying}>
         <svg className={retrying ? s.syncSpin : undefined} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
           strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

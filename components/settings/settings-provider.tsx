@@ -1,4 +1,5 @@
 "use client";
+import { PLANS } from "@/lib/shared/plans";
 import { createContext, useContext, useEffect, useOptimistic, useState, useTransition } from "react";
 import { saveHoursField } from "@/app/actions/settings";
 import type { HoursField } from "@/lib/data/settings";
@@ -22,7 +23,7 @@ export function SettingsProvider({ initial, children }: { initial: HoursValues; 
   function save(field: HoursField, value: number | boolean | "free" | "pro") {
     const patch = field === "plan" ? typeof value === "number"
       ? { plan: "custom" as const, allowance: value }
-      : { plan: value as "free" | "pro", allowance: value === "pro" ? 180 : 120 }
+      : { plan: value as "free" | "pro", allowance: PLANS[value as "free" | "pro"].coreHours }
       : { [field]: value };
     if (Object.entries(patch).every(([key, next]) => confirmed[key as keyof HoursValues] === next)) return;
     setStatus("Saving…");

@@ -1,4 +1,5 @@
 "use client";
+import { phoneHref } from "@/lib/shared/keyboard";
 import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -99,7 +100,7 @@ export function NewPhone({ usage, stopped = 0 }: { usage: Usage; stopped?: numbe
         </div>
         {result.message && dismissed !== result && <p role="status" className={result.phoneId ? s.createHint : s.createError}>{result.message}</p>}
         {result.message && !result.phoneId && !(result.refused && running) && /hour|quota|billing|spending/i.test(result.message) && <p className={s.createHint}><a href="https://github.com/settings/billing/usage" target="_blank" rel="noreferrer">Check exact usage on GitHub</a>, then try again.</p>}
-        {result.phoneId && <Link href={`/app/phones/${encodeURIComponent(result.phoneId)}`}>Open phone</Link>}
+        {result.phoneId && <Link href={phoneHref(result.phoneId)}>Open phone</Link>}
       </form>}
       {/* Outside the create form: forms cannot be nested. */}
       {options && !options.message && result.refused && running && dismissed !== result && <div className={s.createForm}>

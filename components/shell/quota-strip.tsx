@@ -1,3 +1,4 @@
+import { GITHUB_BILLING_URL } from "@/lib/shared/plans";
 import Link from "next/link";
 import s from "@/components/console.module.css";
 import type { AccountUsage } from "@/lib/github/billing";
@@ -38,7 +39,7 @@ export function QuotaStrip({ usage, defaultCores = 4 }: { usage: AccountUsage; d
       {planName} · {cores}-core phone{usage.running.length > 0 && usage.hours_left_at_current_rate !== null
         && ` · about ${usage.hours_left_at_current_rate.toFixed(1)} h at current rate`}
       {" · "}<Link href="/app/welcome">Change plan</Link>
-      {" · "}<a href="https://github.com/settings/billing/usage" target="_blank" rel="noreferrer">GitHub billing</a>
+      {" · "}<a href={GITHUB_BILLING_URL} target="_blank" rel="noreferrer">GitHub billing</a>
     </p>
   </section>;
 }

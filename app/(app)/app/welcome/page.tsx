@@ -1,3 +1,4 @@
+import { GITHUB_PLAN_URL, PLANS as GITHUB_PLANS, phoneHours } from "@/lib/shared/plans";
 import { Suspense } from "react";
 import { requireUser } from "../../../../lib/auth/auth";
 import { asyncDb } from "../../../../lib/data/async-db";
@@ -9,8 +10,8 @@ import { ConsoleLoading } from "@/components/ui/console-loading";
 import s from "../../../../components/console.module.css";
 
 const PLANS = [
-  { id: "free", name: "GitHub Free", hours: 30, core: 120 },
-  { id: "pro", name: "GitHub Pro", hours: 45, core: 180 },
+  { id: "free", name: GITHUB_PLANS.free.name, hours: phoneHours("free"), core: GITHUB_PLANS.free.coreHours },
+  { id: "pro", name: GITHUB_PLANS.pro.name, hours: phoneHours("pro"), core: GITHUB_PLANS.pro.coreHours },
 ] as const;
 
 type Props = { searchParams: Promise<{ next?: string | string[] }> };
@@ -42,7 +43,7 @@ async function Welcome({ searchParams }: Props) {
         </button>)}
       </form>
       <p className={s.welcomeHint}>
-        Not sure? <a href="https://github.com/settings/billing" target="_blank" rel="noreferrer">See your plan on GitHub</a>.
+        Not sure? <a href={GITHUB_PLAN_URL} target="_blank" rel="noreferrer">See your plan on GitHub</a>.
       </p>
     </main>
   </>;

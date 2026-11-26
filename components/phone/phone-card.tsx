@@ -1,8 +1,9 @@
+import { phoneHref } from "@/lib/shared/keyboard";
 import Link from "next/link";
 import { PhoneCardMenu } from "@/components/phone/phone-card-menu";
 import { Button } from "@/components/ui/button";
 import s from "@/components/console.module.css";
-import { Pill } from "@/components/ui/pill";
+import { PILL_LABEL, Pill } from "@/components/ui/pill";
 import type { PhoneRow } from "@/lib/shared/fixtures";
 import { PhoneMutation, KeepPhone } from "@/components/phone/phone-mutations";
 import type { Retention } from "@/lib/data/retention";
@@ -32,14 +33,13 @@ export function Thumb({ dim, sbRight = "5G", id, ready, wide }: { dim?: boolean;
   );
 }
 
-const PILL_LABEL = { running: "running", stopped: "stopped", stopping: "stopping", booting: "starting", needsyou: "failed" } as const;
 
 export function PhoneCard({ phone, controlState, retention, codespace = null, showScreen = false }: { phone: PhoneRow; on?: boolean; showScreen?: boolean; controlState?: string; retention?: Retention | null; codespace?: string | null }) {
   const noCodespace = controlState === "error" && !codespace;
   return (
     <div className={s.pcard}>
       <div className={s.pcardHead}>
-        <Link href={`/app/phones/${encodeURIComponent(phone.id)}`} className={`${s.name} ${s.nameLink}`}>{phone.name}</Link>
+        <Link href={phoneHref(phone.id)} className={`${s.name} ${s.nameLink}`}>{phone.name}</Link>
         <Pill kind={phone.state}>{phone.statusLabel ?? PILL_LABEL[phone.state]}</Pill>
         <PhoneCardMenu id={phone.id} codespace={codespace} />
       </div>
@@ -62,7 +62,7 @@ export function PhoneCard({ phone, controlState, retention, codespace = null, sh
       <div className={s.pcardFoot}>
         {noCodespace ? <span className={s.cardHint}>Use ⋯ to delete it.</span>
           : controlState ? <PhoneMutation id={phone.id} state={controlState} /> : <Button tiny variant="ghost" disabled aria-describedby={`controls-${phone.id}`}>{phone.state === "stopped" ? "Wake" : "Stop"}</Button>}
-        <Link href={`/app/phones/${encodeURIComponent(phone.id)}`} className={`${s.btn} ${s.btnTiny} ${s.btnFootMain}`}>
+        <Link href={phoneHref(phone.id)} className={`${s.btn} ${s.btnTiny} ${s.btnFootMain}`}>
           Open phone
         </Link>
       </div>

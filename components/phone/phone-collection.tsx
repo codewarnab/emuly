@@ -1,11 +1,12 @@
 "use client";
+import { phoneHref } from "@/lib/shared/keyboard";
 import { startTransition, useEffect, useState, ViewTransition } from "react";
 import Link from "next/link";
 import type { PhoneRow } from "@/lib/shared/fixtures";
 import { PhoneCard } from "@/components/phone/phone-card";
 import { PhoneMutation, KeepPhone } from "@/components/phone/phone-mutations";
 import type { Retention } from "@/lib/data/retention";
-import { Pill } from "@/components/ui/pill";
+import { PILL_LABEL, Pill } from "@/components/ui/pill";
 import s from "@/components/console.module.css";
 
 type Item = { card: PhoneRow; state: string; codespace: string | null; lastUsed: string | null; retention: Retention | null };
@@ -37,12 +38,12 @@ export function PhoneCollection({ phones, userId }: { phones: Item[]; userId: nu
     </div>
     {view === "grid" ? <div className={s.grid}>{phones.map(phone => <ViewTransition key={phone.card.id} name={`phone-${phone.card.id}`} share="phone-morph" default="none"><div><PhoneCard phone={phone.card} showScreen={mixed} controlState={phone.state} retention={phone.retention} codespace={phone.codespace} /></div></ViewTransition>)}</div>
       : <ul className={s.phoneList}>{phones.map(phone => <ViewTransition key={phone.card.id} name={`phone-${phone.card.id}`} share="phone-morph" default="none"><li className={s.phoneRow}>
-        <div><Link className={s.name} href={`/app/phones/${encodeURIComponent(phone.card.id)}`}>{phone.card.name}</Link><Pill kind={phone.card.state}>{phone.card.statusLabel ?? phone.card.state}</Pill>{mixed && <span className={s.screenTag}>{phone.card.screen}</span>}</div>
+        <div><Link className={s.name} href={phoneHref(phone.card.id)}>{phone.card.name}</Link><Pill kind={phone.card.state}>{phone.card.statusLabel ?? PILL_LABEL[phone.card.state]}</Pill>{mixed && <span className={s.screenTag}>{phone.card.screen}</span>}</div>
         <div className={s.rowDetails}><span>Last used: {phone.lastUsed ? `${phone.lastUsed.slice(0, 16).replace("T", " ")} UTC` : "Not recorded"}</span>{phone.retention && <>
           <span className={phone.retention.warning ? s.retentionWarning : undefined}>{phone.retention.message}</span>
           {phone.retention.canKeep && phone.state !== "keeping" && <KeepPhone id={phone.card.id} />}
         </>}</div>
-        <div className={s.acts}><PhoneMutation id={phone.card.id} state={phone.state} /><Link className={s.cardLink} href={`/app/phones/${encodeURIComponent(phone.card.id)}`}>Open phone</Link></div>
+        <div className={s.acts}><PhoneMutation id={phone.card.id} state={phone.state} /><Link className={s.cardLink} href={phoneHref(phone.card.id)}>Open phone</Link></div>
       </li></ViewTransition>)}</ul>}
   </section>;
 }

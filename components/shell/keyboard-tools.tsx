@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { filterCommands, PHONE_TABS, phoneTabHref, SETTINGS_TABS, SETTINGS_KEYS } from "@/lib/shared/keyboard";
+import { filterCommands, PHONE_TABS, phoneHref, phoneTabHref, SETTINGS_TABS, SETTINGS_KEYS } from "@/lib/shared/keyboard";
 import { useSettingsControls } from "@/components/settings/settings-provider";
 import type { Webhook } from "@/lib/webhooks/webhooks";
 import { copyText, useToast } from "@/components/ui/ui-provider";
@@ -82,7 +82,7 @@ export function KeyboardTools({ phones }: { phones?: PhoneChoice[] }) {
     if (key === "g p") router.push("/app");
     else if (key.startsWith("g ")) {
       const phone = phones[Number(key.slice(2)) - 1];
-      if (phone) router.push(`/app/phones/${encodeURIComponent(phone.id)}`);
+      if (phone) router.push(phoneHref(phone.id));
       else notify("There is no phone in that slot yet. Copy the setup prompt to get one.");
     } else if (current) {
       if (/^[1-3]$/.test(key)) tab(Number(key) - 1);
@@ -94,7 +94,7 @@ export function KeyboardTools({ phones }: { phones?: PhoneChoice[] }) {
   const commands: Command[] = phones ? [
     { id: "phones", label: "Go to Phones", hint: "g p", run: () => router.push("/app") },
     ...SETTINGS_TABS.map(item => ({ id: `settings-${item.key}`, label: `Go to Settings: ${item.label}`, hint: item.shortcut, run: () => router.push(item.href) })),
-    ...phones.map((phone, index) => ({ id: phone.id, label: `Open ${phone.name}`, hint: index < 9 ? `g ${index + 1}` : "", more: index >= 3, run: () => router.push(`/app/phones/${encodeURIComponent(phone.id)}`) })),
+    ...phones.map((phone, index) => ({ id: phone.id, label: `Open ${phone.name}`, hint: index < 9 ? `g ${index + 1}` : "", more: index >= 3, run: () => router.push(phoneHref(phone.id)) })),
     ...(current ? [
       { id: "wake", label: "Wake current phone", hint: "w", run: unavailable, reason: CONTROL_REASON },
       { id: "stop", label: "Stop current phone", hint: "s", run: unavailable, reason: CONTROL_REASON },
