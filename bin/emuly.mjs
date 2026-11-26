@@ -4,7 +4,7 @@
 // All interactive child output is inherited, so the user sees gh's device-flow code and the
 // server log. Checks run with piped output so their stderr can be shown on failure.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { connect, createServer as createNetServer, isIP } from "node:net";
 import { lookup as dnsLookup } from "node:dns";
 import { createHash, randomUUID } from "node:crypto";
@@ -335,6 +335,15 @@ function cliClient() {
   return clientHeader;
 }
 const sayCli = message => console.error(`emuly: ${message}`);
+/**
+ * The hash comes in the same response as the code, so it proves only that the download is whole.
+ * Only TLS proves where the code comes from. Plain http is allowed only to this computer (self-host, dev).
+ */
+function secureUpdateUrl(url) {
+  const { protocol, hostname } = new URL(url);
+  if (protocol === "https:") return true;
+  return protocol === "http:" && (hostname === "localhost" || hostname === "[::1]" || /^127\.\d+\.\d+\.\d+$/.test(hostname));
+}
 async function updateCli() {
   const self = fileURLToPath(import.meta.url);
   let url;
@@ -347,7 +356,9 @@ async function updateCli() {
     if (!response.ok || !theirs || theirs === mine) return;
   } catch { return; }
   if (process.env.EMULY_CLI_AUTO_UPDATE === "0" || existsSync(join(dirname(self), "..", ".git"))) { sayCli(manual); return; }
-  const temporary = `${self}.${process.pid}.tmp`;
+  if (!secureUpdateUrl(url)) { sayCli(`the server is not https, so this copy does not update itself. ${manual}`); return; }
+  // The .mjs ending lets node --check read the file as a module.
+  const temporary = `${self}.${process.pid}.tmp.mjs`;
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
     const body = await response.text();
@@ -357,8 +368,15 @@ async function updateCli() {
       return;
     }
     writeFileSync(temporary, body);
+    // A file that does not parse never replaces a working CLI.
+    if (spawnSync(process.execPath, ["--check", temporary], { stdio: "ignore", timeout: 30_000 }).status !== 0) {
+      rmSync(temporary, { force: true });
+      sayCli(`the new emuly.mjs did not parse, so this copy stays. ${manual}`);
+      return;
+    }
+    copyFileSync(self, `${self}.bak`);
     renameSync(temporary, self);
-    sayCli("updated emuly.mjs from the server. The new copy runs from the next command.");
+    sayCli(`updated emuly.mjs from the server. The new copy runs from the next command. The old copy is ${self}.bak.`);
   } catch {
     rmSync(temporary, { force: true });
     sayCli(manual);
