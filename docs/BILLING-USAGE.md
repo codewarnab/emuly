@@ -17,7 +17,7 @@ New settings saves create an override only when an allowance is explicitly submi
 Restoring automatic allowance clears the override. An unknown plan uses the Free allowance and is labeled unverified.
 The last known plan remains available during an outage.
 
-**Current state (2026-11-09):** login asks for `codespace` only, and no UI links to `/auth/start?billing=1`.
+**Current state (2026-11-26):** login asks for `codespace` only. The old `/auth/start?billing=1` path that added `user` is removed.
 So the billing report is normally unavailable, and the strip counts only Emuly phone runs.
 Codespaces used outside Emuly are not counted. An `InfoTip` on the strip says this.
 The `user` scope was not added to the UI because it gives full profile read/write access
