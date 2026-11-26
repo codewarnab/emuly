@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createPhoneAgentApi } from "./phone-agent-api.ts";
 import { PhoneInputError } from "./phone-mutations.ts";
 import { RunnerTimeoutError } from "./runner-errors.ts";
@@ -552,4 +553,40 @@ test("a GitHub refusal names the GitHub account, so the agent can point at its b
   const anonymous = fixture({ service: { start: async () => { throw new GitHubError("refused", 403); }, stop: async (_userId, id) => id } });
   const without = await anonymous.api.start(post(`/v1/phones/${stored.id}/start`, undefined, { origin: "https://emuly.test" }), stored.id);
   assert.equal("github_login" in await without.json(), false);
+});
+
+test("agent commands give the runner helpers the codespace of the phone row they already read", async () => {
+  const known = { ...stored, codespace_name: "cs-quiet-falcon" };
+  const seen: Record<string, string | undefined> = {};
+  const png = () => new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), { headers: { "content-type": "image/png" } });
+  let reads = 0;
+  const { api } = fixture({
+    user: async () => ({ id: 7, authKind: "agent", agentKeyId: 42 }),
+    phone: async () => { reads += 1; return known; },
+    adb: async (_u, _i, _input, codespaceName) => { seen.adb = codespaceName; return Response.json({ exit_code: 0, stdout: "", stderr: "" }); },
+    agentDevice: async (_u, _i, codespaceName) => { seen.agentDevice = codespaceName; return { ready: true, token: "proxy-token", version: "1" }; },
+    screenshot: async (_u, _i, _scale, codespaceName) => { seen.screenshot = codespaceName; return png(); },
+    ui: async (_u, _i, _all, codespaceName) => { seen.ui = codespaceName; return Response.json({ nodes: [] }); },
+    recording: async (_u, _i, _action, _body, codespaceName) => { seen.recording = codespaceName; return Response.json({ recording: false }); },
+  });
+  const base = `/v1/phones/${stored.id}`;
+  assert.equal((await api.adb(post(`${base}/adb`, { args: ["shell", "id"] }), stored.id)).status, 200);
+  assert.equal((await api.agentDevice(get(`${base}/agent-device`), stored.id)).status, 200);
+  assert.equal((await api.screenshot(get(`${base}/screenshot`), stored.id)).status, 200);
+  assert.equal((await api.ui(get(`${base}/ui`), stored.id)).status, 200);
+  assert.equal((await api.recording(get(`${base}/recording/status`), stored.id, "status")).status, 200);
+  assert.deepEqual(seen, { adb: "cs-quiet-falcon", agentDevice: "cs-quiet-falcon", screenshot: "cs-quiet-falcon",
+    ui: "cs-quiet-falcon", recording: "cs-quiet-falcon" }, "each helper gets the row, so it does not read it again");
+  assert.equal(reads, 5, "one phone read for each command");
+});
+
+test("each runner helper skips its own phone read when it gets the codespace", () => {
+  const source = readFileSync("lib/phone/phone-runner.ts", "utf8");
+  assert.match(source, /export async function runnerRequest\([^)]*known\?: string\) \{\s+if \(known\) return links\(\)\.request/);
+  assert.match(source, /export async function runnerAdb\([^)]*known\?: string\) \{\s+const codespaceName = known \?\? await readyCodespace/);
+  assert.match(source, /export async function runnerRecording\([^)]*known\?: string\) \{\s+if \(known\) return links\(\)\.recording/);
+  assert.match(source, /export async function runnerAgentDevice\([^)]*known\?: string\) \{\s+const codespaceName = known \?\? await readyCodespace/);
+  const wiring = readFileSync("lib/api.ts", "utf8");
+  assert.match(wiring, /screenshot: \(userId, id, scale, codespaceName\) => runnerRequest\([^\n]*, codespaceName\)/);
+  assert.match(wiring, /ui: \(userId, id, all, codespaceName\) => runnerRequest\([^\n]*, codespaceName\)/);
 });

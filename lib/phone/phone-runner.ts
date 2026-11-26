@@ -17,7 +17,12 @@ const links = () => {
   // Command completion is measured; provider idle-timer reset remains unverified.
   keepAwake: (token, codespaceName) => codespaceExec({ token, codespaceName, command: "echo emuly-awake", pty: true, timeoutMs: 90_000 }) });
 };
-export async function runnerRequest(userId: number, id: string, path: RunnerPath, body?: Record<string, unknown>, query?: Record<string, string>) {
+/**
+ * known: the codespace of a phone row the caller just read for this user and checked as ready.
+ * Then the helper does not read the same row again (one Turso trip less per agent command).
+ */
+export async function runnerRequest(userId: number, id: string, path: RunnerPath, body?: Record<string, unknown>, query?: Record<string, string>, known?: string) {
+  if (known) return links().request({ userId, id, codespaceName: known }, path, body, query);
   const row = (await asyncDb().execute({ sql: `SELECT codespace_name FROM phones WHERE user_id = ? AND id = ? AND state IN ('running', 'booting', 'stopping')
     AND EXISTS(SELECT 1 FROM users WHERE id = ? AND blocked = 0)`, args: [userId, id, userId] })).rows[0] as unknown as { codespace_name: string } | undefined;
   if (!row) throw new Error("Phone is not available");
@@ -48,16 +53,15 @@ export async function runnerApps(userId: number, id: string, path: AppsPath, opt
 }
 
 /** adb runs only on a phone that the runner already reports as running and ready. */
-export async function runnerAdb(userId: number, id: string, input: AdbRequest) {
-  const row = (await asyncDb().execute({ sql: `SELECT codespace_name FROM phones WHERE user_id = ? AND id = ? AND state = 'running' AND android_state = 'ready'
-    AND EXISTS(SELECT 1 FROM users WHERE id = ? AND blocked = 0)`, args: [userId, id, userId] })).rows[0] as unknown as { codespace_name: string } | undefined;
-  if (!row) throw new Error("Phone is not available");
+export async function runnerAdb(userId: number, id: string, input: AdbRequest, known?: string) {
+  const codespaceName = known ?? await readyCodespace(userId, id);
   activity().mark({ userId, id });
-  return links().adb({ userId, id, codespaceName: row.codespace_name }, input);
+  return links().adb({ userId, id, codespaceName }, input);
 }
 
 /** Screen recording calls. Recording needs Android ready; status, file and discard work while the phone runs. */
-export async function runnerRecording(userId: number, id: string, action: RecordingAction, body?: Record<string, unknown>) {
+export async function runnerRecording(userId: number, id: string, action: RecordingAction, body?: Record<string, unknown>, known?: string) {
+  if (known) return links().recording({ userId, id, codespaceName: known }, action, body);
   const ready = action === "start" ? "AND android_state = 'ready'" : "";
   const row = (await asyncDb().execute({ sql: `SELECT codespace_name FROM phones WHERE user_id = ? AND id = ? AND state = 'running' ${ready}
     AND EXISTS(SELECT 1 FROM users WHERE id = ? AND blocked = 0)`, args: [userId, id, userId] })).rows[0] as unknown as { codespace_name: string } | undefined;
@@ -74,11 +78,9 @@ export async function runnerAndroidIdleMs(userId: number, id: string, codespaceN
 }
 
 /** The runner's agent-device proxy state. Any failure is shaped as unavailable by the caller. */
-export async function runnerAgentDevice(userId: number, id: string) {
-  const row = (await asyncDb().execute({ sql: `SELECT codespace_name FROM phones WHERE user_id = ? AND id = ? AND state = 'running' AND android_state = 'ready'
-    AND EXISTS(SELECT 1 FROM users WHERE id = ? AND blocked = 0)`, args: [userId, id, userId] })).rows[0] as unknown as { codespace_name: string } | undefined;
-  if (!row) throw new Error("Phone is not available");
-  const response = await links().request({ userId, id, codespaceName: row.codespace_name }, "/agent-device-info");
+export async function runnerAgentDevice(userId: number, id: string, known?: string) {
+  const codespaceName = known ?? await readyCodespace(userId, id);
+  const response = await links().request({ userId, id, codespaceName }, "/agent-device-info");
   const info = await response.json() as unknown;
   // Remember only the token this caller is about to receive, and never the token itself.
   const token = agentDeviceInfo(info)?.token;
@@ -111,6 +113,13 @@ export async function runnerStream(userId: number, id: string, sessionId: string
     AND EXISTS(SELECT 1 FROM sessions WHERE id = ? AND user_id = ? AND expires_at > ?)`, args: [userId, id, userId, sessionId, userId, new Date().toISOString()] })).rows[0] as unknown as { codespace_name: string } | undefined;
   if (!row) throw new Error("Phone is not available");
   return links().stream({ userId, id, codespaceName: row.codespace_name });
+}
+
+async function readyCodespace(userId: number, id: string) {
+  const row = (await asyncDb().execute({ sql: `SELECT codespace_name FROM phones WHERE user_id = ? AND id = ? AND state = 'running' AND android_state = 'ready'
+    AND EXISTS(SELECT 1 FROM users WHERE id = ? AND blocked = 0)`, args: [userId, id, userId] })).rows[0] as unknown as { codespace_name: string } | undefined;
+  if (!row) throw new Error("Phone is not available");
+  return row.codespace_name;
 }
 
 async function runningCodespace(userId: number, id: string) {

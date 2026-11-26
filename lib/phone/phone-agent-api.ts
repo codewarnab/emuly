@@ -18,7 +18,7 @@ import { notesVtt, type RecordingNote } from "./recording-notes.ts";
 import { runnerUpdateMessage } from "./phone-response.ts";
 
 type Identity = { id: number; login?: string; authKind?: "session" | "agent"; agentKeyId?: number };
-type PhoneView = Pick<Phone, "id" | "name" | "state" | "android_state" | "idle_timeout_min"> & Partial<Pick<Phone, "last_activity_at" | "android_started_at" | "last_started_at" | "keeping">> & { device_preset?: string; location?: string | null };
+type PhoneView = Pick<Phone, "id" | "name" | "state" | "android_state" | "idle_timeout_min"> & Partial<Pick<Phone, "codespace_name" | "last_activity_at" | "android_started_at" | "last_started_at" | "keeping">> & { device_preset?: string; location?: string | null };
 // status, mark and notes are frequent and change nothing outside the recording: no Activity line.
 const QUIET_RECORDING_ACTIONS = new Set<RecordingAction>(["status", "mark", "notes"]);
 const RECORDING_LABELS: Record<Exclude<RecordingAction, "status" | "mark" | "notes">, string> = {
@@ -138,16 +138,16 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
   phone: (userId: number, id: string) => Promise<PhoneView | undefined>;
   service: Pick<ReturnType<typeof createPhoneService>, "start" | "stop"> & Partial<Pick<ReturnType<typeof createPhoneService>, "requestStop">>;
   adb: (userId: number, id: string, input: { args: string[]; timeout_s: number; binary?: boolean;
-    files?: { name: string; bytes: Uint8Array }[]; key?: string }) => Promise<Response>;
+    files?: { name: string; bytes: Uint8Array }[]; key?: string }, codespaceName?: string) => Promise<Response>;
   /** A signed ticket for a direct upload to the phone, or undefined when the direct port is not available. */
   uploadTicket?: (userId: number, id: string, input: { args: string[]; timeout_s: number; files: { name: string; size: number; sha256: string }[] }) => Promise<UploadTicket | undefined>;
-  agentDevice: (userId: number, id: string) => Promise<unknown>;
+  agentDevice: (userId: number, id: string, codespaceName?: string) => Promise<unknown>;
   /** Screen recording on the runner. Optional so tests and older wiring need not supply it. */
-  recording?: (userId: number, id: string, action: RecordingAction, body?: Record<string, unknown>) => Promise<Response>;
+  recording?: (userId: number, id: string, action: RecordingAction, body?: Record<string, unknown>, codespaceName?: string) => Promise<Response>;
   /** A PNG screenshot from the runner. scale (0.1 to 1) makes it smaller. Optional like recording. */
-  screenshot?: (userId: number, id: string, scale?: number) => Promise<Response>;
+  screenshot?: (userId: number, id: string, scale?: number, codespaceName?: string) => Promise<Response>;
   /** The UI tree as JSON from the runner (phone/runner/ui-tree.mjs). all: every node. Optional like recording. */
-  ui?: (userId: number, id: string, all: boolean) => Promise<Response>;
+  ui?: (userId: number, id: string, all: boolean, codespaceName?: string) => Promise<Response>;
   baseUrl: () => string;
   log?: (call: AdbCall) => void | Promise<void>;
   /** An activity row for an agent call that is not adb, such as a screenshot. Agent keys only. */
@@ -256,7 +256,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
       try {
         const stored = await phone(identity.id, id);
         if (!stored || stored.state !== "running" || stored.android_state !== "ready") return agentDeviceUnavailable();
-        const info = agentDeviceInfo(await agentDevice(identity.id, id));
+        const info = agentDeviceInfo(await agentDevice(identity.id, id, stored.codespace_name));
         if (!info) return agentDeviceUnavailable();
         // The token is relayed to the caller and never logged here or by the runner.
         return Response.json({ base_url: agentDeviceBaseUrl(baseUrl(), id), token: info.token, version: info.version,
@@ -303,7 +303,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
           body = { text: raw.text };
         }
         if (route.action === "grid") body = gridQuery(query);
-        const response = await recording(identity.id, id, route.action, body);
+        const response = await recording(identity.id, id, route.action, body, stored.codespace_name);
         if (response.ok && !QUIET_RECORDING_ACTIONS.has(route.action)) {
           await act(identity, id, RECORDING_LABELS[route.action as keyof typeof RECORDING_LABELS], `${route.method} recording/${route.action}`, request);
         }
@@ -360,7 +360,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
           return json({ error: "phone_not_ready",
             message: `The phone is ${stored.state} with Android ${stored.android_state}. Retry when GET /v1/phones/${id} shows running and ready.` }, 409);
         }
-        const response = await screenshot(identity.id, id, scale);
+        const response = await screenshot(identity.id, id, scale, stored.codespace_name);
         const bytes = await response.arrayBuffer();
         if (!response.headers.get("content-type")?.startsWith("image/png")) throw new Error("Invalid screenshot");
         await act(identity, id, "Took a screenshot", `GET screenshot${scale === undefined ? "" : `?scale=${scale}`}`, request);
@@ -388,7 +388,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
           return json({ error: "phone_not_ready",
             message: `The phone is ${stored.state} with Android ${stored.android_state}. Retry when GET /v1/phones/${id} shows running and ready.` }, 409);
         }
-        const response = await ui(identity.id, id, all);
+        const response = await ui(identity.id, id, all, stored.codespace_name);
         let value: Record<string, unknown> = {};
         try { value = await response.json() as Record<string, unknown>; } catch {}
         // A runner without /ui answers its generic 404 with no errorCode.
@@ -442,7 +442,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
           : undefined;
         const key = request.headers.get("idempotency-key") ?? undefined;
         if (key !== undefined && !/^[\w.:-]{1,100}$/.test(key)) bad(400, "Idempotency-Key must be 1 to 100 letters, digits, _ . : or -.");
-        const response = await adb(identity.id, id, { args, timeout_s, binary, ...(files ? { files } : {}), ...(key ? { key } : {}) });
+        const response = await adb(identity.id, id, { args, timeout_s, binary, ...(files ? { files } : {}), ...(key ? { key } : {}) }, stored.codespace_name);
         if (!response.ok) {
           await record(identity, id, args, -1, note);
           let value: Record<string, unknown> = {};
