@@ -330,6 +330,25 @@ test("an unconfirmed creation with no Codespace on GitHub expires and stops bloc
   } finally { await f.close(); }
 });
 
+test("a phone deleted while its stop runs stays deleted", async () => {
+  const current = space("automatic-owned", "Available");
+  let f: ReturnType<typeof fixture>;
+  f = fixture(async (url) => {
+    const path = new URL(String(url)).pathname;
+    if (path.endsWith("/stop")) {
+      f.database.prepare("UPDATE phones SET state = 'deleted'").run();
+      return new Response(null, { status: 202 });
+    }
+    return path === "/user/codespaces" ? Response.json({ codespaces: [current] }) : Response.json(current);
+  });
+  try {
+    f.add("phone-aaaa", 1, current.name);
+    f.database.prepare("UPDATE phones SET state = 'running'").run();
+    await f.service.stop(1, "phone-aaaa").catch(() => undefined);
+    assert.equal(f.database.prepare("SELECT state FROM phones").get()?.state, "deleted");
+  } finally { await f.close(); }
+});
+
 test("start and stop are idempotent, reconcile asynchronous state, and preserve the existing codespace and secret", async () => {
   let current = space("automatic-owned");
   const writes: string[] = [];

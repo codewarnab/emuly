@@ -533,6 +533,9 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     await event(userId, id, "error", message);
   }
 
+  /** The states from which a finished stop may set `stopping`. Never a deleted or stopped phone. */
+  const STOPPABLE = "('running', 'booting', 'error')";
+
   /** Save Android through the runner, then ask GitHub to stop the codespace. */
   async function finishStop(userId: number, id: string, stored: StoredPhone, automatic: false | "auto-stop" | "idle stop", diagnosticOperation: string | undefined) {
         if (runner) {
@@ -556,10 +559,11 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         void diagnostics.cancel(userId, id, true);
         await transaction(database, async queries => {
         await queries.execute({ sql: "DELETE FROM phone_setup_attempts WHERE phone_id = ?", args: [id] });
-        await queries.execute({ sql: "UPDATE phones SET stop_reason = ? WHERE id = ?", args: [automatic ? "hours_budget" : "user", id] });
+        // A delete or sync can change the phone while Android saves. Touch only a phone that still runs.
+        await queries.execute({ sql: `UPDATE phones SET stop_reason = ? WHERE id = ? AND state IN ${STOPPABLE}`, args: [automatic ? "hours_budget" : "user", id] });
         // Diagnostics (anonymous): a requested stop, by the owner or by the hours budget.
         states.record({ from: stored.state, to: "stopping", reason: automatic ? "hours_budget" : "user", since: stored.last_started_at });
-        await queries.execute({ sql: "UPDATE phones SET state = 'stopping', state_detail = ? WHERE user_id = ? AND id = ?", args: [runner ? "Android stopped. GitHub is stopping the codespace." : "GitHub is stopping the codespace. Runner snapshot saving is not connected yet.", userId, id] });
+        await queries.execute({ sql: `UPDATE phones SET state = 'stopping', state_detail = ? WHERE user_id = ? AND id = ? AND state IN ${STOPPABLE}`, args: [runner ? "Android stopped. GitHub is stopping the codespace." : "GitHub is stopping the codespace. Runner snapshot saving is not connected yet.", userId, id] });
         });
         disconnect?.(userId, id, stored.codespace_name);
   }
