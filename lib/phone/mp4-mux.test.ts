@@ -246,6 +246,18 @@ test("recorder writes a finished MP4 from the shared stream", async t => {
   f.hub.closeAll();
 });
 
+test("two starts at the same time make one recording; the second gets recording_busy", async t => {
+  const f = await recorderFixture();
+  t.after(() => rm(f.dir, { recursive: true, force: true }));
+  const results = await Promise.allSettled([f.recorder.start({}), f.recorder.start({})]);
+  assert.deepEqual(results.map(r => r.status).sort(), ["fulfilled", "rejected"]);
+  const failed = results.find(r => r.status === "rejected") as PromiseRejectedResult;
+  assert.equal(failed.reason.code, "recording_busy");
+  await f.recorder.stop().catch(() => undefined);
+  await f.recorder.discard().catch(() => undefined);
+  f.hub.closeAll();
+});
+
 test("recorder stops on max bytes and when the stream closes", async t => {
   const f = await recorderFixture(200);
   t.after(() => rm(f.dir, { recursive: true, force: true }));

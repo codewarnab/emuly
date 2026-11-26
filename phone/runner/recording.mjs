@@ -53,6 +53,8 @@ const paths = (dir, id) => {
 export function createRecorder({ attach, dir = tmpdir(), now = Date.now, maxBytes = MAX_FILE_BYTES,
   firstFrameWaitMs = FIRST_FRAME_WAIT_MS, qualities }) {
   let current = null;
+  /** True while a start runs its first awaits. A second start then gets 409, so no recording runs untracked. */
+  let starting = false;
   let ready = null;
 
   function view(recording) {
@@ -72,17 +74,23 @@ export function createRecorder({ attach, dir = tmpdir(), now = Date.now, maxByte
   async function start({ quality = "auto", max_s = DEFAULT_DURATION_S } = {}) {
     if (!Object.hasOwn(qualities, quality)) throw new RecordingError(400, "invalid_input", `quality must be one of: ${Object.keys(qualities).join(", ")}.`);
     if (!Number.isInteger(max_s) || max_s < 1 || max_s > MAX_DURATION_S) throw new RecordingError(400, "invalid_input", `max_s must be a whole number from 1 to ${MAX_DURATION_S}.`);
-    await recover();
-    if (current?.state === "recording" || current?.state === "stopping") throw new RecordingError(409, "recording_busy", "A recording is already running. Stop it first.");
-    if (current) await discard();
+    if (starting) throw new RecordingError(409, "recording_busy", "A recording is already running. Stop it first.");
+    starting = true;
+    try {
+      await recover();
+      if (current?.state === "recording" || current?.state === "stopping") throw new RecordingError(409, "recording_busy", "A recording is already running. Stop it first.");
+      if (current) await discard();
+      await mkdir(dir, { recursive: true });
+    } catch (error) { starting = false; throw error; }
     const id = randomUUID();
-    await mkdir(dir, { recursive: true });
     const file = createWriteStream(paths(dir, id).path);
     const journal = createWriteStream(paths(dir, id).journalPath);
     const muxer = createMp4Muxer({ journal: line => journal.write(`${line}\n`) });
     const recording = current = { id, ...paths(dir, id), file, journal, muxer, quality, maxS: max_s, state: "recording",
       startedAt: now(), endedAt: null, reason: null, result: null, error: null, done: null, timer: null, socket: null,
       doneSet: null, firstFrameMs: null, videoStartAt: null, notes: [] };
+    // `current` now holds this recording, so the state check refuses the next start.
+    starting = false;
     recording.doneSet = new Promise(resolve => { recording.onDone = resolve; });
     let sawFrame;
     const firstFrame = new Promise(resolve => { sawFrame = resolve; });
