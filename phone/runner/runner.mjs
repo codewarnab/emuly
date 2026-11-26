@@ -13,6 +13,7 @@ import { startAgentDeviceProxy } from "./agent-device-proxy.mjs";
 import { pullSize, ADB_DOWNLOAD_MAX_BYTES, ADB_FILES_MAX, ADB_OUTPUT_MAX_BYTES, ADB_UPLOAD_MAX_BYTES,
   adbArguments, adbTimeout, isDownload, isScreencap } from "./adb-protocol.mjs";
 import { AppError } from "./apk-download.mjs";
+import { createAdbReplay } from "./adb-replay.mjs";
 import { createFileFetches } from "./file-fetch.mjs";
 import { createLinks } from "./links.mjs";
 import { createEgress } from "./egress.mjs";
@@ -208,15 +209,28 @@ async function readAdbRequest(req, ticket) {
 }
 
 /** One file command or ordinary adb call. Temp files are removed in every path. */
-async function adbRoute(req, ticket) {
+async function adbRoute(req, ticket, key) {
   if (adbBusy) throw new HttpError(409, "Another adb command is running. Retry when it finishes.", false);
-  let request;
   let directory;
   adbBusy = true;
   try {
-    request = await readAdbRequest(req, ticket);
+    const request = await readAdbRequest(req, ticket);
     directory = request.directory;
     if (!directory && isDownload(request.args)) directory = await mkdtemp(join(tmpdir(), "emuly-adb-"));
+    return key ? await adbReplay.run(key, request.args, () => runAdb(request, directory)) : await runAdb(request, directory);
+  } catch (error) {
+    // A request that did not parse did not run.
+    if (error instanceof HttpError) error.ran ??= false;
+    throw error;
+  } finally {
+    adbBusy = false;
+    if (directory) await rm(directory, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/** Runs one parsed adb request. Errors before adb starts (bad input, a file over the limit) did not run the command. */
+async function runAdb(request, directory) {
+  try {
     if (!(await booted())) throw new HttpError(409, "Android is not ready. Start the phone first.", false);
     if (request.args[0] === "text") {
       try { await pasteText({ adb, ADB, SERIAL, ROOT, text: request.args[1], timeoutMs: request.seconds * 1000 }); }
@@ -264,39 +278,14 @@ async function adbRoute(req, ticket) {
     if (error instanceof HttpError) { error.ran ??= false; throw error; }
     const message = String(error?.message ?? error).replace(/\s+/g, " ").slice(0, 200);
     throw new HttpError(500, `adb could not finish: ${message}`, "unknown");
-  } finally {
-    adbBusy = false;
-    if (directory) await rm(directory, { recursive: true, force: true }).catch(() => {});
   }
 }
 
-// Retry key: a call with an Idempotency-Key header that was seen in the last 10 minutes does
-// not run again. It gets the first call's result (or error), with "replayed": true.
-// So a retry of a `tap` whose reply was lost cannot tap twice.
-const ADB_KEY_MS = 10 * 60_000;
-const adbResults = new Map(); // key -> { at, promise }
-async function adbKeyed(req) {
+// Retry key: see adb-replay.mjs. The key counts only with the same adb arguments.
+const adbReplay = createAdbReplay();
+function adbKeyed(req) {
   const key = req.headers["idempotency-key"];
-  if (typeof key !== "string" || !/^[\w.:-]{1,100}$/.test(key)) return adbRoute(req);
-  for (const [old, entry] of adbResults) if (Date.now() - entry.at > ADB_KEY_MS) adbResults.delete(old);
-  const seen = adbResults.get(key);
-  if (seen) {
-    req.resume();
-    try {
-      const result = await seen.promise;
-      return result?.file || result?.png ? result : { ...result, replayed: true };
-    } catch (error) { error.replayed = true; throw error; }
-  }
-  const promise = adbRoute(req);
-  promise.catch(() => {});
-  adbResults.set(key, { at: Date.now(), promise });
-  while (adbResults.size > 200) adbResults.delete(adbResults.keys().next().value);
-  try { return await promise; }
-  catch (error) {
-    // Nothing ran: a retry with the same key may run it.
-    if (error.ran === false) adbResults.delete(key);
-    throw error;
-  }
+  return adbRoute(req, undefined, typeof key === "string" && /^[\w.:-]{1,100}$/.test(key) ? key : undefined);
 }
 const apps = await createApps({ root: join(ROOT, "data", "app-installs"), sdk: SDK, run, adb, exclusive, booted });
 
@@ -397,7 +386,7 @@ function screenshot() {
 const ui = createUiReader({ adb });
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 30, key: await runnerKey.fingerprint(), scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale", "fileFetch", "uiTree", "egress"], avd: "t", api_level: 36, booted: await booted(),
+  "GET /health": async () => ({ ok: true, version: 31, key: await runnerKey.fingerprint(), scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale", "fileFetch", "uiTree", "egress"], avd: "t", api_level: 36, booted: await booted(),
     busy: { viewers: scrcpy.viewers(), links: links.count(), work: requestsInFlight + lifecycleWork + fetches.active() + (adbBusy ? 1 : 0) + (boot || stopping ? 1 : 0),
       idle_ms: Date.now() - lastRequestAt } }),
 
