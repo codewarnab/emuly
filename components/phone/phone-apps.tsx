@@ -37,7 +37,7 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
   const active = operation !== null && !installFinished(operation.stage);
 
   const api = useCallback(async <T,>(path: string, parse: (value: unknown) => T, options: RequestInit = {}) => {
-    const response = await fetch(`${base}/${path}`, { ...options, cache: "no-store", signal: options.signal ?? AbortSignal.timeout(95_000) });
+    const response = await fetch(`${base}/${path}`, { ...options, cache: "no-store", signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(95_000)]) : AbortSignal.timeout(95_000) });
     if (!response.ok) {
       const result = await readPhoneResponse(response, parsePhoneError);
       if (result.errorCode === "runner_update_required") setNeedsUpdate(true);
