@@ -455,6 +455,8 @@ function runRelay(url, targets, onReady, stopSignal) {
     ws.addEventListener("close", event => {
       finish();
       if (stopSignal.aborted) return;
+      // 4012: the server ends each relay before its time limit. Reconnect at once; it is not a failure.
+      if (open && event.code === 4012) { resolve("reconnect"); return; }
       reject(Object.assign(new Error(FATAL_CLOSE.get(event.code) ?? (open ? `The relay closed (${event.code}).` : "The relay could not connect.")),
         { fatal: FATAL_CLOSE.has(event.code), code: event.code }));
     });
@@ -537,6 +539,7 @@ async function holdLink({ phone, ports, targets, forced, stop, onUp }) {
           ? await runSsh(created.codespace_name, targets, ready, stop.signal, ghEnv)
           : await runRelay(`${emulyBase().replace(/^http/, "ws")}${path}/relay?ticket=${encodeURIComponent(created.ticket)}`, targets, ready, stop.signal);
         if (result === "stopped") break;
+        if (result === "reconnect") continue;
       } catch (error) {
         if (stop.signal.aborted) break;
         const detail = (error.stderr ?? "").trim().split("\n").pop();
