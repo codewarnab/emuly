@@ -6,26 +6,40 @@ export type DatabaseQueries = { execute(statement: InStatement): Promise<ResultS
 
 const transactions = new WeakMap<Client, Promise<unknown>>();
 
-/** Pass the supplied handle to every helper; never use the root client inside work. */
-export async function transaction<T>(client: Client, work: (queries: DatabaseQueries) => Promise<T>): Promise<T> {
+/** A transaction that runs longer than this is rolled back, so it cannot block later writers forever. */
+export const TRANSACTION_TIMEOUT_MS = 15_000;
+
+/**
+ * Pass the supplied handle to every helper; never use the root client inside work.
+ * Only local file: SQLite runs transactions one at a time in this process. Turso serializes writes itself,
+ * and other Vercel instances already write at the same time, so a remote transaction starts at once and
+ * one slow user does not make the other users on a Fluid instance wait.
+ */
+export async function transaction<T>(client: Client, work: (queries: DatabaseQueries) => Promise<T>,
+  timeoutMs = TRANSACTION_TIMEOUT_MS): Promise<T> {
+  if (client.protocol !== "file") return performTransaction(client, work, timeoutMs);
   const previous = transactions.get(client) ?? Promise.resolve();
-  const result = previous.then(() => performTransaction(client, work));
+  const result = previous.then(() => performTransaction(client, work, timeoutMs));
   transactions.set(client, result.catch(() => {}));
   return result;
 }
 
-async function performTransaction<T>(client: Client, work: (queries: DatabaseQueries) => Promise<T>): Promise<T> {
+async function performTransaction<T>(client: Client, work: (queries: DatabaseQueries) => Promise<T>, timeoutMs: number): Promise<T> {
   const tx = await client.transaction("write");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Transaction took longer than ${timeoutMs} ms`)), timeoutMs);
+  });
   try {
     await assertCoordination(tx);
-    const result = await work(tx);
+    const result = await Promise.race([work(tx), timeout]);
     await assertCoordination(tx);
     await tx.commit();
     return result;
   } catch (error) {
     try { await tx.rollback(); } catch { /* Preserve the operation's original error. */ }
     throw error;
-  } finally { tx.close(); }
+  } finally { clearTimeout(timer); tx.close(); }
 }
 
 /** Local SQLite cannot wait on a second writer while its first writer awaits JS.
