@@ -901,6 +901,24 @@ test("a broken /boot call still records ready when /health shows Android booted"
   } finally { console.error = quiet; await f.close(); }
 });
 
+test("a broken /boot call logs only the error kind, never the runner's text", async () => {
+  const f = fixture(async () => Response.json({ codespaces: [space("generated-phone-aaaa", "Available")] }));
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
+    setup: async () => "ready", runner: async (_user, _id, path) => path === "/boot"
+      ? new Response("runner said secret-ghu_token at 10.0.0.5") : Response.json({ booted: true }) });
+  const logged: string[] = [];
+  const quiet = console.error;
+  console.error = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+  try {
+    f.add("phone-aaaa");
+    await service.sync(1);
+    for (let i = 0; i < 50 && !logged.some(line => line.includes("[boot]")); i++) await flush();
+    const line = logged.find(item => item.includes("[boot]")) ?? "";
+    assert.match(line, /SyntaxError/);
+    assert.doesNotMatch(logged.join(" | "), /secret|ghu_|10\.0\.0\.5|Unexpected token/);
+  } finally { console.error = quiet; await f.close(); }
+});
+
 test("a broken /boot call keeps booting while the runner answers, so the next sync joins the boot", async () => {
   const f = fixture(async () => Response.json({ codespaces: [space("generated-phone-aaaa", "Available")] }));
   let boots = 0;

@@ -146,7 +146,9 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         booted = true;
       } catch (error) {
         // Never expose runner output: log only the error kind and our own fixed message.
-        console.error(`[boot] ${id}: /boot did not confirm Android`, error instanceof Error ? `${error.name}: ${error.message}` : "unknown");
+        const kind = !(error instanceof Error) ? "unknown"
+          : error.message === "Android boot was not confirmed." ? `${error.name}: ${error.message}` : error.name;
+        console.error(`[boot] ${id}: /boot did not confirm Android`, kind);
         // The /boot call can break while Android still boots (a closed tunnel, an ended function).
         // Ask the runner directly before saving a failure.
         try {
