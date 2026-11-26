@@ -1,4 +1,6 @@
 import "server-only";
+import { logError } from "../shared/log-error.ts";
+import { redactSecrets } from "../shared/redact.ts";
 import { waitUntil } from "@vercel/functions";
 import { withLease, independentWork } from "../data/coordination.ts";
 import type { SetupResult } from "./phone-setup.ts";
@@ -73,7 +75,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
   }
   const busy = new Set<string>();
   const background = (work: Promise<unknown>) => {
-    const settled = work.catch(() => { /* Reconciliation retries persisted state. */ });
+    // Reconciliation retries persisted state. Log the kind of failure, never its message.
+    const settled = work.catch(error => logError("background", error));
     if (process.env.VERCEL) waitUntil(settled);
     else void settled;
   };
@@ -938,6 +941,5 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
 }
 
 export function redact(message: string) {
-  return message.replace(/gh[opsu]_[A-Za-z0-9_]{20,}/g, "[redacted]")
-    .replace(/(authorization\s*[:=]\s*|cookie\s*[:=]\s*)[^\r\n]+/gi, "$1[redacted]");
+  return redactSecrets(message);
 }

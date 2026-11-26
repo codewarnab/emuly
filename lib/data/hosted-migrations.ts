@@ -16,6 +16,8 @@ export async function migrateHosted(client: Client) {
       await tx.commit();
     } catch (error) {
       try { await tx.rollback(); } catch { /* Preserve the migration error. */ }
+      // The version tells the operator which migration failed. It holds no secret.
+      if (error && typeof error === "object") Object.assign(error, { migrationVersion: version });
       throw error;
     } finally { tx.close(); }
   }

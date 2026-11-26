@@ -21,7 +21,11 @@ try {
     openDatabase(process.env.EMULY_DB || ".data/emuly.db").close();
   }
   console.log("Database migrations complete.");
-} catch {
-  console.error("Database migration failed. Credentials and provider errors are not logged.");
+} catch (error) {
+  // Name, code and migration version only: a provider message can hold the URL or the token.
+  const details = error && typeof error === "object" ? error as { name?: unknown; code?: unknown; migrationVersion?: unknown } : {};
+  const parts = [`name=${String(details.name ?? typeof error)}`, details.code !== undefined ? `code=${String(details.code)}` : "",
+    details.migrationVersion !== undefined ? `migration=${String(details.migrationVersion)}` : ""].filter(Boolean);
+  console.error(`Database migration failed (${parts.join(" ")}). Credentials and provider messages are not logged.`);
   process.exitCode = 1;
 }

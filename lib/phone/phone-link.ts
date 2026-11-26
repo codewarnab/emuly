@@ -1,4 +1,5 @@
 import "server-only";
+import { redactSecrets } from "../shared/redact.ts";
 import { PORTS, runnerHost } from "../../phone/runner/contracts.mjs";
 import { measure } from "../diagnostics/diagnostics.ts";
 import { ADB_DOWNLOAD_MAX_BYTES } from "./phone-adb-contract.ts";
@@ -26,8 +27,7 @@ class RunnerResponseError extends Error {}
 
 /** key=value only. Never log headers, tokens, ticket values, cookies, or URLs with query strings. */
 function streamLog(event: string, fields: Record<string, string | number | undefined>) {
-  const clean = (value: string | number) => String(value).replace(/gh[opsu]_[A-Za-z0-9_]{8,}/g, "[redacted]")
-    .replace(/\b(token|ticket|secret|cookies?)=[^&\s;]+/gi, "$1=[redacted]")
+  const clean = (value: string | number) => redactSecrets(String(value))
     .replace(/[^\w.@:+-]/g, "_");
   console.warn(`[stream] ${event} ${Object.entries(fields).filter(([, value]) => value !== undefined)
     .map(([key, value]) => `${key}=${clean(value!)}`).join(" ")}`);
@@ -36,10 +36,7 @@ function streamLog(event: string, fields: Record<string, string | number | undef
 /** A provider message may quote the credential or a ticket; strip both before it reaches a log. */
 function safeErrorText(error: unknown, secret = "") {
   const message = error instanceof Error ? `${error.name}:${error.message}` : String(error);
-  return (secret ? message.replaceAll(secret, "[redacted]") : message)
-    .replace(/gh[opsu]_[A-Za-z0-9_]{8,}/g, "[redacted]")
-    .replace(/\b(token|ticket|secret|cookies?)=[^&\s;]+/gi, "$1=[redacted]")
-    .slice(0, 120);
+  return redactSecrets(message, [secret]).slice(0, 120);
 }
 /**
  * On Vercel a function stops after 300 s. End the /boot call well before that, so the result

@@ -1,4 +1,5 @@
 import "server-only";
+import { redactSecrets } from "../shared/redact.ts";
 import { PORTS, RUNNER_VERSION, runnerHost } from "../../phone/runner/contracts.mjs";
 import { DEFAULT_DEVICE_PRESET, deviceEnv } from "../shared/device-presets.ts";
 import { readFileSync } from "node:fs";
@@ -206,11 +207,8 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
       throw new PhoneSetupError("Could not reach the codespace. Emuly will retry setup.");
     }
     const directKey = directKeyFile(codespaceName)?.split("\n")[0];
-    let output = result.output.replaceAll(secret, "[redacted]");
-    if (directKey) output = output.replaceAll(directKey, "[redacted]");
     const eventsKey = events?.split("\n")[1];
-    if (eventsKey) output = output.replaceAll(eventsKey, "[redacted]");
-    if (runnerKey) output = output.replaceAll(runnerKey, "[redacted]");
+    const output = redactSecrets(result.output, [secret, directKey, eventsKey, runnerKey]);
     const progress = await ingest(output);
     if (result.code === 0 && output.includes("EMULY_READY")) return { state: "ready", ...progress };
     if (result.code === 0 && output.includes("EMULY_WORKING")) return { state: "working", ...progress };

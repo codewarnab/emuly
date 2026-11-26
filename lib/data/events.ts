@@ -1,3 +1,4 @@
+import { redactSecrets } from "../shared/redact.ts";
 import { randomUUID } from "node:crypto";
 import type { DatabaseQueries } from "./async-database.ts";
 import { asyncDb } from "./async-db.ts";
@@ -15,7 +16,7 @@ export type OutgoingEvent = {
 };
 export type EventEmitter = (event: OutgoingEvent, queries?: DatabaseQueries) => void | Promise<unknown>;
 function safeText(value: string) {
-  return value.replace(/(?:gh[opsu]_|github_pat_)[A-Za-z0-9_]+/g, "[redacted]")
+  return redactSecrets(value)
     .replace(/(?:https?|wss?):\/\/\S+/gi, "[url removed]")
     .replace(/(?:authorization|cookie|\w*(?:token|secret|password))\s*[:=]\s*[^\r\n]+/gi, "[redacted]").slice(0, 2000);
 }

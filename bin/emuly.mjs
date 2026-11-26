@@ -191,7 +191,9 @@ async function ghVersionWarning() {
 
 /** gh's stderr says what actually went wrong; show it after our one-line hint. */
 function report(error) {
-  console.error(error.message);
+  // "fetch failed" alone does not say why. The cause code (ECONNREFUSED, ENOTFOUND, ...) does.
+  const cause = error?.cause?.code;
+  console.error(error.message === "fetch failed" && cause ? `fetch failed (${cause})` : error.message);
   const stderr = (error.stderr ?? "").trim();
   if (stderr) console.error(stderr);
 }
