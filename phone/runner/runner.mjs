@@ -42,6 +42,8 @@ const PORT = Number(process.env.RUNNER_PORT ?? 8790);
 let lifecycle = Promise.resolve();
 let boot;
 let stopping;
+/** True once the cached stop has finished. A boot then clears it, so the next stop runs again. */
+let stopSettled = false;
 const STOP_ANSWER_MS = 80_000;
 // Busy work for GET /health: the server updates a running runner only when nothing uses it.
 let lifecycleWork = 0;
@@ -391,11 +393,12 @@ function screenshot() {
 const ui = createUiReader({ adb });
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 27, key: await runnerKey.fingerprint(), scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale", "fileFetch", "uiTree", "egress"], avd: "t", api_level: 36, booted: await booted(),
+  "GET /health": async () => ({ ok: true, version: 28, key: await runnerKey.fingerprint(), scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale", "fileFetch", "uiTree", "egress"], avd: "t", api_level: 36, booted: await booted(),
     busy: { viewers: scrcpy.viewers(), links: links.count(), work: requestsInFlight + lifecycleWork + fetches.active() + (adbBusy ? 1 : 0) + (boot || stopping ? 1 : 0),
       idle_ms: Date.now() - lastRequestAt } }),
 
   "POST /boot": ({ diagnosticOperation, attempt }) => {
+    if (stopSettled) { stopping = undefined; stopSettled = false; }
     // Emuly sends its boot attempt id; a retry that joins this boot sends the newer one.
     if (typeof attempt === "string" && attempt.length <= 40) bootAttempt = attempt;
     return boot ??= exclusive(async () => {
@@ -417,6 +420,7 @@ const routes = {
   // GitHub's port forward ends a request after about 100 s, but stop.sh may wait 120 s for qemu.
   // So answer within 80 s. A later POST /stop joins the same stop and reports its result.
   "POST /stop": async () => {
+    if (!stopping) stopSettled = false;
     stopping ??= (async () => { await apps.stop(); return exclusive(async () => {
       const start = Date.now();
       scrcpy.closeAll();
@@ -425,7 +429,12 @@ const routes = {
       links.clear();
       await script("stop.sh");
       return { stopped: true, seconds: Math.round((Date.now() - start) / 1000) };
-    }); })().finally(() => { setTimeout(() => { stopping = undefined; }, 60_000); });
+    }); })().finally(() => {
+      stopSettled = true;
+      // A late POST /stop within 60 s still joins this result. Clear only this stop, not a newer one.
+      const settled = stopping;
+      setTimeout(() => { if (stopping === settled) { stopping = undefined; stopSettled = false; } }, 60_000);
+    });
     let timer;
     const pending = new Promise(resolve => { timer = setTimeout(() => resolve({ stopped: false, pending: true }), STOP_ANSWER_MS); });
     try { return await Promise.race([stopping, pending]); } finally { clearTimeout(timer); }
