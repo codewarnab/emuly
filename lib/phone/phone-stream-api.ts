@@ -28,15 +28,20 @@ export function createPhoneStreamApi({ user, phone, open, observation, issue, di
     if (stored.state !== "running") return Response.json({ errorCode: "phone_stopped" }, { status: 409 });
     if (stored.android_state !== "ready") return new Response(null, { status: 409 });
     try {
-      const ticket = issue ? await issue({ userId: identity.id, phoneId: id, sessionId: identity.sessionId, origin, cookie: request.headers.get("cookie") ?? "" }) : issueStreamTicket({ userId: identity.id, phoneId: id, origin, cookie: request.headers.get("cookie") ?? "",
-        open: () => open(identity.id, id, identity.sessionId) });
-      const attemptId = await observation?.(identity.id, id);
-      // Phase 4: a direct ticket for port 8791. The browser tries it first and falls back to `ticket`.
+      const cookie = request.headers.get("cookie") ?? "";
       const asked = new URL(request.url).searchParams.get("quality") ?? "auto";
       const quality = QUALITIES.has(asked) ? asked : "auto";
-      const directStream = direct && stored.codespace_name
-        ? await direct({ userId: identity.id, phoneId: id, codespaceName: stored.codespace_name, sessionId: identity.sessionId, quality, origin }).catch(() => undefined)
-        : undefined;
+      // The three steps do not depend on each other, so their Turso and GitHub waits overlap.
+      // Phase 4: a direct ticket for port 8791. The browser tries it first and falls back to `ticket`.
+      // A direct failure only drops the direct path; a ticket or observation failure is a 503.
+      const [ticket, attemptId, directStream] = await Promise.all([
+        issue ? issue({ userId: identity.id, phoneId: id, sessionId: identity.sessionId, origin, cookie })
+          : issueStreamTicket({ userId: identity.id, phoneId: id, origin, cookie, open: () => open(identity.id, id, identity.sessionId) }),
+        observation?.(identity.id, id),
+        direct && stored.codespace_name
+          ? direct({ userId: identity.id, phoneId: id, codespaceName: stored.codespace_name, sessionId: identity.sessionId, quality, origin }).catch(() => undefined)
+          : undefined,
+      ]);
       return Response.json({ ticket, ...(attemptId ? { attemptId } : {}), ...(directStream ? { direct: directStream } : {}) }, { headers: { "Cache-Control": "private, no-store" } });
     } catch { return new Response(null, { status: 503 }); }
   };
