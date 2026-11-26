@@ -12,6 +12,7 @@ set -euo pipefail
 # shellcheck disable=SC2034 # progress.sh reads it
 PH_PRODUCER=boot
 source "$(dirname "$0")/progress.sh"
+source "$(dirname "$0")/ports.sh"
 
 MODE="${1:-cold}" # accepted for compatibility with POST /boot; every boot is cold
 AVD_NAME="${2:-t}"
@@ -19,7 +20,7 @@ SDK_DIR="${SDK_DIR:-/opt/android-sdk}"
 export ANDROID_HOME="$SDK_DIR"
 export PATH="$HOME/.local/bin:$SDK_DIR/platform-tools:$SDK_DIR/emulator:$SDK_DIR/cmdline-tools/latest/bin:$PATH"
 LOG=/tmp/emulator.log
-PORT=5554
+PORT=$EMULATOR_CONSOLE_PORT
 
 # A cold boot starts every Google app at once on a cold disk, so some miss their
 # startup limits and Android shows "isn't responding" dialogs. They recover by
@@ -130,7 +131,7 @@ fi
 # Egress (docs/phone-proxy-plan.md): every guest TCP connection goes to the runner gateway
 # (egress.mjs on 127.0.0.1:8792), so `emuly proxy` can change the path with no restart.
 # Gateway down = no internet for the phone (fail closed). It never goes direct.
-flags+=(-http-proxy http://127.0.0.1:8792)
+flags+=(-http-proxy "http://127.0.0.1:$EGRESS_PORT")
 # DNS goes to egress-dns.mjs on 127.0.0.77:53 (127.0.0.53 is systemd-resolved). Port 53 needs
 # a copy of node with cap_net_bind_service. If that fails, DNS stays on the codespace resolver.
 source "$(dirname "$0")/node-path.sh"

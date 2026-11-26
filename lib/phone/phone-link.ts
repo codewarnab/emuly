@@ -1,4 +1,5 @@
 import "server-only";
+import { PORTS, runnerHost } from "../../phone/runner/contracts.mjs";
 import { measure } from "../diagnostics/diagnostics.ts";
 import { ADB_DOWNLOAD_MAX_BYTES } from "./phone-adb-contract.ts";
 import type { phoneObservations } from "./phone-observation.ts";
@@ -89,7 +90,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
   };
   async function connect(phone: Owner, signal: AbortSignal): Promise<Connection> {
     const secret = await measure("credential_lookup", () => token(phone.userId));
-    const url = `https://${phone.codespaceName}-8790.app.github.dev`;
+    const url = `https://${runnerHost(phone.codespaceName, PORTS.RUNNER)}`;
     const forceTunnel = streamFallback.delete(key(phone));
     try {
       if (forceTunnel) throw new Error("WebSocket forwarding unavailable");

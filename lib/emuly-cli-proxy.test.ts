@@ -228,9 +228,11 @@ test("emuly proxy <phone> status and off call the proxy API", async t => {
   }
 });
 
-test("the CLI and the runner share the same address policy", () => {
-  const body = (file: string) => /\/\/ ip-policy:start\n[^]*?\/\/ ip-policy:end/.exec(readFileSync(resolve(file), "utf8"))?.[0];
-  const cliCopy = body("bin/emuly.mjs");
-  assert.ok(cliCopy, "bin/emuly.mjs has the ip-policy block");
-  assert.equal(cliCopy, body("phone/runner/ip-policy.mjs"));
-});
+for (const [name, source] of [["ip-policy", "phone/runner/ip-policy.mjs"], ["contracts", "phone/runner/contracts.mjs"]]) {
+  test(`the CLI and the runner share the same ${name} block`, () => {
+    const block = (file: string) => new RegExp(`// ${name}:start\\n[^]*?// ${name}:end`).exec(readFileSync(resolve(file), "utf8"))?.[0];
+    const cliCopy = block("bin/emuly.mjs");
+    assert.ok(cliCopy, `bin/emuly.mjs has the ${name} block`);
+    assert.equal(cliCopy, block(source));
+  });
+}

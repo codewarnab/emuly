@@ -1,4 +1,5 @@
 import "server-only";
+import { PORTS, runnerHost } from "../../phone/runner/contracts.mjs";
 import { ensureDirectPort } from "./direct-stream.ts";
 import { issueUploadTicket, type UploadFile } from "./direct-ticket.ts";
 import { findPhone } from "./phones.ts";
@@ -19,5 +20,5 @@ export async function directUploadTicket(userId: number, phoneId: string, input:
     new Promise<boolean>(resolve => setTimeout(() => resolve(false), waitMs))]);
   if (!ready) return undefined;
   const issued = issueUploadTicket({ codespaceName: phone.codespace_name, phoneId, userId, ...input }, { secret });
-  return issued ? { url: `https://${phone.codespace_name}-8791.app.github.dev/adb`, ...issued } : undefined;
+  return issued ? { url: `https://${runnerHost(phone.codespace_name, PORTS.DIRECT)}/adb`, ...issued } : undefined;
 }

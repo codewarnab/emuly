@@ -13,12 +13,13 @@ import { request } from "node:http";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { lanBlocked } from "./ip-policy.mjs";
+import { PORTS, RESERVED_PORTS } from "./contracts.mjs";
 
-export const EGRESS_PORT = 8792;
+export const EGRESS_PORT = PORTS.EGRESS;
 export const EGRESS_MODES = ["direct", "laptop"];
 export const EGRESS_FILE = "/workspaces/.emuly/egress.json";
 /** Codespace ports that a phone app must not reach through 10.0.2.2: runner, adb, emulator, direct stream, this gateway. */
-export const LOOPBACK_BLOCKED = new Set([4310, 5037, 5554, 5555, 8790, 8791, EGRESS_PORT]);
+export const LOOPBACK_BLOCKED = RESERVED_PORTS;
 const HEAD_MAX = 16 * 1024;
 const HEAD_MS = 10_000;
 const CONNECT_MS = 10_000;

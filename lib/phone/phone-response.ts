@@ -1,3 +1,4 @@
+import { PORTS } from "../../phone/runner/contracts.mjs";
 import { APK_MAX_BYTES, isAppInstallStage, type AppInstall, type InstalledApp } from "./phone-apps-contract.ts";
 
 /** A response failed its runtime contract. Never include the received payload in errors. */
@@ -84,7 +85,7 @@ export function parseStreamTicket(value: unknown): { ticket: string; attemptId?:
   requireField(result.attemptId === undefined || text(result.attemptId, 128));
   // A bad direct part is dropped, not an error: the Vercel ticket still works.
   const direct = result.direct as { url?: unknown; ticket?: unknown } | undefined;
-  const valid = direct && typeof direct === "object" && typeof direct.url === "string" && /^wss:\/\/[\w-]{1,100}-8791\.app\.github\.dev$/.test(direct.url)
+  const valid = direct && typeof direct === "object" && typeof direct.url === "string" && new RegExp(`^wss://[\\w-]{1,100}-${PORTS.DIRECT}\\.app\\.github\\.dev$`).test(direct.url)
     && typeof direct.ticket === "string" && direct.ticket.length <= 2048 && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(direct.ticket);
   return { ticket: result.ticket as string, ...(result.attemptId !== undefined ? { attemptId: result.attemptId as string } : {}),
     ...(valid ? { direct: { url: direct.url as string, ticket: direct.ticket as string } } : {}) };

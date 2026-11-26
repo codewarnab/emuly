@@ -1,4 +1,5 @@
 import "server-only";
+import { INLINE_MAX } from "../../phone/runner/contracts.mjs";
 import { idleStopAt } from "./idle-stop.ts";
 import { crossOrigin } from "../auth/origin.ts";
 import { RateLimitError } from "../data/rate-limit.ts";
@@ -77,7 +78,7 @@ type UploadedFile = { name: string; bytes: Buffer };
  * Vercel refuses a function request body over 4.5 MB before this code runs, with an HTML page.
  * So the multipart route takes at most 4 MB, and larger files use `POST /v1/phones/<id>/adb/upload`.
  */
-export const ADB_INLINE_MAX_BYTES = 4 * 1024 * 1024;
+export const ADB_INLINE_MAX_BYTES = INLINE_MAX;
 const FILE_COMMANDS = new Set(["install", "install-multiple", "push"]);
 export type UploadTicket = { url: string; ticket: string; exp: number };
 

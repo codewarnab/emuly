@@ -1,7 +1,7 @@
 // @ts-check
 // Shared by the dashboard and the standalone runner. No runtime dependencies.
 export const APK_MAX_BYTES = 1024 * 1024 * 1024;
-export const APK_CHUNK_BYTES = 4 * 1024 * 1024;
+export { APK_CHUNK_BYTES } from "./contracts.mjs";
 
 // Each stage declares whether the installation has finished.
 const stages = Object.freeze({

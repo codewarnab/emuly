@@ -1,5 +1,6 @@
 // @ts-check
 // Shared by the dashboard and the standalone runner. No runtime dependencies.
+import { INSTALL_FLAGS } from "./contracts.mjs";
 
 /** Default wall-clock limit for one adb call. */
 export const ADB_TIMEOUT_DEFAULT_S = 30;
@@ -30,7 +31,6 @@ const ALLOWED_COMMANDS = new Set([
 ]);
 const COMMAND_LIST = [...ALLOWED_COMMANDS].join(", ");
 const APPS_ENDPOINT = "POST /v1/phones/<id>/app-installs";
-const INSTALL_FLAGS = new Set(["-r", "-t", "-g", "-d", "--abi"]);
 const GSM_ACTIONS = new Set(["call", "accept", "cancel", "busy", "hold"]);
 const POWER_STATUS = new Set(["charging", "discharging", "not-charging", "full", "unknown"]);
 const NETWORK_SPEED = new Set(["gsm", "hscsd", "gprs", "edge", "umts", "hsdpa", "lte", "full"]);

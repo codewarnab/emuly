@@ -1,4 +1,5 @@
 import "server-only";
+import { PORTS, runnerHost } from "../../phone/runner/contracts.mjs";
 import { getAccessToken } from "../github/github-token.ts";
 import { makeDirectPortPublic } from "../github/codespace-tunnel.ts";
 import { issueDirectTicket } from "./direct-ticket.ts";
@@ -36,5 +37,5 @@ export async function directStream(input: { userId: number; phoneId: string; cod
     new Promise<boolean>(resolve => setTimeout(() => resolve(false), waitMs))]);
   if (!ready) return undefined;
   const ticket = issueDirectTicket({ ...input });
-  return ticket ? { url: `wss://${input.codespaceName}-8791.app.github.dev`, ticket } : undefined;
+  return ticket ? { url: `wss://${runnerHost(input.codespaceName, PORTS.DIRECT)}`, ticket } : undefined;
 }

@@ -12,6 +12,144 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Pasted from phone/runner/contracts.mjs. lib/emuly-cli-proxy.test.ts checks that the two copies match.
+// contracts:start
+/** Ports in the codespace. */
+const PORTS = Object.freeze({
+  /** agent-device daemon, behind the runner. */
+  AGENT_DEVICE: 4310,
+  /** adb server. */
+  ADB_SERVER: 5037,
+  /** Emulator console. The serial is `emulator-5554`. */
+  EMULATOR_CONSOLE: 5554,
+  /** Emulator adbd. */
+  EMULATOR_ADB: 5555,
+  /** The private runner API. */
+  RUNNER: 8790,
+  /** The public, ticket-only direct stream and upload port. */
+  DIRECT: 8791,
+  /** The egress gateway that the emulator uses as its HTTP proxy. */
+  EGRESS: 8792,
+});
+/** Ports that a link or a phone app (through 10.0.2.2) must not take or reach. */
+const RESERVED_PORTS = new Set(/** @type {number[]} */ (Object.values(PORTS)));
+/** The emulator serial that adb uses. */
+const EMULATOR_SERIAL = `emulator-${PORTS.EMULATOR_CONSOLE}`;
+
+/**
+ * The forwarded host of one codespace port.
+ * @param {string} codespaceName @param {number} port @returns {string}
+ */
+const runnerHost = (codespaceName, port) => `${codespaceName}-${port}.app.github.dev`;
+
+/** Relay frame types. The runner sends OPEN; both ends send DATA and CLOSE. */
+const FRAME = Object.freeze({ OPEN: 1, DATA: 2, CLOSE: 3 });
+/** A relay frame carries at most this many payload bytes. */
+const RELAY_CHUNK = 64 * 1024;
+/** Relay close codes. RECONNECT is not a failure; the others are fatal for the CLI. */
+const CLOSE = Object.freeze({ RECONNECT: 4012, PORTS_REFUSED: 4400, NO_RELAY_LINK: 4404, PORT_IN_USE: 4409 });
+/** HTTP statuses for which the CLI stops retrying a link. */
+const FATAL_STATUSES = new Set([400, 401, 404, 409]);
+
+/** The host refuses a request body over 4.5 MB, so POST /adb takes at most 4 MB of files. */
+const INLINE_MAX = 4 * 1024 * 1024;
+/** One chunk of a chunked APK upload. */
+const APK_CHUNK_BYTES = 4 * 1024 * 1024;
+/** The `adb install` options that the runner allows. */
+const INSTALL_FLAGS = new Set(["-r", "-t", "-g", "-d", "--abi"]);
+// contracts:end
+
+// Pasted from phone/runner/ip-policy.mjs. lib/emuly-cli-proxy.test.ts checks that the two copies match.
+// ip-policy:start
+/**
+ * The 8 groups of an IPv6 address, with a dotted IPv4 tail as the last 2, or undefined.
+ * @param {string} ip @returns {number[] | undefined}
+ */
+function ipv6Groups(ip) {
+  if (isIP(ip) !== 6) return undefined;
+  let text = ip.toLowerCase().split("%")[0];
+  const dotted = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
+  if (dotted) {
+    const [a, b, c, d] = dotted.slice(1).map(Number);
+    text = `${text.slice(0, dotted.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const [head, tail] = text.split("::");
+  const left = head ? head.split(":") : [];
+  const right = tail ? tail.split(":") : [];
+  const fill = text.includes("::") ? 8 - left.length - right.length : 0;
+  if (fill < 0) return undefined;
+  const groups = [...left, ...Array(fill).fill("0"), ...right].map(group => parseInt(group, 16));
+  return groups.length === 8 && groups.every(group => group >= 0 && group <= 0xffff) ? groups : undefined;
+}
+
+/**
+ * The family of an address, its IPv6 groups, and the IPv4 address that an IPv6 form carries:
+ * ::/96 (with :: and ::1), ::ffff:0:0/96 and NAT64 64:ff9b::/96. Family 0 means not an address.
+ * @param {string} ip @returns {{ family: number, groups?: number[], embedded?: string }}
+ */
+function parseAddress(ip) {
+  const family = isIP(ip);
+  if (family !== 6) return { family };
+  const groups = ipv6Groups(ip);
+  if (!groups) return { family: 0 };
+  const [g0, g1, g2, g3, g4, g5] = groups;
+  const embedded = `${groups[6] >> 8}.${groups[6] & 0xff}.${groups[7] >> 8}.${groups[7] & 0xff}`;
+  if (!g0 && !g1 && !g2 && !g3 && !g4 && (g5 === 0 || g5 === 0xffff)) return { family, groups, embedded };
+  if (g0 === 0x64 && g1 === 0xff9b && !g2 && !g3 && !g4 && !g5) return { family, groups, embedded };
+  return { family, groups };
+}
+
+/**
+ * IPv4 ranges that no outside request may reach: this network, private, shared (CGNAT), loopback,
+ * link-local, IETF protocol and TEST-NET-1 (192.0/16), benchmarking (198.18/15), TEST-NET-2
+ * (198.51/16), TEST-NET-3 (203.0/16), multicast and reserved.
+ * @param {string} ip dotted quad @returns {boolean}
+ */
+function blockedV4(ip) {
+  const [a, b] = ip.split(".").map(Number);
+  return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127)
+    || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && (b === 0 || b === 168))
+    || (a === 198 && (b === 18 || b === 19 || b === 51)) || (a === 203 && b === 0);
+}
+
+/**
+ * Global unicast IPv6 only (2000::/3), without 6to4 (2002::/16), 2001::/23 (Teredo and other
+ * protocols) and documentation (2001:db8::/32, 3fff::/16).
+ * @param {number[]} groups @returns {boolean}
+ */
+function globalV6(groups) {
+  const [g0, g1] = groups;
+  if ((g0 & 0xe000) !== 0x2000 || g0 === 0x2002 || g0 === 0x3fff) return false;
+  return g0 !== 0x2001 || (g1 >= 0x200 && g1 !== 0xdb8);
+}
+
+/**
+ * Strict: true only for an ordinary public address. An IPv6 form that carries IPv4 is refused.
+ * For downloads, webhooks and region hints.
+ * @param {string} ip @returns {boolean}
+ */
+function publicOnly(ip) {
+  const parsed = parseAddress(ip);
+  if (parsed.family === 4) return !blockedV4(ip);
+  return parsed.family === 6 && !parsed.embedded && globalV6(/** @type {number[]} */ (parsed.groups));
+}
+
+/**
+ * True when a connection to this address must be refused: every range that `publicOnly` refuses,
+ * but an IPv6 form that carries IPv4 is judged by that IPv4 address. For the egress gateway and
+ * the CLI proxy.
+ * @param {string} ip @returns {boolean}
+ */
+function lanBlocked(ip) {
+  const parsed = parseAddress(ip);
+  if (parsed.family === 4) return blockedV4(ip);
+  if (parsed.family !== 6) return true;
+  if (parsed.embedded) return blockedV4(parsed.embedded);
+  return !globalV6(/** @type {number[]} */ (parsed.groups));
+}
+// ip-policy:end
+const lanAddress = lanBlocked;
+
 // gh's device flow needs no OAuth App: the credential store (a named volume in a container)
 // holds the token, and `gh auth token` hands it to the app at request time.
 const LOGIN_ARGS = ["auth", "login", "-h", "github.com", "-s", "codespace"];
@@ -190,11 +328,9 @@ async function doctor() {
 // Route B (relay): one websocket to the Emuly control plane, which relays it to the runner.
 // Each TCP connection from the app is one numbered stream inside the tunnel.
 
-const FRAME = { OPEN: 1, DATA: 2, CLOSE: 3 };
-const RELAY_CHUNK = 64 * 1024;
 const HIGH_WATER = 1024 * 1024;
-const FATAL_CLOSE = new Map([[4400, "The runner refused the ports."], [4404, "The runner has no relay link for a port."],
-  [4409, "A process in the codespace already uses this port. Stop it, or link another port."]]);
+const FATAL_CLOSE = new Map([[CLOSE.PORTS_REFUSED, "The runner refused the ports."], [CLOSE.NO_RELAY_LINK, "The runner has no relay link for a port."],
+  [CLOSE.PORT_IN_USE, "A process in the codespace already uses this port. Stop it, or link another port."]]);
 
 /** The same order as the skill: environment, then the saved file, then (Windows) the user variable. */
 function emulyKey() {
@@ -474,7 +610,7 @@ function runRelay(url, targets, onReady, stopSignal) {
       finish();
       if (stopSignal.aborted) return;
       // 4012: the server ends each relay before its time limit. Reconnect at once; it is not a failure.
-      if (open && event.code === 4012) { resolve("reconnect"); return; }
+      if (open && event.code === CLOSE.RECONNECT) { resolve("reconnect"); return; }
       reject(Object.assign(new Error(FATAL_CLOSE.get(event.code) ?? (open ? `The relay closed (${event.code}).` : "The relay could not connect.")),
         { fatal: FATAL_CLOSE.has(event.code), code: event.code }));
     });
@@ -538,7 +674,7 @@ async function holdLink({ phone, ports, targets, forced, stop, onUp }) {
     let created;
     try { created = await api("POST", path, { ports, route: choice.route }); }
     catch (error) {
-      if (error.status === 400 || error.status === 404 || error.status === 409 || error.status === 401) {
+      if (FATAL_STATUSES.has(error.status)) {
         emit({ ok: false, error: error.body?.error ?? "link_failed", message: error.message });
         process.exitCode = 1;
         return;
@@ -807,10 +943,7 @@ async function dev(args) {
   if (readLock(phone)?.pid === process.pid) rmSync(lockPath(phone), { force: true });
 }
 
-// The host refuses a request body over 4.5 MB with an HTML page, so /adb takes at most 4 MB of files.
-const INLINE_MAX = 4 * 1024 * 1024;
-const APP_CHUNK = 4 * 1024 * 1024;
-const INSTALL_FLAGS = new Set(["-r", "-t", "-g", "-d"]);
+const APP_CHUNK = APK_CHUNK_BYTES;
 
 async function emulyFetch(path, init) {
   const response = await fetch(`${emulyBase()}${path}`, { ...init, signal: AbortSignal.timeout(init.timeoutMs ?? 120_000),
@@ -924,96 +1057,6 @@ const sayProxy = message => console.error(`emuly proxy: ${message}`);
 /** The codespace port of the proxy link. Outside the runner's ports and common dev ports. */
 const PROXY_LINK_PORT = 18792;
 
-// Pasted from phone/runner/ip-policy.mjs. lib/emuly-cli-proxy.test.ts checks that the two copies match.
-// ip-policy:start
-/**
- * The 8 groups of an IPv6 address, with a dotted IPv4 tail as the last 2, or undefined.
- * @param {string} ip @returns {number[] | undefined}
- */
-function ipv6Groups(ip) {
-  if (isIP(ip) !== 6) return undefined;
-  let text = ip.toLowerCase().split("%")[0];
-  const dotted = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
-  if (dotted) {
-    const [a, b, c, d] = dotted.slice(1).map(Number);
-    text = `${text.slice(0, dotted.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
-  }
-  const [head, tail] = text.split("::");
-  const left = head ? head.split(":") : [];
-  const right = tail ? tail.split(":") : [];
-  const fill = text.includes("::") ? 8 - left.length - right.length : 0;
-  if (fill < 0) return undefined;
-  const groups = [...left, ...Array(fill).fill("0"), ...right].map(group => parseInt(group, 16));
-  return groups.length === 8 && groups.every(group => group >= 0 && group <= 0xffff) ? groups : undefined;
-}
-
-/**
- * The family of an address, its IPv6 groups, and the IPv4 address that an IPv6 form carries:
- * ::/96 (with :: and ::1), ::ffff:0:0/96 and NAT64 64:ff9b::/96. Family 0 means not an address.
- * @param {string} ip @returns {{ family: number, groups?: number[], embedded?: string }}
- */
-function parseAddress(ip) {
-  const family = isIP(ip);
-  if (family !== 6) return { family };
-  const groups = ipv6Groups(ip);
-  if (!groups) return { family: 0 };
-  const [g0, g1, g2, g3, g4, g5] = groups;
-  const embedded = `${groups[6] >> 8}.${groups[6] & 0xff}.${groups[7] >> 8}.${groups[7] & 0xff}`;
-  if (!g0 && !g1 && !g2 && !g3 && !g4 && (g5 === 0 || g5 === 0xffff)) return { family, groups, embedded };
-  if (g0 === 0x64 && g1 === 0xff9b && !g2 && !g3 && !g4 && !g5) return { family, groups, embedded };
-  return { family, groups };
-}
-
-/**
- * IPv4 ranges that no outside request may reach: this network, private, shared (CGNAT), loopback,
- * link-local, IETF protocol and TEST-NET-1 (192.0/16), benchmarking (198.18/15), TEST-NET-2
- * (198.51/16), TEST-NET-3 (203.0/16), multicast and reserved.
- * @param {string} ip dotted quad @returns {boolean}
- */
-function blockedV4(ip) {
-  const [a, b] = ip.split(".").map(Number);
-  return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127)
-    || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && (b === 0 || b === 168))
-    || (a === 198 && (b === 18 || b === 19 || b === 51)) || (a === 203 && b === 0);
-}
-
-/**
- * Global unicast IPv6 only (2000::/3), without 6to4 (2002::/16), 2001::/23 (Teredo and other
- * protocols) and documentation (2001:db8::/32, 3fff::/16).
- * @param {number[]} groups @returns {boolean}
- */
-function globalV6(groups) {
-  const [g0, g1] = groups;
-  if ((g0 & 0xe000) !== 0x2000 || g0 === 0x2002 || g0 === 0x3fff) return false;
-  return g0 !== 0x2001 || (g1 >= 0x200 && g1 !== 0xdb8);
-}
-
-/**
- * Strict: true only for an ordinary public address. An IPv6 form that carries IPv4 is refused.
- * For downloads, webhooks and region hints.
- * @param {string} ip @returns {boolean}
- */
-function publicOnly(ip) {
-  const parsed = parseAddress(ip);
-  if (parsed.family === 4) return !blockedV4(ip);
-  return parsed.family === 6 && !parsed.embedded && globalV6(/** @type {number[]} */ (parsed.groups));
-}
-
-/**
- * True when a connection to this address must be refused: every range that `publicOnly` refuses,
- * but an IPv6 form that carries IPv4 is judged by that IPv4 address. For the egress gateway and
- * the CLI proxy.
- * @param {string} ip @returns {boolean}
- */
-function lanBlocked(ip) {
-  const parsed = parseAddress(ip);
-  if (parsed.family === 4) return blockedV4(ip);
-  if (parsed.family !== 6) return true;
-  if (parsed.embedded) return blockedV4(parsed.embedded);
-  return !globalV6(/** @type {number[]} */ (parsed.groups));
-}
-// ip-policy:end
-const lanAddress = lanBlocked;
 
 /** A --via proxy without its user name and password, for messages. */
 const viaLabel = via => via ? `${via.protocol}://${via.host.includes(":") ? `[${via.host}]` : via.host}:${via.port}` : "this computer";

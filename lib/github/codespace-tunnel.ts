@@ -1,4 +1,5 @@
 import "server-only";
+import { PORTS } from "../../phone/runner/contracts.mjs";
 import net from "node:net";
 import { Client as GrpcClient, credentials, Metadata } from "@grpc/grpc-js";
 import { TunnelRelayTunnelClient } from "@microsoft/dev-tunnels-connections";
@@ -66,18 +67,18 @@ export async function openCodespacePort(token: string, codespaceName: string, si
     signal.throwIfAborted();
     await measure("relay_connect", () => client.connect(tunnel));
     try {
-      await manager.createTunnelPort(tunnel, { portNumber: 8790, protocol: "http", labels: ["InternalPort"] }, {});
+      await manager.createTunnelPort(tunnel, { portNumber: PORTS.RUNNER, protocol: "http", labels: ["InternalPort"] }, {});
     } catch (error) {
       if (!/409|conflict|already exists/i.test(String((error as { response?: { status?: number } }).response?.status ?? error))) throw error;
     }
     await client.refreshPorts();
-    await measure("port_wait", () => client.waitForForwardedPort(8790));
+    await measure("port_wait", () => client.waitForForwardedPort(PORTS.RUNNER));
     signal.throwIfAborted();
     bridge = net.createServer(socket => {
       sockets.add(socket);
       socket.on("error", () => {});
       socket.on("close", () => sockets.delete(socket));
-      client.connectToForwardedPort(8790).then(stream => {
+      client.connectToForwardedPort(PORTS.RUNNER).then(stream => {
         if (closed || socket.destroyed) { stream.destroy(); return; }
         socket.pipe(stream).pipe(socket);
         socket.on("error", () => stream.destroy());
@@ -240,7 +241,7 @@ export async function makeDirectPortPublic(token: string, codespaceName: string,
   const manager = new TunnelManagementHttpClient("emuly", API_VERSION, undefined, tp.serviceUri);
   const accessTokens = { connect: tp.connectAccessToken, "manage:ports": tp.managePortsAccessToken };
   const tunnel = { ...tp, accessTokens } as Tunnel;
-  await manager.createOrUpdateTunnelPort(tunnel, { portNumber: 8791, protocol: "http", labels: ["UserForwardedPort"],
+  await manager.createOrUpdateTunnelPort(tunnel, { portNumber: PORTS.DIRECT, protocol: "http", labels: ["UserForwardedPort"],
     accessControl: { entries: [{ type: "Anonymous" as never, subjects: [], scopes: ["connect"] }] } }, {});
   return true;
 }

@@ -1,3 +1,4 @@
+import { CLOSE } from "../../phone/runner/contracts.mjs";
 import { WebSocket, WebSocketServer } from "ws";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
@@ -26,7 +27,7 @@ export async function openLinkRelay(phoneId: string, ticket: string) {
   return {
     /** Connects the laptop socket. `deadlineMs` ends the relay with 4012 so the CLI reconnects at once. */
     attach(laptop: WebSocket, deadlineMs?: number) {
-      const stop = () => close(4012, "reconnect");
+      const stop = () => close(CLOSE.RECONNECT, "reconnect");
       const deadline = deadlineMs ? setTimeout(stop, deadlineMs) : undefined;
       const close = pipeRelay(laptop, upstream, () => {
         clearTimeout(deadline);

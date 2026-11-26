@@ -21,6 +21,7 @@ import { pasteText } from "./paste-text.mjs";
 import { createDirectServer } from "./direct-server.mjs";
 import { createRunnerKey } from "./runner-key.mjs";
 import { RELAY_MAX_PAYLOAD } from "./links-protocol.mjs";
+import { EMULATOR_SERIAL, PORTS, RUNNER_VERSION } from "./contracts.mjs";
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -35,11 +36,11 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPTS_VERSION = await readFile(join(ROOT, ".scripts-version"), "utf8").then(text => text.trim(), () => "unknown");
 const SDK = process.env.SDK_DIR ?? "/opt/android-sdk";
 const ADB = join(SDK, "platform-tools", "adb");
-const SERIAL = "emulator-5554";
+const SERIAL = EMULATOR_SERIAL;
 // Second lock on this port, after GitHub port privacy. See runner-key.mjs for its exact limits.
 const runnerKey = createRunnerKey({ file: join(ROOT, ".runner-key") });
 await runnerKey.load();
-const PORT = Number(process.env.RUNNER_PORT ?? 8790);
+const PORT = Number(process.env.RUNNER_PORT ?? PORTS.RUNNER);
 let lifecycle = Promise.resolve();
 let boot;
 let stopping;
@@ -386,7 +387,7 @@ function screenshot() {
 const ui = createUiReader({ adb });
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 33, key: await runnerKey.fingerprint(), scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale", "fileFetch", "uiTree", "egress"], avd: "t", api_level: 36, booted: await booted(),
+  "GET /health": async () => ({ ok: true, version: RUNNER_VERSION, key: await runnerKey.fingerprint(), scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale", "fileFetch", "uiTree", "egress"], avd: "t", api_level: 36, booted: await booted(),
     busy: { viewers: scrcpy.viewers(), links: links.count(), work: requestsInFlight + lifecycleWork + fetches.active() + (adbBusy ? 1 : 0) + (boot || stopping ? 1 : 0),
       idle_ms: Date.now() - lastRequestAt } }),
 
@@ -610,7 +611,7 @@ for (const [signal, code] of [["SIGTERM", 143], ["SIGINT", 130]]) process.once(s
   recorder.close().catch(() => {}).finally(() => process.exit(code));
 });
 // The public direct port (direct-server.mjs). The key file is written by the server's private setup.
-const direct = createDirectServer({ ws, keyFile: join(ROOT, ".direct-key"), port: Number(process.env.DIRECT_PORT ?? 8791),
+const direct = createDirectServer({ ws, keyFile: join(ROOT, ".direct-key"), port: Number(process.env.DIRECT_PORT ?? PORTS.DIRECT),
   qualities: liveQualities, log: message => console.log(message),
   // Direct upload: the ticket carries the args. Only file commands get a ticket, so the result is JSON.
   upload: (req, ticket) => adbRoute(req, ticket),

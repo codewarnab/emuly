@@ -1,6 +1,7 @@
 // The direct (public) port. It serves `GET /stream` as a WebSocket and `PUT /adb` (a large file
 // for one adb command), each with its own kind of signed ticket.
 // Every other request gets 404. With no valid phone key it does not listen (fail closed).
+import { PORTS } from "./contracts.mjs";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { createNonceStore, createRateLimiter, TICKET_TTL_MS, UPLOAD_TICKET_TTL_MS, verifyTicket, verifyUploadTicket } from "./direct-ticket.mjs";
@@ -27,7 +28,7 @@ export async function readPhoneKey(file) {
  * upload(req, ticketPayload) runs one adb file command with the request body as the files and returns JSON.
  * Returns { start, stop, revoke, clients, listening }.
  */
-export function createDirectServer({ ws, keyFile, port = 8791, host = "127.0.0.1", attach, upload = /** @type {((req: any, ticket: any) => Promise<unknown>) | undefined} */ (undefined),
+export function createDirectServer({ ws, keyFile, port = /** @type {number} */ (PORTS.DIRECT), host = "127.0.0.1", attach, upload = /** @type {((req: any, ticket: any) => Promise<unknown>) | undefined} */ (undefined),
   maxViewers = 8, upgradesPerMinute = 20, uploadsPerMinute = 10, keyPollMs = 5_000, qualities = /** @type {Record<string, unknown>} */ ({ auto: true }), log = () => {} }) {
   const nonces = createNonceStore();
   const allow = createRateLimiter({ max: upgradesPerMinute, windowMs: 60_000 });

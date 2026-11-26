@@ -18,12 +18,13 @@ import { accessSync, chmodSync, closeSync, constants, mkdirSync, mkdtempSync, op
 import { request } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
+import { EMULATOR_SERIAL, PORTS } from "./contracts.mjs";
 
 const PROXY_HOST = "127.0.0.1"; // the CLI's default, pinned so the forward target is known
-const PROXY_PORT = 4310;
+const PROXY_PORT = PORTS.AGENT_DEVICE;
 const HEALTH_PATH = "/agent-device/health";
 const PATH_PREFIX = "/agent-device/";
-const POLICY_SERIAL = "emulator-5554";
+const POLICY_SERIAL = EMULATOR_SERIAL;
 const LOG_PATH = "/tmp/agent-device-proxy.log";
 const HEALTH_INTERVAL_MS = 10_000;
 const HEALTH_TIMEOUT_MS = 2_000;

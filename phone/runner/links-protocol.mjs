@@ -1,20 +1,18 @@
 // @ts-check
 // Links: one TCP port from the phone to a server that the user's laptop can reach.
 // Shared by the dashboard and the standalone runner. No runtime dependencies.
-// emuly.mjs keeps its own copy of the frame format, because it ships as one file.
+// emuly.mjs pastes the frame constants from contracts.mjs, because it ships as one file.
 
-/** Ports that the runner, adb or the emulator use in the codespace. A link must not take them. */
-export const RESERVED_PORTS = new Set([4310, 5037, 5554, 5555, 8790, 8791, 8792]);
+import { FRAME, RELAY_CHUNK, RESERVED_PORTS } from "./contracts.mjs";
+
+/** RESERVED_PORTS: a link must not take them. FRAME and RELAY_CHUNK: the relay format. */
+export { RESERVED_PORTS, RELAY_CHUNK, FRAME };
 export const LINK_PORTS_MAX = 8;
 export const LINKS_MAX = 16;
-/** A relay frame carries at most this many payload bytes. */
-export const RELAY_CHUNK = 64 * 1024;
 /** Header (5 bytes) plus one chunk, with room to spare. */
 export const RELAY_MAX_PAYLOAD = 128 * 1024;
 export const LINK_ROUTES = ["ssh", "relay"];
 
-/** Frame types. The runner sends OPEN; both ends send DATA and CLOSE. */
-export const FRAME = { OPEN: 1, DATA: 2, CLOSE: 3 };
 
 /** The runner sends `status` as the HTTP status. */
 export class LinkError extends Error { status = 400; }

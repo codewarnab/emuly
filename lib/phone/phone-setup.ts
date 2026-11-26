@@ -1,4 +1,5 @@
 import "server-only";
+import { PORTS, RUNNER_VERSION, runnerHost } from "../../phone/runner/contracts.mjs";
 import { DEFAULT_DEVICE_PRESET, deviceEnv } from "../shared/device-presets.ts";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -12,10 +13,10 @@ import type { RunnerHealth } from "./runner-update.ts";
 import { runnerEventsFile } from "./runner-events.ts";
 import { env } from "../env.ts";
 // Must match the version that phone/runner/runner.mjs reports in GET /health.
-export const RUNNER_VERSION = 33;
+export { RUNNER_VERSION };
 
 /** Files copied into each codespace, relative to `phone/` in this repository. */
-export const FILES = ["scripts/progress.sh", "scripts/node-path.sh", "scripts/read-progress.py", "scripts/bounded-log.py", "scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "scripts/autostart.sh", "runner/runner.mjs", "runner/agent-device-proxy.mjs", "runner/apps.mjs", "runner/apps-protocol.mjs", "runner/adb-protocol.mjs", "runner/adb-replay.mjs", "runner/apk-download.mjs", "runner/safe-download.mjs", "runner/file-fetch.mjs", "runner/scrcpy.mjs", "runner/scrcpy-hub.mjs", "runner/scrcpy-protocol.mjs", "runner/paste-text.mjs", "runner/recording.mjs", "runner/grid.mjs", "runner/ui-tree.mjs", "runner/mp4-mux.mjs", "runner/links.mjs", "runner/links-protocol.mjs", "runner/direct-ticket.mjs", "runner/direct-server.mjs", "runner/events.mjs", "runner/runner-key.mjs", "runner/egress.mjs", "runner/egress-dns.mjs", "runner/ip-policy.mjs"];
+export const FILES = ["scripts/progress.sh", "scripts/node-path.sh", "scripts/read-progress.py", "scripts/bounded-log.py", "scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "scripts/autostart.sh", "runner/runner.mjs", "runner/agent-device-proxy.mjs", "runner/apps.mjs", "runner/apps-protocol.mjs", "runner/adb-protocol.mjs", "runner/adb-replay.mjs", "runner/apk-download.mjs", "runner/safe-download.mjs", "runner/file-fetch.mjs", "runner/scrcpy.mjs", "runner/scrcpy-hub.mjs", "runner/scrcpy-protocol.mjs", "runner/paste-text.mjs", "runner/recording.mjs", "runner/grid.mjs", "runner/ui-tree.mjs", "runner/mp4-mux.mjs", "runner/links.mjs", "runner/links-protocol.mjs", "runner/direct-ticket.mjs", "runner/direct-server.mjs", "runner/events.mjs", "runner/runner-key.mjs", "runner/egress.mjs", "runner/egress-dns.mjs", "runner/ip-policy.mjs", "runner/contracts.mjs", "scripts/ports.sh"];
 
 /** The pinned version reaches shell scripts, so refuse anything that is not a plain release version. */
 function agentDeviceExport() {
@@ -49,7 +50,7 @@ if [ -d "$HOME/.android/avd/t.avd" ] && [ -x /opt/android-sdk/emulator/emulator 
 fi
 if bash scripts/setup.sh && bash scripts/start-runner.sh; then
   ph_begin runner_health
-  for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8790/health >/dev/null 2>&1 && { ph_end; touch .setup-done; exit 0; }; sleep 1; done
+  for i in $(seq 1 60); do curl -fsS http://127.0.0.1:${PORTS.RUNNER}/health >/dev/null 2>&1 && { ph_end; touch .setup-done; exit 0; }; sleep 1; done
   ph_end failed timeout
 fi
 touch .failed
@@ -84,16 +85,16 @@ ${runnerKey ? `# The runner key (runner/runner-key.mjs) goes only through this p
 # Current means the same runner version and the same file hash. A changed file without a
 # version change still replaces the runner.
 emuly_current() {
-  health=$(curl -fsS http://127.0.0.1:8790/health 2>/dev/null) || return 1
+  health=$(curl -fsS http://127.0.0.1:${PORTS.RUNNER}/health 2>/dev/null) || return 1
   printf '%s' "$health" | grep -q '"version":${RUNNER_VERSION}[,}]' && printf '%s' "$health" | grep -q '"scripts":"${hash}"'
 }
 if emuly_current; then echo EMULY_READY; exit 0; fi
 # A runner from an older build answers health but must be replaced before files are uploaded.
-if curl -fsS http://127.0.0.1:8790/health >/dev/null 2>&1; then
+if curl -fsS http://127.0.0.1:${PORTS.RUNNER}/health >/dev/null 2>&1; then
   pkill -f "node runner/runner.mjs" 2>/dev/null || true
   if [ -f .pid ]; then kill "$(cat .pid)" 2>/dev/null || true; fi
   rm -f .pid
-  for i in $(seq 1 10); do curl -fsS http://127.0.0.1:8790/health >/dev/null 2>&1 || break; sleep 1; done
+  for i in $(seq 1 10); do curl -fsS http://127.0.0.1:${PORTS.RUNNER}/health >/dev/null 2>&1 || break; sleep 1; done
 fi
 if [ -f .failed ]; then rm -f .failed .pid; echo EMULY_FAILED; exit 1; fi
 # Wait up to 75 s, below the 90 s tunnel timeout, so this call can report readiness.
@@ -187,7 +188,7 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
     if (!/^[\w-]{1,100}$/.test(codespaceName)) return null;
     try {
       const secret = await token(userId);
-      const response = await fetcher(`https://${codespaceName}-8790.app.github.dev/health`, { headers: { "X-Github-Token": secret },
+      const response = await fetcher(`https://${runnerHost(codespaceName, PORTS.RUNNER)}/health`, { headers: { "X-Github-Token": secret },
         redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(5000) });
       if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) { await response.body?.cancel(); return null; }
       const health = await response.json();
