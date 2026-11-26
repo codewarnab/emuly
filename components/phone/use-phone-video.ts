@@ -63,6 +63,20 @@ export function usePhoneVideo(id: string, live: boolean, quality: string, canvas
       session.dispose(); connection.current = null; reportFallback.current = undefined;
     };
   }, [id, live, quality, saver, canvas]);
+  // The recording lives only in this page's memory. When the screen goes away (Stop, idle stop,
+  // a move to another page), save what it has instead of dropping it with no message.
+  useEffect(() => () => {
+    const blob = recording.current?.finish() ?? null;
+    recording.current = null;
+    if (blob) downloadRecording(id, blob);
+  }, [id]);
+  // A closed tab runs no cleanup, so ask the browser to confirm while a recording runs.
+  useEffect(() => {
+    if (recordingSince === null) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [recordingSince]);
   function send(input: Record<string, unknown>) {
     return connection.current?.send(input) ?? false;
   }
@@ -90,4 +104,12 @@ export function usePhoneVideo(id: string, live: boolean, quality: string, canvas
   return { supported, active, soundOn, canPlaySound, toggleSound, stopped, painted, starting, stats, send, lastFrameAt, reportFallback, capabilities, clipboard, directBlocked,
     recordingSince, recordingFull, startRecording, stopRecording,
     clearClipboard: () => setClipboard(null) };
+}
+
+/** Save a finished recording as an MP4 download on this computer. */
+export function downloadRecording(id: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  const link = document.createElement("a"); link.href = url; link.download = `${id}-${stamp}.mp4`; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { usePhoneVideo } from "@/components/phone/use-phone-video";
+import { downloadRecording, usePhoneVideo } from "@/components/phone/use-phone-video";
 import { AgentOverlay } from "@/components/phone/agent-overlay";
 import { pngConnection } from "@/components/phone/png-connection";
 import { screenPoint, phoneKeys } from "@/lib/phone/phone-video";
@@ -448,10 +448,7 @@ function RecordButton({ id, video }: { id: string; video: ReturnType<typeof useP
   const stop = () => {
     const blob = video.stopRecording();
     if (!blob) { setEmpty(true); return; }
-    const url = URL.createObjectURL(blob);
-    const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
-    const link = document.createElement("a"); link.href = url; link.download = `${id}-${stamp}.mp4`; link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    downloadRecording(id, blob);
   };
   // The recording reached its size or time limit: save what it has.
   const full = video.recordingFull;
