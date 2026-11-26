@@ -7,22 +7,8 @@ for the full guide, volumes, backups and limitations.
 
 ## Quickstart
 
-```sh
-docker compose build
-docker compose run --rm emuly gh auth login -h github.com -s codespace
-docker compose up
-```
-
-Then open `http://localhost:4321`.
-
-- The login uses gh's device flow and stores the token in the `emuly-gh` volume,
-  so it survives restarts.
-- If GitHub says the scope is missing:
-  `docker compose run --rm emuly gh auth refresh -h github.com -s codespace`.
-- Health check:
-  `docker compose run --rm emuly node bin/emuly.mjs doctor`.
-- Reset (keeps your phones; they live in your codespaces):
-  `docker compose down -v`.
+Follow [docs/SELF-HOST.md](../../docs/SELF-HOST.md): it has the build, the gh sign-in, the start
+command, the health check and the reset. Then open `http://localhost:4321`.
 
 The port is published on loopback only. The self-host API is intentionally
 unauthenticated — do not expose it.

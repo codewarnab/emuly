@@ -126,34 +126,8 @@ curl -sS -X POST "$base/v1/phones/$id/app-installs" -H "$auth" -H "content-type:
 curl -sS -H "$auth" "$base/v1/phones/$id/app-installs/<operation-id>"
 ~~~
 
-For a local file, create an `upload` operation, then send 4 MiB chunks with
-`PUT /v1/phones/<id>/app-installs/<operation-id>/content`. Each chunk needs
-`content-type: application/octet-stream`, `x-upload-offset` and `x-chunk-sha256`
-(lowercase SHA-256 of that chunk). Finish with
-`POST /v1/phones/<id>/app-installs/<operation-id>/complete`, then poll the operation
-until its `stage` is `succeeded`, `failed`, `cancelled` or `interrupted`.
-
-~~~bash
-file="$HOME/app.apk"
-opkey=$(uuidgen | tr '[:upper:]' '[:lower:]')
-total=$(stat -f %z "$file")
-op=$(curl -sS -X POST "$base/v1/phones/$id/app-installs" -H "$auth" -H "content-type: application/json" \
-  --data "{\"source\":\"upload\",\"key\":\"$opkey\",\"filename\":\"$(basename "$file")\",\"totalBytes\":$total}")
-opid=$(printf '%s' "$op" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
-offset=0
-while [ "$offset" -lt "$total" ]; do
-  chunk=$(mktemp)
-  dd if="$file" of="$chunk" bs=4194304 skip=$((offset / 4194304)) count=1 2>/dev/null
-  sha=$(shasum -a 256 "$chunk" | cut -d' ' -f1)
-  curl -sS -X PUT "$base/v1/phones/$id/app-installs/$opid/content" -H "$auth" \
-    -H "content-type: application/octet-stream" -H "x-upload-offset: $offset" -H "x-chunk-sha256: $sha" \
-    --data-binary "@$chunk"
-  offset=$((offset + $(stat -f %z "$chunk")))
-  rm -f "$chunk"
-done
-curl -sS -X POST "$base/v1/phones/$id/app-installs/$opid/complete" -H "$auth"
-curl -sS -H "$auth" "$base/v1/phones/$id/app-installs/$opid"
-~~~
+For a local file, prefer `node emuly.mjs install <phone> app.apk`: it picks the route and sends
+the chunks for you. Without the CLI, follow the chunked upload in `references/tasks/apps.md`.
 
 Open an installed app and read the inventory:
 

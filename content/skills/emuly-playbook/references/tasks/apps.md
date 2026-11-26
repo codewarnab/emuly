@@ -97,3 +97,38 @@ Send `POST /v1/phones/<id>/apps/update` and repeat it until it returns `{"status
 
 Read the inventory with `GET /v1/phones/<id>/apps`. Open an app with
 `POST /v1/phones/<id>/apps/open` and body `{"packageId":"com.example.app"}`.
+
+## Chunked APK upload (no CLI)
+
+Prefer `node emuly.mjs install`. Use these calls only when the CLI cannot run.
+
+Create an `upload` operation, then send 4 MiB chunks with
+`PUT /v1/phones/<id>/app-installs/<operation-id>/content`. Each chunk needs
+`content-type: application/octet-stream`, `x-upload-offset` and `x-chunk-sha256`
+(lowercase SHA-256 of that chunk). Finish with
+`POST /v1/phones/<id>/app-installs/<operation-id>/complete`, then poll the operation
+until its `stage` is `succeeded`, `failed`, `cancelled` or `interrupted`.
+
+This script works on Linux and macOS:
+
+~~~bash
+file="$HOME/app.apk"
+opkey=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen | tr '[:upper:]' '[:lower:]')
+total=$(wc -c < "$file" | tr -d ' ')
+op=$(curl -sS -X POST "$base/v1/phones/$id/app-installs" -H "$auth" -H "content-type: application/json" \
+  --data "{\"source\":\"upload\",\"key\":\"$opkey\",\"filename\":\"$(basename "$file")\",\"totalBytes\":$total}")
+opid=$(printf '%s' "$op" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+offset=0
+while [ "$offset" -lt "$total" ]; do
+  chunk=$(mktemp)
+  dd if="$file" of="$chunk" bs=4194304 skip=$((offset / 4194304)) count=1 2>/dev/null
+  sha=$( (sha256sum "$chunk" 2>/dev/null || shasum -a 256 "$chunk") | cut -d' ' -f1)
+  curl -sS -X PUT "$base/v1/phones/$id/app-installs/$opid/content" -H "$auth" \
+    -H "content-type: application/octet-stream" -H "x-upload-offset: $offset" -H "x-chunk-sha256: $sha" \
+    --data-binary "@$chunk"
+  offset=$((offset + $(wc -c < "$chunk" | tr -d ' ')))
+  rm -f "$chunk"
+done
+curl -sS -X POST "$base/v1/phones/$id/app-installs/$opid/complete" -H "$auth"
+curl -sS -H "$auth" "$base/v1/phones/$id/app-installs/$opid"
+~~~
