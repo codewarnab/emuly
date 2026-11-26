@@ -32,13 +32,20 @@ export async function resolveUser({ authorization, session, database = asyncDb()
     if (!agent) return null;
     return loadUser(database, agent.userId, "agent", agent.keyId);
   }
-  return session ? loadUser(database, session.userId, "session") : null;
+  if (!session) return null;
+  // readSession already joined the user row (and refused a blocked user), so no second read.
+  if (session.user) return toUser({ id: session.userId, login: session.user.login, name: session.user.name,
+    avatar_url: session.user.avatarUrl }, "session");
+  return loadUser(database, session.userId, "session");
 }
 
 async function loadUser(database: Client, userId: number, authKind: AuthKind, agentKeyId?: number): Promise<User | null> {
   const row = (await database.execute({ sql: "SELECT id, login, name, avatar_url FROM users WHERE id = ? AND blocked = 0",
     args: [userId] })).rows[0] as unknown as UserRow | undefined;
-  if (!row) return null;
+  return row ? toUser(row, authKind, agentKeyId) : null;
+}
+
+function toUser(row: UserRow, authKind: AuthKind, agentKeyId?: number): User {
   const initials = (row.name?.trim().split(/\s+/).map(part => Array.from(part)[0]).slice(0, 2).join("")
     || row.login.slice(0, 2)).toUpperCase();
   return { id: row.id, login: row.login, name: row.name, avatarUrl: row.avatar_url, initials, authKind,
