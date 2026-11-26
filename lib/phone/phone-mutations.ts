@@ -1,4 +1,5 @@
 import "server-only";
+import { isMachineName } from "../shared/codespace-name.ts";
 import { logError } from "../shared/log-error.ts";
 import { redactSecrets } from "../shared/redact.ts";
 import { waitUntil } from "@vercel/functions";
@@ -821,7 +822,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       if (!/^[\w.-]+\/[\w.-]+$/.test(input.repository) || !Number.isSafeInteger(input.repositoryId)
         || input.repositoryId <= 0 || !validIdle(input.idleTimeoutMin)
         || (input.devcontainerPath !== undefined && !/^\.?[\w./-]+\.json$/.test(input.devcontainerPath))
-        || (input.machine !== undefined && !/^[\w-]{1,100}$/.test(input.machine))) {
+        || (input.machine !== undefined && !isMachineName(input.machine))) {
         throw new PhoneInputError("Choose a valid repository, machine, and idle timeout.");
       }
       const interrupted = await unconfirmed(userId);

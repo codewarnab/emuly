@@ -1,3 +1,4 @@
+import { isMachineName } from "../shared/codespace-name.ts";
 import type { Client } from "@libsql/client";
 import { transaction, type DatabaseQueries } from "./async-database.ts";
 import { IDLE_MAX, IDLE_MIN, validIdle } from "../shared/idle.ts";
@@ -81,7 +82,7 @@ export async function updateSettings(database: Client, userId: number, input: un
     throw new SettingsInputError("Enter a non-negative allowance in core-hours.");
   }
   if ("default_machine" in patch && patch.default_machine !== null
-    && (typeof patch.default_machine !== "string" || !/^[\w-]{1,100}$/.test(patch.default_machine))) {
+    && (typeof patch.default_machine !== "string" || !isMachineName(patch.default_machine))) {
     throw new SettingsInputError("Choose a valid machine.");
   }
   if ("default_idle_min" in patch && !validIdle(patch.default_idle_min)) {

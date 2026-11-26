@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient } from "../lib/data/async-database.ts";
 import { reencryptAll } from "../lib/auth/reencrypt.ts";
+import { DEFAULT_DB_PATH } from "../lib/env-defaults.ts";
 
 /** Rotation steps:
     1. Set EMULY_TOKEN_KEY to a new key and EMULY_TOKEN_KEY_OLD to the previous key. Deploy.
@@ -17,7 +18,7 @@ try {
   const authToken = process.env.EMULY_DATABASE_AUTH_TOKEN;
   if (url && (!/^(libsql|https):\/\//.test(url) || !authToken)) throw new Error("Invalid hosted database configuration");
   const client = createClient({
-    url: url || pathToFileURL(resolve(process.env.EMULY_DB || ".data/emuly.db")).href,
+    url: url || pathToFileURL(resolve(process.env.EMULY_DB || DEFAULT_DB_PATH)).href,
     authToken: url ? authToken : undefined,
   });
   try {

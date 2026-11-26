@@ -1,7 +1,7 @@
 import "server-only";
 import { isRecord } from "../http.ts";
 import { env } from "../env.ts";
-import { githubFetch } from "../github/github.ts";
+import { USER_AGENT, githubApi, githubFetch } from "../github/github.ts";
 
 export class SignInError extends Error {
   readonly code: string;
@@ -28,7 +28,7 @@ export async function exchangeTokens(parameters: Record<string, string>, options
   try {
     response = await githubFetch("https://github.com/login/oauth/access_token", {
       method: "POST",
-      headers: { Accept: "application/json", "User-Agent": "emuly-local" },
+      headers: { Accept: "application/json", "User-Agent": USER_AGENT },
       body: new URLSearchParams({ client_id: env.clientId, client_secret: env.clientSecret, ...parameters }),
       cache: "no-store",
       signal: AbortSignal.timeout(15_000),
@@ -56,16 +56,7 @@ export async function exchangeTokens(parameters: Record<string, string>, options
 }
 
 export async function githubGet(path: "/user" | "/user/codespaces?per_page=1", token: string, fetcher?: typeof fetch) {
-  return githubFetch(`https://api.github.com${path}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "emuly-local",
-    },
-    cache: "no-store",
-    signal: AbortSignal.timeout(15_000),
-  }, fetcher);
+  return githubApi(token, path, { signal: AbortSignal.timeout(15_000) }, fetcher);
 }
 
 export async function githubIdentity(token: string, fetcher?: typeof fetch) {

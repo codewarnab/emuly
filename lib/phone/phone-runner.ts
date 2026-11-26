@@ -17,16 +17,33 @@ const links = () => {
   // Command completion is measured; provider idle-timer reset remains unverified.
   keepAwake: (token, codespaceName) => codespaceExec({ token, codespaceName, command: "echo emuly-awake", pty: true, timeoutMs: 90_000 }) });
 };
+type CodespaceNeed = "active" | "running" | "ready";
+const NEED_SQL: Record<CodespaceNeed, string> = {
+  active: "state IN ('running', 'booting', 'stopping')",
+  running: "state = 'running'",
+  ready: "state = 'running' AND android_state = 'ready'",
+};
+/**
+ * The codespace of this user's phone when the phone is in the needed state and the user is not
+ * blocked. With `sessionId`, the browser session must also still be valid.
+ */
+async function codespaceFor(userId: number, id: string, { need, sessionId }: { need: CodespaceNeed; sessionId?: string }) {
+  const session = sessionId ? "\n    AND EXISTS(SELECT 1 FROM sessions WHERE id = ? AND user_id = ? AND expires_at > ?)" : "";
+  const row = (await asyncDb().execute({ sql: `SELECT codespace_name FROM phones WHERE user_id = ? AND id = ? AND ${NEED_SQL[need]}
+    AND EXISTS(SELECT 1 FROM users WHERE id = ? AND blocked = 0)${session}`,
+    args: sessionId ? [userId, id, userId, sessionId, userId, new Date().toISOString()] : [userId, id, userId] })).rows[0] as unknown as { codespace_name: string } | undefined;
+  if (!row) throw new Error("Phone is not available");
+  return row.codespace_name;
+}
+
 /**
  * known: the codespace of a phone row the caller just read for this user and checked as ready.
  * Then the helper does not read the same row again (one Turso trip less per agent command).
  */
 export async function runnerRequest(userId: number, id: string, path: RunnerPath, body?: Record<string, unknown>, query?: Record<string, string>, known?: string) {
   if (known) return links().request({ userId, id, codespaceName: known }, path, body, query);
-  const row = (await asyncDb().execute({ sql: `SELECT codespace_name FROM phones WHERE user_id = ? AND id = ? AND state IN ('running', 'booting', 'stopping')
-    AND EXISTS(SELECT 1 FROM users WHERE id = ? AND blocked = 0)`, args: [userId, id, userId] })).rows[0] as unknown as { codespace_name: string } | undefined;
-  if (!row) throw new Error("Phone is not available");
-  return links().request({ userId, id, codespaceName: row.codespace_name }, path, body, query);
+  const codespaceName = await codespaceFor(userId, id, { need: "active" });
+  return links().request({ userId, id, codespaceName }, path, body, query);
 }
 /**
  * Closes a user's direct (port 8791) streams on every running phone. Best effort: a phone that
@@ -46,10 +63,7 @@ export function closeRunner(userId: number, id: string, codespaceName: string, r
 }
 
 export async function runnerApps(userId: number, id: string, path: AppsPath, options: AppsRequest) {
-  const row = (await asyncDb().execute({ sql: `SELECT codespace_name FROM phones WHERE user_id = ? AND id = ? AND state = 'running' AND android_state = 'ready'
-    AND EXISTS(SELECT 1 FROM users WHERE id = ? AND blocked = 0)`, args: [userId, id, userId] })).rows[0] as unknown as { codespace_name: string } | undefined;
-  if (!row) throw new Error("Phone is not available");
-  return links().apps({ userId, id, codespaceName: row.codespace_name }, path, options);
+  return links().apps({ userId, id, codespaceName: await readyCodespace(userId, id) }, path, options);
 }
 
 /** adb runs only on a phone that the runner already reports as running and ready. */
@@ -62,11 +76,8 @@ export async function runnerAdb(userId: number, id: string, input: AdbRequest, k
 /** Screen recording calls. Recording needs Android ready; status, file and discard work while the phone runs. */
 export async function runnerRecording(userId: number, id: string, action: RecordingAction, body?: Record<string, unknown>, known?: string) {
   if (known) return links().recording({ userId, id, codespaceName: known }, action, body);
-  const ready = action === "start" ? "AND android_state = 'ready'" : "";
-  const row = (await asyncDb().execute({ sql: `SELECT codespace_name FROM phones WHERE user_id = ? AND id = ? AND state = 'running' ${ready}
-    AND EXISTS(SELECT 1 FROM users WHERE id = ? AND blocked = 0)`, args: [userId, id, userId] })).rows[0] as unknown as { codespace_name: string } | undefined;
-  if (!row) throw new Error("Phone is not available");
-  return links().recording({ userId, id, codespaceName: row.codespace_name }, action, body);
+  const codespaceName = await codespaceFor(userId, id, { need: action === "start" ? "ready" : "running" });
+  return links().recording({ userId, id, codespaceName }, action, body);
 }
 
 /** Ms since the last touch or key in Android. It is not an action, so it does not mark activity. Null when unknown. */
@@ -107,27 +118,12 @@ export async function runnerProxy(id: string, token: string, path: string, init:
 }
 
 export async function runnerStream(userId: number, id: string, sessionId: string) {
-  const row = (await asyncDb().execute({ sql: `SELECT codespace_name FROM phones WHERE user_id = ? AND id = ?
-    AND state = 'running' AND android_state = 'ready'
-    AND EXISTS(SELECT 1 FROM users WHERE id = ? AND blocked = 0)
-    AND EXISTS(SELECT 1 FROM sessions WHERE id = ? AND user_id = ? AND expires_at > ?)`, args: [userId, id, userId, sessionId, userId, new Date().toISOString()] })).rows[0] as unknown as { codespace_name: string } | undefined;
-  if (!row) throw new Error("Phone is not available");
-  return links().stream({ userId, id, codespaceName: row.codespace_name });
+  return links().stream({ userId, id, codespaceName: await codespaceFor(userId, id, { need: "ready", sessionId }) });
 }
 
-async function readyCodespace(userId: number, id: string) {
-  const row = (await asyncDb().execute({ sql: `SELECT codespace_name FROM phones WHERE user_id = ? AND id = ? AND state = 'running' AND android_state = 'ready'
-    AND EXISTS(SELECT 1 FROM users WHERE id = ? AND blocked = 0)`, args: [userId, id, userId] })).rows[0] as unknown as { codespace_name: string } | undefined;
-  if (!row) throw new Error("Phone is not available");
-  return row.codespace_name;
-}
+const readyCodespace = (userId: number, id: string) => codespaceFor(userId, id, { need: "ready" });
 
-async function runningCodespace(userId: number, id: string) {
-  const row = (await asyncDb().execute({ sql: `SELECT codespace_name FROM phones WHERE user_id = ? AND id = ? AND state = 'running'
-    AND EXISTS(SELECT 1 FROM users WHERE id = ? AND blocked = 0)`, args: [userId, id, userId] })).rows[0] as unknown as { codespace_name: string } | undefined;
-  if (!row) throw new Error("Phone is not available");
-  return row.codespace_name;
-}
+const runningCodespace = (userId: number, id: string) => codespaceFor(userId, id, { need: "running" });
 
 /** Link and net-check calls to the runner. Links work while Android boots; net-check needs Android. */
 export async function runnerLinks(userId: number, id: string, path: LinksPath, body?: Record<string, unknown>) {

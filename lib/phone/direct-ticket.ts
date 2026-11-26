@@ -1,4 +1,5 @@
 import "server-only";
+import { isCodespaceName } from "../shared/codespace-name.ts";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { signTicket, signUploadTicket, TICKET_TTL_MS, UPLOAD_TICKET_TTL_MS } from "../../phone/runner/direct-ticket.mjs";
 
@@ -7,7 +8,7 @@ import { signTicket, signUploadTicket, TICKET_TTL_MS, UPLOAD_TICKET_TTL_MS } fro
  * key per phone. With no secret there is no key, and the runner keeps port 8791 closed.
  */
 export function phoneDirectKey(codespaceName: string, secret = process.env.EMULY_DIRECT_SECRET): string | undefined {
-  if (!secret || secret.length < 32 || !/^[\w-]{1,100}$/.test(codespaceName)) return undefined;
+  if (!secret || secret.length < 32 || !isCodespaceName(codespaceName)) return undefined;
   return createHmac("sha256", secret).update(`emuly-direct-phone-v1:${codespaceName}`).digest("hex");
 }
 
@@ -17,7 +18,7 @@ export function phoneDirectKey(codespaceName: string, secret = process.env.EMULY
  * Undefined without the secret: then the runner has no key file and port privacy is the only lock.
  */
 export function runnerSecret(codespaceName: string, secret = process.env.EMULY_DIRECT_SECRET): string | undefined {
-  if (!secret || secret.length < 32 || !/^[\w-]{1,100}$/.test(codespaceName)) return undefined;
+  if (!secret || secret.length < 32 || !isCodespaceName(codespaceName)) return undefined;
   return createHmac("sha256", secret).update(`emuly-runner-key-v1:${codespaceName}`).digest("hex");
 }
 

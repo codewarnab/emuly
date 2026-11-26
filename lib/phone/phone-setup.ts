@@ -1,4 +1,5 @@
 import "server-only";
+import { isCodespaceName } from "../shared/codespace-name.ts";
 import { redactSecrets } from "../shared/redact.ts";
 import { PORTS, RUNNER_VERSION, runnerHost } from "../../phone/runner/contracts.mjs";
 import { DEFAULT_DEVICE_PRESET, deviceEnv } from "../shared/device-presets.ts";
@@ -168,7 +169,7 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
    */
   async function quickCheck(userId: number, codespaceName: string, waitMs = 0, fetcher: typeof fetch = fetch,
     pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))) {
-    if (!/^[\w-]{1,100}$/.test(codespaceName)) return false;
+    if (!isCodespaceName(codespaceName)) return false;
     // On a wake, autostart.sh starts the runner a few seconds after the codespace is Available.
     // Ask again for waitMs before setup falls back to SSH (measured 2026-11-14: one early ask missed it).
     const until = Date.now() + waitMs;
@@ -186,7 +187,7 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
   }
   /** The runner's GET /health through GitHub's port forward, or null when it does not answer. */
   async function readHealth(userId: number, codespaceName: string, fetcher: typeof fetch = fetch): Promise<RunnerHealth | null> {
-    if (!/^[\w-]{1,100}$/.test(codespaceName)) return null;
+    if (!isCodespaceName(codespaceName)) return null;
     try {
       const secret = await token(userId);
       const response = await fetcher(`https://${runnerHost(codespaceName, PORTS.RUNNER)}/health`, { headers: { "X-Github-Token": secret },

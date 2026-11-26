@@ -8,6 +8,7 @@
 //   line 3: the codespace name
 // The file is read again for each event, and each answer from Emuly carries its current URL.
 // So a new Emuly domain reaches a running phone without a new runner or a restart.
+import { isCodespaceName } from "./contracts.mjs";
 import { createHmac } from "node:crypto";
 import { readFile, writeFile, rename } from "node:fs/promises";
 
@@ -22,7 +23,7 @@ export function signEvent(key, body) {
 /** Parse ~/emuly/.events. Returns undefined for a missing or bad file: then push is off. */
 export function parseEventsFile(text) {
   const [url, key, codespace] = String(text ?? "").split("\n").map(line => line.trim());
-  if (!url || !/^https:\/\/[^\s/]+\/[^\s]*$/.test(url) || !/^[a-f0-9]{64}$/.test(key ?? "") || !/^[\w-]{1,100}$/.test(codespace ?? "")) return undefined;
+  if (!url || !/^https:\/\/[^\s/]+\/[^\s]*$/.test(url) || !/^[a-f0-9]{64}$/.test(key ?? "") || !isCodespaceName(codespace)) return undefined;
   return { url, key, codespace };
 }
 

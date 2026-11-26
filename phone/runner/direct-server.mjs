@@ -1,7 +1,7 @@
 // The direct (public) port. It serves `GET /stream` as a WebSocket and `PUT /adb` (a large file
 // for one adb command), each with its own kind of signed ticket.
 // Every other request gets 404. With no valid phone key it does not listen (fail closed).
-import { PORTS } from "./contracts.mjs";
+import { PORTS, isCodespaceName } from "./contracts.mjs";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { createNonceStore, createRateLimiter, TICKET_TTL_MS, UPLOAD_TICKET_TTL_MS, verifyTicket, verifyUploadTicket } from "./direct-ticket.mjs";
@@ -19,7 +19,7 @@ export function clientAddress(req) {
 export async function readPhoneKey(file) {
   try {
     const [key, codespace] = (await readFile(file, "utf8")).trim().split(/\s+/);
-    return KEY.test(key) && /^[\w-]{1,100}$/.test(codespace ?? "") ? { key, codespace } : undefined;
+    return KEY.test(key) && isCodespaceName(codespace) ? { key, codespace } : undefined;
   } catch { return undefined; }
 }
 

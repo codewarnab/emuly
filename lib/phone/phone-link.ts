@@ -1,4 +1,5 @@
 import "server-only";
+import { assertCodespaceName } from "../shared/codespace-name.ts";
 import { redactSecrets } from "../shared/redact.ts";
 import { PORTS, runnerHost } from "../../phone/runner/contracts.mjs";
 import { measure } from "../diagnostics/diagnostics.ts";
@@ -101,7 +102,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
     return { ...await tunnel(secret, phone.codespaceName, signal), forwarded: false };
   }
   function acquire(phone: Owner) {
-    if (!/^[\w-]{1,100}$/.test(phone.codespaceName)) throw new Error("Invalid codespace name");
+    assertCodespaceName(phone.codespaceName);
     let entry = entries.get(key(phone));
     if (!entry) {
       const abort = new AbortController();
@@ -462,7 +463,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
     },
     /** query is only for GET /screenshot (scale) and GET /ui (all). */
     async request(phone: Owner, path: RunnerPath, body?: Record<string, unknown>, query?: Record<string, string>): Promise<Response> {
-      if (!/^[\w-]{1,100}$/.test(phone.codespaceName)) throw new Error("Invalid codespace name");
+      assertCodespaceName(phone.codespaceName);
       if (!["/health", "/boot", "/stop", "/screenshot", "/ui", "/tap", "/key", "/agent-device-info", "/direct/revoke"].includes(path)) throw new Error("Invalid runner route");
       const { entry, release } = acquire(phone);
       try {

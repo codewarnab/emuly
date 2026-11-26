@@ -1,4 +1,5 @@
 import "server-only";
+import { assertCodespaceName } from "../shared/codespace-name.ts";
 import { PORTS } from "../../phone/runner/contracts.mjs";
 import net from "node:net";
 import { Client as GrpcClient, credentials, Metadata } from "@grpc/grpc-js";
@@ -7,7 +8,7 @@ import type { Tunnel } from "@microsoft/dev-tunnels-contracts";
 import { ManagementApiVersions, TunnelManagementHttpClient } from "@microsoft/dev-tunnels-management";
 import ssh2 from "ssh2";
 import { measure } from "../diagnostics/diagnostics.ts";
-import { githubFetch } from "./github.ts";
+import { githubApi } from "./github.ts";
 
 /**
  * Runs a shell command in a codespace without the gh binary. Same path as `gh codespace ssh`:
@@ -34,21 +35,31 @@ type TunnelProperties = {
   tunnelId: string; clusterId: string; domain: string;
 };
 
+/** The codespace's connection details from GitHub and a tunnel manager for them. */
+async function loadCodespaceTunnel(token: string, codespaceName: string, signal?: AbortSignal) {
+  assertCodespaceName(codespaceName, () => new CodespaceTunnelError("Invalid codespace name"));
+  const res = await measure("metadata_fetch", () => githubApi(token, `/user/codespaces/${codespaceName}?internal=true&refresh=true`, signal ? { signal } : {}));
+  if (!res.ok) throw new CodespaceTunnelError(`GitHub returned ${res.status} for the codespace connection.`);
+  const body = await res.json() as { state?: string; runtime_constraints?: { allowed_port_privacy_settings?: string[] };
+    connection?: { tunnelProperties?: TunnelProperties } };
+  const tp = body.connection?.tunnelProperties;
+  if (!tp) throw new CodespaceTunnelError(`The codespace has no connection yet (state: ${body.state ?? "unknown"}).`);
+  const accessTokens = { connect: tp.connectAccessToken, "manage:ports": tp.managePortsAccessToken };
+  const manager = new TunnelManagementHttpClient("emuly", API_VERSION, undefined, tp.serviceUri);
+  /** The tunnel with its ports, ready for a relay client. */
+  const lookup = async () => {
+    const tunnel = await measure("tunnel_lookup", () => manager.getTunnel({ ...tp, accessTokens } as Tunnel, { includePorts: true }));
+    if (!tunnel) throw new CodespaceTunnelError("The codespace tunnel was not found.");
+    tunnel.accessTokens = accessTokens;
+    return tunnel;
+  };
+  return { body, tp, accessTokens, manager, lookup };
+}
+
 /** A reusable TCP bridge to the runner; no SSH process or command per request. */
 export async function openCodespacePort(token: string, codespaceName: string, signal: AbortSignal) {
-  if (!/^[\w-]{1,100}$/.test(codespaceName)) throw new CodespaceTunnelError("Invalid codespace name");
-  const res = await measure("metadata_fetch", () => githubFetch(`https://api.github.com/user/codespaces/${codespaceName}?internal=true&refresh=true`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "emuly" }, signal,
-  }));
-  if (!res.ok) throw new CodespaceTunnelError(`GitHub returned ${res.status} for the codespace connection.`);
-  const body = await res.json() as { connection?: { tunnelProperties?: TunnelProperties } };
-  const tp = body.connection?.tunnelProperties;
-  if (!tp) throw new CodespaceTunnelError("The codespace has no connection yet.");
-  const manager = new TunnelManagementHttpClient("emuly", API_VERSION, undefined, tp.serviceUri);
-  const accessTokens = { connect: tp.connectAccessToken, "manage:ports": tp.managePortsAccessToken };
-  const tunnel = await measure("tunnel_lookup", () => manager.getTunnel({ ...tp, accessTokens } as Tunnel, { includePorts: true }));
-  if (!tunnel) throw new CodespaceTunnelError("The codespace tunnel was not found.");
-  tunnel.accessTokens = accessTokens;
+  const { manager, lookup } = await loadCodespaceTunnel(token, codespaceName, signal);
+  const tunnel = await lookup();
   const client = new TunnelRelayTunnelClient();
   client.acceptLocalConnectionsForForwardedPorts = false;
   const sockets = new Set<net.Socket>();
@@ -101,21 +112,8 @@ export async function openCodespacePort(token: string, codespaceName: string, si
 export async function codespaceExec({ token, codespaceName, command, stdin, pty = false, timeoutMs = 60_000, outputLimit = 4000 }: {
   token: string; codespaceName: string; command: string; stdin?: string; pty?: boolean; timeoutMs?: number; outputLimit?: number;
 }): Promise<{ code: number; output: string }> {
-  if (!/^[\w-]{1,100}$/.test(codespaceName)) throw new CodespaceTunnelError("Invalid codespace name");
-  const res = await measure("metadata_fetch", () => githubFetch(`https://api.github.com/user/codespaces/${codespaceName}?internal=true&refresh=true`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "emuly" },
-  }));
-  if (!res.ok) throw new CodespaceTunnelError(`GitHub returned ${res.status} for the codespace connection.`);
-  const body = await res.json() as { state?: string; connection?: { tunnelProperties?: TunnelProperties } };
-  const tp = body.connection?.tunnelProperties;
-  if (!tp) throw new CodespaceTunnelError(`The codespace has no connection yet (state: ${body.state ?? "unknown"}).`);
-
-  const accessTokens = { connect: tp.connectAccessToken, "manage:ports": tp.managePortsAccessToken };
-  const manager = new TunnelManagementHttpClient("emuly", API_VERSION, undefined, tp.serviceUri);
-  const options = { includePorts: true };
-  const tunnel = await measure("tunnel_lookup", () => manager.getTunnel({ tunnelId: tp.tunnelId, clusterId: tp.clusterId, domain: tp.domain, accessTokens } as Tunnel, options));
-  if (!tunnel) throw new CodespaceTunnelError("The codespace tunnel was not found.");
-  tunnel.accessTokens = accessTokens;
+  const { manager, lookup } = await loadCodespaceTunnel(token, codespaceName);
+  const tunnel = await lookup();
 
   const client = new TunnelRelayTunnelClient();
   client.acceptLocalConnectionsForForwardedPorts = false;
@@ -124,7 +122,7 @@ export async function codespaceExec({ token, codespaceName, command, stdin, pty 
   let ssh: ssh2.Client | undefined;
   const forward = async (port: number) => {
     try {
-      await manager.createTunnelPort(tunnel, { portNumber: port, protocol: "http", labels: ["InternalPort"] }, options);
+      await manager.createTunnelPort(tunnel, { portNumber: port, protocol: "http", labels: ["InternalPort"] }, { includePorts: true });
     } catch (error) {
       if (!/409|conflict|already exists/i.test(String((error as { response?: { status?: number } }).response?.status ?? error))) throw error;
     }
@@ -227,19 +225,9 @@ function varint(n: number) {
  * does. Port 8790 stays private. False when the account or org does not allow public ports.
  */
 export async function makeDirectPortPublic(token: string, codespaceName: string, signal?: AbortSignal) {
-  if (!/^[\w-]{1,100}$/.test(codespaceName)) throw new CodespaceTunnelError("Invalid codespace name");
-  const res = await githubFetch(`https://api.github.com/user/codespaces/${codespaceName}?internal=true&refresh=true`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "emuly" }, signal,
-  });
-  if (!res.ok) throw new CodespaceTunnelError(`GitHub returned ${res.status} for the codespace connection.`);
-  const body = await res.json() as { runtime_constraints?: { allowed_port_privacy_settings?: string[] };
-    connection?: { tunnelProperties?: TunnelProperties } };
+  const { body, tp, accessTokens, manager } = await loadCodespaceTunnel(token, codespaceName, signal);
   const allowed = body.runtime_constraints?.allowed_port_privacy_settings;
   if (allowed && !allowed.includes("public")) return false;
-  const tp = body.connection?.tunnelProperties;
-  if (!tp) throw new CodespaceTunnelError("The codespace has no connection yet.");
-  const manager = new TunnelManagementHttpClient("emuly", API_VERSION, undefined, tp.serviceUri);
-  const accessTokens = { connect: tp.connectAccessToken, "manage:ports": tp.managePortsAccessToken };
   const tunnel = { ...tp, accessTokens } as Tunnel;
   await manager.createOrUpdateTunnelPort(tunnel, { portNumber: PORTS.DIRECT, protocol: "http", labels: ["UserForwardedPort"],
     accessControl: { entries: [{ type: "Anonymous" as never, subjects: [], scopes: ["connect"] }] } }, {});

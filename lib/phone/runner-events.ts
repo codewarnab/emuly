@@ -1,3 +1,4 @@
+import { isCodespaceName } from "../shared/codespace-name.ts";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Client } from "@libsql/client";
 import { finishBoot } from "./boot-finish.ts";
@@ -36,7 +37,7 @@ export function runnerEventsUrl(baseUrl: string | undefined) {
 /** The content of ~/emuly/.events in the codespace (phone/runner/events.mjs), or undefined: push off. */
 export function runnerEventsFile(codespaceName: string, { baseUrl, secret }: { baseUrl?: string; secret?: string }) {
   const url = runnerEventsUrl(baseUrl);
-  if (!url || !secret || !/^[\w-]{1,100}$/.test(codespaceName)) return undefined;
+  if (!url || !secret || !isCodespaceName(codespaceName)) return undefined;
   return `${url}\n${runnerEventKey(codespaceName, secret)}\n${codespaceName}\n`;
 }
 
@@ -59,7 +60,7 @@ export async function handleRunnerEvent(request: Request, deps: RunnerEventDeps)
     { ...body, events_url: runnerEventsUrl(deps.baseUrl) }, { status, headers: { "Cache-Control": "no-store" } });
   const codespace = request.headers.get("x-emuly-phone") ?? "";
   const body = await readLimited(request);
-  if (body === undefined || !/^[\w-]{1,100}$/.test(codespace)) return answer(400, { error: "bad_request" });
+  if (body === undefined || !isCodespaceName(codespace)) return answer(400, { error: "bad_request" });
   if (!signedByPhone(codespace, body, request.headers.get("x-emuly-signature") ?? "", deps.secrets)) return answer(401, { error: "bad_signature" });
   const event = parseEvent(body);
   if (!event) return answer(400, { error: "bad_event" });

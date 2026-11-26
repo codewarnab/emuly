@@ -50,8 +50,15 @@ const APK_CHUNK_BYTES = 4 * 1024 * 1024;
 const INSTALL_FLAGS = new Set(["-r", "-t", "-g", "-d", "--abi"]);
 // contracts:end
 
+/**
+ * A GitHub codespace name: letters, digits, `_` and `-`, at most 100. It goes into host names and
+ * URLs, so every place that builds one checks it first.
+ * @param {unknown} name @returns {name is string}
+ */
+const isCodespaceName = name => typeof name === "string" && /^[\w-]{1,100}$/.test(name);
+
 /** The runner reports this in /health. A server with another number updates the runner. */
-const RUNNER_VERSION = 34;
+const RUNNER_VERSION = 35;
 
 export { PORTS, RESERVED_PORTS, EMULATOR_SERIAL, runnerHost, FRAME, RELAY_CHUNK, CLOSE, FATAL_STATUSES,
-  INLINE_MAX, APK_CHUNK_BYTES, INSTALL_FLAGS, RUNNER_VERSION };
+  INLINE_MAX, APK_CHUNK_BYTES, INSTALL_FLAGS, RUNNER_VERSION, isCodespaceName };

@@ -26,6 +26,22 @@ export function githubFetch(url: string, init: RequestInit, fetcher: typeof fetc
     signal: init.signal ? AbortSignal.any([init.signal, timeout]) : timeout });
 }
 
+export const GITHUB_API = "https://api.github.com";
+export const GITHUB_API_VERSION = "2022-11-28";
+export const USER_AGENT = "emuly";
+
+/**
+ * One call to the GitHub REST API with the token, the JSON accept header, the API version and the
+ * user agent. `version` overrides the API version for one call that needs a newer one.
+ */
+export function githubApi(token: string, path: string, init: RequestInit & { version?: string } = {}, fetcher?: typeof fetch) {
+  const { version, headers, ...rest } = init;
+  return githubFetch(`${GITHUB_API}${path}`, { ...rest, headers: {
+    Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": version ?? GITHUB_API_VERSION, "User-Agent": USER_AGENT, ...headers,
+  } }, fetcher);
+}
+
 export class GitHubError extends Error {
   readonly status: number;
   readonly retryAfter?: number;
@@ -80,13 +96,9 @@ export function createGitHubClient({ database, accessToken, fetch: fetcher = fet
 }) {
   async function request(userId: number, path: string, method = "GET", body?: unknown, signal?: AbortSignal) {
     const token = await accessToken(userId);
-    const response = await githubFetch(`https://api.github.com${path}`, {
+    const response = await githubApi(token, path, {
       method,
-      headers: {
-        Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "emuly-local",
-        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-      },
+      headers: body === undefined ? {} : { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
       ...(signal ? { signal } : {}),
     }, fetcher);

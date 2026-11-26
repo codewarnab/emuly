@@ -1,4 +1,5 @@
 import { createClient, type Client } from "@libsql/client";
+import { hostedClientFromFiles } from "../lib/data/hosted-client.ts";
 import { access, readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
@@ -17,7 +18,7 @@ if (!filename) {
   try {
     await access(filename);
     database = tokenFile
-      ? createClient({ url: (await readFile(filename, "utf8")).trim(), authToken: (await readFile(tokenFile, "utf8")).trim() })
+      ? await hostedClientFromFiles(filename, tokenFile)
       : createClient({ url: pathToFileURL(resolve(filename)).href, concurrency: 1 });
     await database.execute("PRAGMA query_only = ON");
     console.log(JSON.stringify(await diagnosticReport(database, mode, operationId), null, 2));

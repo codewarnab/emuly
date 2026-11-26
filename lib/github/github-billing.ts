@@ -1,5 +1,5 @@
 import "server-only";
-import { githubFetch } from "./github.ts";
+import { githubApi } from "./github.ts";
 
 export type BillingUsage = {
   coreHours: number; storageGbMonths: number;
@@ -83,10 +83,8 @@ export function createBillingClient({ accessToken, fetch: fetcher = fetch, clock
     let plan: string | null = null;
     try {
       const token = await accessToken(user.id);
-      const request = (path: string) => githubFetch(`https://api.github.com${path}`, { headers: {
-        Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2026-03-10", "User-Agent": "emuly",
-      } }, fetcher);
+      // The billing usage report needs the 2026-03-10 API version; other calls keep the default.
+      const request = (path: string) => githubApi(token, path, { version: "2026-03-10" }, fetcher);
       const profile = await request("/user");
       if (profile.ok) {
         const data = await profile.json();
