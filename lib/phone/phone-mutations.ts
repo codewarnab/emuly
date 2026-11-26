@@ -91,6 +91,9 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
   const SHUTDOWN_WAIT_MS = 120_000;
   const SHUTDOWN_POLL_MS = 3_000;
   const SETUP_FAILURE_DETAIL = "Phone setup failed. Emuly tries again in about 10 minutes.";
+  /** A setup that still fails this long after the start gives up and stops the codespace, so it uses no more hours. */
+  const SETUP_GIVE_UP_MS = 60 * 60_000;
+  const SETUP_GAVE_UP_DETAIL = "Phone setup failed for 1 hour. Emuly stopped the codespace. Start the phone to try again.";
   // In-memory guard against a second boot in this process. A function that Vercel stopped mid-boot
   // never clears its entry, so an entry older than BOOT_STALE_MS no longer blocks a retry.
   const booting = new Map<string, number>();
@@ -227,6 +230,14 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         if (!current) return false;
         if (status !== "ready") {
           await queries.execute({ sql: "UPDATE phone_setup_attempts SET retry_at = ?, failed = ? WHERE phone_id = ? AND attempt_id = ?", args: [clock() + (status === "failed" ? SETUP_RETRY_MS : SETUP_CHECK_MS), status === "failed" ? 1 : 0, id, attemptId] });
+          const started = Date.parse(String(current.last_started_at ?? ""));
+          if (status === "failed" && Number.isFinite(started) && clock() - started >= SETUP_GIVE_UP_MS) {
+            await queries.execute({ sql: "DELETE FROM phone_setup_attempts WHERE phone_id = ? AND attempt_id = ?", args: [id, attemptId] });
+            await queries.execute({ sql: "UPDATE phones SET state = 'error', state_detail = ? WHERE user_id = ? AND id = ?", args: [SETUP_GAVE_UP_DETAIL, userId, id] });
+            states.record({ from: "booting", to: "error", reason: "error", since: current.last_started_at as string | null });
+            await event(userId, id, "error", "Phone setup failed for 1 hour. Emuly stopped the codespace.", queries);
+            return "gave_up";
+          }
           if (status === "failed") {
             await queries.execute({ sql: "UPDATE phones SET state_detail = ? WHERE user_id = ? AND id = ?", args: [SETUP_FAILURE_DETAIL, userId, id] });
             await event(userId, id, "error", "Phone setup failed.", queries);
@@ -243,6 +254,15 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         return true;
       });
       if (!committed) return false;
+      if (committed === "gave_up") {
+        setupStarted.delete(id);
+        setupRetryAt.delete(id);
+        setupWorking.delete(id);
+        void diagnostics.mark(operationId, "retry_wait", { retryDelayMs: 0, errorCode: "unknown_failure", outcome: "failed" });
+        try { await github.stopCodespace(userId, id); }
+        catch (error) { console.error("Stop after failed setup did not reach GitHub", (error as Error).name); }
+        return false;
+      }
       if (status === "ready") {
         setupStarted.delete(id);
         setupRetryAt.delete(id);

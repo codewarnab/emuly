@@ -651,6 +651,27 @@ test("the state poller avoids overlap, backs off GitHub refusals with a fake clo
   } finally { release.resolve(); await f.close(); }
 });
 
+test("a setup that still fails 1 hour after the start sets error and stops the codespace", async () => {
+  const writes: string[] = [];
+  const f = fixture(async (url) => {
+    if (new URL(String(url)).pathname.endsWith("/stop")) { writes.push("stop"); return new Response(null, { status: 202 }); }
+    return Response.json({ codespaces: [space("generated-phone-cccc", "Available")] });
+  });
+  const now = Date.parse("2026-11-07T02:00:00Z");
+  const service = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
+    clock: () => now, setup: async () => { throw new Error("apt failed"); } });
+  try {
+    f.add("phone-cccc");
+    f.database.prepare("UPDATE phones SET state = 'booting', last_started_at = ? WHERE id = 'phone-cccc'").run(new Date(now - 60 * 60_000).toISOString());
+    await service.sync(1);
+    for (let i = 0; i < 20 && !writes.length; i++) await flush();
+    const row = f.database.prepare("SELECT state, state_detail FROM phones WHERE id = 'phone-cccc'").get()!;
+    assert.equal(row.state, "error");
+    assert.match(String(row.state_detail), /failed for 1 hour/);
+    assert.deepEqual(writes, ["stop"]);
+  } finally { await f.close(); }
+});
+
 test("an Available codespace starts phone setup, checks it until ready, then the phone is running; a failure waits before retrying", async () => {
   const f = fixture(async () => Response.json({ codespaces: [space("generated-phone-cccc", "Available")] }));
   const runs: string[] = [];
