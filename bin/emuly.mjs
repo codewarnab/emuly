@@ -905,17 +905,43 @@ const PROXY_LINK_PORT = 18792;
 
 /** True for loopback, private, link-local, shared, multicast and reserved addresses (v4 and v6). */
 function lanAddress(ip) {
-  const v4 = /^(?:::ffff:)?(\d+)\.(\d+)\.(\d+)\.(\d+)$/i.exec(ip);
-  if (v4) {
-    const [a, b] = [Number(v4[1]), Number(v4[2])];
+  const family = isIP(ip);
+  if (family === 4) {
+    const [a, b] = ip.split(".").map(Number);
     return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254)
       || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224;
   }
-  const lower = ip.toLowerCase();
-  if (!lower.includes(":")) return true;
-  if (lower === "::" || lower === "::1") return true;
-  const first = parseInt(lower.split(":")[0] || "0", 16);
-  return (first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80 || (first & 0xff00) === 0xff00;
+  if (family !== 6) return true;
+  const groups = ipv6Groups(ip);
+  if (!groups) return true;
+  const [g0, g1, g2, g3, g4, g5] = groups;
+  // ::/96 (with :: and ::1), ::ffff:0:0/96 and NAT64 64:ff9b::/96 carry an IPv4 address in the last
+  // 32 bits, in hex or dotted form. Check that address, so [::ffff:7f00:1] is 127.0.0.1.
+  const embedded = () => `${groups[6] >> 8}.${groups[6] & 0xff}.${groups[7] >> 8}.${groups[7] & 0xff}`;
+  if (!g0 && !g1 && !g2 && !g3 && !g4 && (g5 === 0 || g5 === 0xffff)) return lanAddress(embedded());
+  if (g0 === 0x64 && g1 === 0xff9b && !g2 && !g3 && !g4 && !g5) return lanAddress(embedded());
+  return (g0 & 0xfe00) === 0xfc00 || (g0 & 0xffc0) === 0xfe80 || (g0 & 0xff00) === 0xff00;
+}
+
+// The same function is in phone/runner/egress.mjs. lib/emuly-cli-proxy.test.ts checks that the two copies match.
+/**
+ * The 8 groups of a valid IPv6 address (the caller checks it with isIP), with a dotted IPv4 tail as the last 2.
+ * @param {string} ip @returns {number[] | undefined}
+ */
+function ipv6Groups(ip) {
+  let text = ip.toLowerCase().split("%")[0];
+  const dotted = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
+  if (dotted) {
+    const [a, b, c, d] = dotted.slice(1).map(Number);
+    text = `${text.slice(0, dotted.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const [head, tail] = text.split("::");
+  const left = head ? head.split(":") : [];
+  const right = tail ? tail.split(":") : [];
+  const fill = text.includes("::") ? 8 - left.length - right.length : 0;
+  if (fill < 0) return undefined;
+  const groups = [...left, ...Array(fill).fill("0"), ...right].map(group => parseInt(group, 16));
+  return groups.length === 8 && groups.every(group => group >= 0 && group <= 0xffff) ? groups : undefined;
 }
 
 /** A --via proxy without its user name and password, for messages. */

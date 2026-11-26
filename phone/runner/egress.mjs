@@ -63,6 +63,7 @@ export function blockedAddress(ip) {
   return true;
 }
 
+// The same function is in bin/emuly.mjs. lib/emuly-cli-proxy.test.ts checks that the two copies match.
 /**
  * The 8 groups of a valid IPv6 address (the caller checks it with isIP), with a dotted IPv4 tail as the last 2.
  * @param {string} ip @returns {number[] | undefined}

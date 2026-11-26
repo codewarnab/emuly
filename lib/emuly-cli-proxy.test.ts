@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createServer as createHttpServer } from "node:http";
@@ -75,7 +76,10 @@ test("the local proxy refuses this computer's loopback and LAN unless --allow-la
   const open = await localProxy(["--allow-lan"]);
   t.after(async () => { target.server.close(); await stop(blocked.child); await stop(open.child); });
   assert.equal(blocked.line.lan, "blocked");
-  for (const address of [`127.0.0.1:${target.port}`, "192.168.1.1:80", "10.0.0.1:443", "169.254.169.254:80", "[::1]:22", "[fe80::1]:80"]) {
+  for (const address of [`127.0.0.1:${target.port}`, "192.168.1.1:80", "10.0.0.1:443", "169.254.169.254:80", "[::1]:22", "[fe80::1]:80",
+    // IPv4-mapped IPv6 in hex and long forms: 127.0.0.1 and 10.0.0.1.
+    `[::ffff:7f00:1]:${target.port}`, `[0:0:0:0:0:ffff:7f00:1]:${target.port}`, `[::ffff:127.0.0.1]:${target.port}`, `[::7f00:1]:${target.port}`,
+    "[::ffff:a00:1]:443", `[64:ff9b::7f00:1]:${target.port}`]) {
     assert.match(await connectThrough(blocked.line.local_port, address), /^HTTP\/1\.1 403/, address);
   }
   // A name that resolves to loopback is refused too.
@@ -218,4 +222,11 @@ test("emuly proxy <phone> status and off call the proxy API", async t => {
     assert.equal(JSON.parse(result.stdout).mode, mode);
     assert.ok(calls.includes(`${method} /v1/phones/phone-a/proxy`));
   }
+});
+
+test("the CLI and the runner share the same IPv6 address parser", () => {
+  const body = (file: string) => /\nfunction ipv6Groups\(ip\) \{\n[^]*?\n\}\n/.exec(readFileSync(resolve(file), "utf8"))?.[0];
+  const cliCopy = body("bin/emuly.mjs");
+  assert.ok(cliCopy, "bin/emuly.mjs has ipv6Groups");
+  assert.equal(cliCopy, body("phone/runner/egress.mjs"));
 });
