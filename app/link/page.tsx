@@ -86,6 +86,9 @@ function DeviceState({ request, login }: { request: DeviceRequest; login: string
       <Footer login={login} createdAt={request.createdAt} />
     </>;
   }
+  // Deliberate (audit 2026-11-26 item 24, kept): the link fills in the code and the user only approves.
+  // Approve-based sign-in is better UX than making the user type the code. The user checks the code
+  // against the agent chat; a phishing link with someone else's code relies on the user skipping that check.
   return <>
     <p className={s.eyebrow}>Agent sign-in</p>
     <h1 id="link-title" className={s.title}>Connect your agent</h1>
