@@ -265,6 +265,22 @@ test("pull and bugreport relay the runner's bytes and filename", async () => {
   assert.equal(bug.headers.get("content-disposition"), 'attachment; filename="bugreport.zip"');
 });
 
+test("a large bugreport streams through instead of waiting for the whole file", async () => {
+  let pulls = 0;
+  const chunk = new Uint8Array(1024 * 1024);
+  const { api } = fixture({
+    user: async () => ({ id: 7, authKind: "agent", agentKeyId: 42 }),
+    adb: async () => new Response(new ReadableStream<Uint8Array>({
+      pull(controller) { pulls++; if (pulls > 20) controller.close(); else controller.enqueue(chunk); },
+    }), { headers: { "content-type": "application/octet-stream", "content-disposition": 'attachment; filename="bugreport.zip"' } }),
+  });
+  const bug = await api.adb(post(`/v1/phones/${stored.id}/adb`, { args: ["bugreport"], timeout_s: 300 }, {
+    origin: "https://emuly.test" }), stored.id);
+  assert.equal(bug.status, 200);
+  assert.ok(pulls < 5, "the reply starts before the 20 MB file is read");
+  assert.equal((await bug.arrayBuffer()).byteLength, 20 * 1024 * 1024);
+});
+
 test("the phone list carries a skill update hint only when the skill is not current", async () => {
   const { api } = fixture({ skillUpdate: request => request?.headers.get("x-emuly-skill") === "abcdefabcdef" ? null : { latest: "abcdefabcdef" } });
   const current = await (await api.list(new Request("https://emuly.test/v1/phones", { headers: { "X-Emuly-Skill": "abcdefabcdef" } }))).json();

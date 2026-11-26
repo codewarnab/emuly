@@ -198,6 +198,8 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
     },
     async adb(phone: Owner, input: AdbRequest): Promise<Response> {
       const { entry, release } = acquire(phone);
+      let released = false;
+      const done = () => { if (!released) { released = true; release(); } };
       try {
         const connection = await entry.connection;
         const files = input.files ?? [];
@@ -215,6 +217,26 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
             + (input.files?.length ? 180_000 : 20_000))]) });
         const reader = response.body?.getReader();
         if (!reader) throw new Error("Empty adb response");
+        const type = response.headers.get("content-type") ?? "application/json";
+        if (response.ok && !type.includes("application/json")) {
+          // A pulled file or bugreport can pass the 4.5 MB Vercel response limit. Stream it, with the same cap.
+          let sent = 0;
+          const stream = new ReadableStream<Uint8Array>({
+            async pull(controller) {
+              try {
+                const { done: end, value } = await reader.read();
+                if (end) { controller.close(); done(); return; }
+                sent += value.length;
+                if (sent > ADB_DOWNLOAD_MAX_BYTES) { await reader.cancel(); throw new Error("adb response too large"); }
+                controller.enqueue(value);
+              } catch (error) { controller.error(error); done(); }
+            },
+            cancel(reason) { done(); return reader.cancel(reason); },
+          });
+          const forwarded = new Headers({ "content-type": type, "cache-control": "private, no-store" });
+          for (const name of ["content-length", "content-disposition"]) { const value = response.headers.get(name); if (value) forwarded.set(name, value); }
+          return new Response(stream, { status: response.status, headers: forwarded });
+        }
         const chunks: Uint8Array[] = []; let size = 0;
         try {
           for (;;) {
@@ -229,8 +251,9 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
           "cache-control": "private, no-store" });
         const disposition = response.headers.get("content-disposition");
         if (disposition) relayed.set("content-disposition", disposition);
+        done();
         return new Response(Buffer.concat(chunks), { status: response.status, headers: relayed });
-      } finally { release(); }
+      } catch (error) { done(); throw error; }
     },
     /** Raw relay for the agent-device proxy: both bodies stream, so nothing is buffered or parsed. */
     async proxy(phone: Owner, path: string, init: ProxyRequest): Promise<Response> {

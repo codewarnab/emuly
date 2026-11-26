@@ -463,6 +463,16 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
             : status === 503 ? "adb_unavailable" : status === 504 ? "adb_timeout" : "adb_failed";
           return json({ error, message, ran, ...(value.replayed === true ? { replayed: true } : {}) }, status === 415 ? 400 : status);
         }
+        if (binary && download && response.body) {
+          // Stream the file through. Buffering it here would hit the Vercel response limit again.
+          await record(identity, id, args, 0, note);
+          const headers: Record<string, string> = { "Content-Type": response.headers.get("content-type") ?? "application/octet-stream",
+            "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
+          for (const [name, header] of [["content-disposition", "Content-Disposition"], ["content-length", "Content-Length"]]) {
+            const value = response.headers.get(name); if (value) headers[header] = value;
+          }
+          return new Response(response.body, { headers });
+        }
         if (binary) {
           const bytes = await response.arrayBuffer();
           await record(identity, id, args, 0, note);
