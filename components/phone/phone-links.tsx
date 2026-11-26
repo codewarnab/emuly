@@ -17,6 +17,8 @@ export function PhoneLinks({ id, running }: { id: string; running: boolean }) {
   useEffect(() => {
     if (!running) { setLinks([]); setEgress({}); return; }
     let cancelled = false;
+    // Speed: an old runner has no /egress, so every /proxy call fails. Ask once, then stop.
+    let proxyMissing = false;
     const load = async () => {
       if (document.visibilityState !== "visible") return;
       try {
@@ -24,8 +26,10 @@ export function PhoneLinks({ id, running }: { id: string; running: boolean }) {
         const body = response.ok ? await response.json() as { links?: Link[] } : {};
         if (!cancelled) setLinks(Array.isArray(body.links) ? body.links : []);
         // An old runner has no /egress: the proxy row stays hidden.
+        if (proxyMissing) return;
         const proxy = await fetch(`/v1/phones/${encodeURIComponent(id)}/proxy`, { cache: "no-store" });
         const mode = proxy.ok ? await proxy.json() as Egress : {};
+        if (!proxy.ok) proxyMissing = (await proxy.json().catch(() => ({})) as { error?: string }).error === "runner_update_required";
         if (!cancelled) setEgress(mode);
       } catch { /* The next poll tries again; a failed read hides nothing that was shown. */ }
     };

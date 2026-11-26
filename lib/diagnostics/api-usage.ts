@@ -25,9 +25,9 @@ export const apiAuth = ["agent_key", "session", "none"] as const;
 export const apiPatterns = ["poll_after_wait", "retry_same_route", "screenshot_burst", "unknown_route", "old_client"] as const;
 export type ApiPattern = typeof apiPatterns[number];
 /** Error codes worth counting. Any other value in a response body becomes "other". */
-const knownErrors = new Set(["access_denied", "authorization_pending", "bad_event", "bad_signature", "busy", "denied",
+const knownErrors = new Set(["access_denied", "authorization_pending", "bad_event", "bad_signature", "busy", "connection_unavailable", "denied",
   "direct_upload_unavailable", "expired_token", "forbidden", "github_refused", "invalid_code", "invalid_grant", "invalid_input",
-  "invalid_path", "invalid_response", "method_not_allowed", "not_available", "not_found", "phone_conflict", "phone_not_ready",
+  "invalid_path", "invalid_request", "invalid_response", "method_not_allowed", "not_available", "not_found", "phone_conflict", "phone_not_ready",
   "rate_limited", "request_failed", "runner_update_required", "slow_down", "timeout", "ui_unavailable", "unauthorized", "upload_too_large"]);
 
 const templates = V1_ROUTES.map(route => {

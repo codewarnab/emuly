@@ -28,7 +28,7 @@ export function withApiUsage<C>(handler: (request: Request, context: C) => Respo
     try {
       if (response.status >= 400 && (response.headers.get("content-type") ?? "").includes("application/json") && response.body) {
         const durationMs = performance.now() - started;
-        const read = response.clone().json().then((body: { error?: unknown }) => errorOf(body?.error), () => "other")
+        const read = response.clone().json().then((body: { error?: unknown; errorCode?: unknown }) => errorOf(body?.errorCode ?? body?.error), () => "other")
           .then(error => usage.record({ method: request.method, pathname, headers: request.headers, status: response.status, durationMs, error }, caller));
         if (process.env.VERCEL) waitUntil(read);
       } else count(response.status);
