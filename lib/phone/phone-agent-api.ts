@@ -1,6 +1,6 @@
 import { parsePhoneError } from "./phone-response.ts";
 import "server-only";
-import { errorResponse, json } from "../http.ts";
+import { NO_STORE, errorResponse, json } from "../http.ts";
 import { INLINE_MAX } from "../../phone/runner/contracts.mjs";
 import { idleStopAt } from "./idle-stop.ts";
 import { crossOrigin } from "../auth/origin.ts";
@@ -309,12 +309,12 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
           await act(identity, id, RECORDING_LABELS[route.action as keyof typeof RECORDING_LABELS], `${route.method} recording/${route.action}`, request);
         }
         if (response.headers.get("content-type")?.startsWith("video/mp4")) {
-          const headers = new Headers({ "Content-Type": "video/mp4", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" });
+          const headers = new Headers({ "Content-Type": "video/mp4", "Cache-Control": NO_STORE, "X-Content-Type-Options": "nosniff" });
           for (const name of ["content-length", "content-disposition"]) { const value = response.headers.get(name); if (value) headers.set(name, value); }
           return new Response(response.body, { headers });
         }
         if (response.headers.get("content-type")?.startsWith("image/jpeg")) {
-          const headers = new Headers({ "Content-Type": "image/jpeg", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" });
+          const headers = new Headers({ "Content-Type": "image/jpeg", "Cache-Control": NO_STORE, "X-Content-Type-Options": "nosniff" });
           for (const [name, value] of response.headers) if (name.startsWith("x-grid-")) headers.set(name, value);
           return new Response(response.body, { headers });
         }
@@ -333,7 +333,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         if (route.action === "notes" && query.get("format") === "vtt") {
           const notes = Array.isArray(value.notes) ? value.notes as RecordingNote[] : [];
           return new Response(notesVtt(notes, typeof value.duration_ms === "number" ? value.duration_ms : undefined), {
-            headers: { "Content-Type": "text/vtt; charset=utf-8", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
+            headers: { "Content-Type": "text/vtt; charset=utf-8", "Cache-Control": NO_STORE, "X-Content-Type-Options": "nosniff" } });
         }
         return json(value);
       } catch (error) {
@@ -367,7 +367,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         if (!response.headers.get("content-type")?.startsWith("image/png")) throw new Error("Invalid screenshot");
         await act(identity, id, "Took a screenshot", `GET screenshot${scale === undefined ? "" : `?scale=${scale}`}`, request);
         // An older runner ignores scale and sends the full PNG: the header says which one came.
-        return new Response(bytes, { headers: { "Content-Type": "image/png", "Cache-Control": "private, no-store",
+        return new Response(bytes, { headers: { "Content-Type": "image/png", "Cache-Control": NO_STORE,
           "X-Content-Type-Options": "nosniff", "X-Screenshot-Scale": response.headers.get("x-screenshot-scale") ?? "1" } });
       } catch (error) { return fail(identity, error, "The screenshot failed. Retry."); }
     },
@@ -470,7 +470,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
           // Stream the file through. Buffering it here would hit the Vercel response limit again.
           await record(identity, id, args, 0, note);
           const headers: Record<string, string> = { "Content-Type": response.headers.get("content-type") ?? "application/octet-stream",
-            "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
+            "Cache-Control": NO_STORE, "X-Content-Type-Options": "nosniff" };
           for (const [name, header] of [["content-disposition", "Content-Disposition"], ["content-length", "Content-Length"]]) {
             const value = response.headers.get(name); if (value) headers[header] = value;
           }
@@ -479,7 +479,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         if (binary) {
           const bytes = await response.arrayBuffer();
           await record(identity, id, args, 0, note);
-          const headers: Record<string, string> = { "Content-Type": "image/png", "Cache-Control": "private, no-store",
+          const headers: Record<string, string> = { "Content-Type": "image/png", "Cache-Control": NO_STORE,
             "X-Content-Type-Options": "nosniff" };
           if (download) {
             headers["Content-Type"] = response.headers.get("content-type") ?? "application/octet-stream";

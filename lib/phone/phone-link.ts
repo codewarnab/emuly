@@ -1,4 +1,5 @@
 import "server-only";
+import { NO_STORE } from "../http.ts";
 import { assertCodespaceName } from "../shared/codespace-name.ts";
 import { redactSecrets } from "../shared/redact.ts";
 import { PORTS, runnerHost } from "../../phone/runner/contracts.mjs";
@@ -192,7 +193,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
             chunks.push(value);
           }
         } finally { reader.releaseLock(); }
-        return new Response(Buffer.concat(chunks), { status: response.status, headers: { "content-type": "application/json", "cache-control": "private, no-store" } });
+        return new Response(Buffer.concat(chunks), { status: response.status, headers: { "content-type": "application/json", "cache-control": NO_STORE } });
       } finally { release(); }
     },
     async adb(phone: Owner, input: AdbRequest): Promise<Response> {
@@ -232,7 +233,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
             },
             cancel(reason) { done(); return reader.cancel(reason); },
           });
-          const forwarded = new Headers({ "content-type": type, "cache-control": "private, no-store" });
+          const forwarded = new Headers({ "content-type": type, "cache-control": NO_STORE });
           for (const name of ["content-length", "content-disposition"]) { const value = response.headers.get(name); if (value) forwarded.set(name, value); }
           return new Response(stream, { status: response.status, headers: forwarded });
         }
@@ -247,7 +248,7 @@ export function createEmulyLinks({ token, tunnel, keepAwake, activity, observati
           }
         } finally { reader.releaseLock(); }
         const relayed = new Headers({ "content-type": response.headers.get("content-type") ?? "application/json",
-          "cache-control": "private, no-store" });
+          "cache-control": NO_STORE });
         const disposition = response.headers.get("content-disposition");
         if (disposition) relayed.set("content-disposition", disposition);
         done();

@@ -1,6 +1,7 @@
 import { upgradeWebSocket, type WebSocket, type WebSocketData } from "@vercel/functions";
 import { WebSocket as Upstream } from "ws";
 import { asyncDb } from "../../../../../../lib/data/async-db";
+import { crossOrigin } from "../../../../../../lib/auth/origin";
 import { takeSharedStreamTicket } from "../../../../../../lib/phone/shared-stream-ticket";
 import { runnerStream } from "../../../../../../lib/phone/phone-runner";
 
@@ -9,7 +10,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const { id } = await context.params;
   const url = new URL(request.url);
   const origin = request.headers.get("origin") ?? "";
-  if (origin !== url.origin) return new Response(null, { status: 403 });
+  if (crossOrigin(request, "session", { requireOrigin: true })) return new Response(null, { status: 403 });
   const ticket = await takeSharedStreamTicket(asyncDb(), url.searchParams.get("ticket") ?? "", id, origin, request.headers.get("cookie") ?? "");
   if (!ticket) return new Response(null, { status: 403 });
   let lease: Awaited<ReturnType<typeof runnerStream>> | undefined;

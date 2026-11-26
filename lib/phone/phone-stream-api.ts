@@ -1,5 +1,5 @@
 import "server-only";
-import { apiError } from "../http.ts";
+import { NO_STORE, apiError } from "../http.ts";
 import { crossOrigin } from "../auth/origin.ts";
 import { issueStreamTicket } from "./phone-stream-ticket.ts";
 
@@ -52,7 +52,7 @@ export function createPhoneStreamApi({ user, phone, open, observation, issue, di
           ? direct({ userId: identity.id, phoneId: id, codespaceName: stored.codespace_name, sessionId: identity.sessionId, quality, origin }).catch(() => undefined)
           : undefined,
       ]);
-      return Response.json({ ticket, ...(attemptId ? { attemptId } : {}), ...(directStream ? { direct: directStream } : {}) }, { headers: { "Cache-Control": "private, no-store" } });
+      return Response.json({ ticket, ...(attemptId ? { attemptId } : {}), ...(directStream ? { direct: directStream } : {}) }, { headers: { "Cache-Control": NO_STORE } });
     } catch { return apiError(...EMPTY_ERRORS[503]!, 503); }
   };
 }

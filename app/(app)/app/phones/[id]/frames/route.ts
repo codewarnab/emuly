@@ -1,5 +1,6 @@
 import { upgradeWebSocket, waitUntil } from "@vercel/functions";
 import { asyncDb } from "../../../../../../lib/data/async-db";
+import { crossOrigin } from "../../../../../../lib/auth/origin";
 import { takeSharedStreamTicket } from "../../../../../../lib/phone/shared-stream-ticket";
 import { servePngFrames } from "../../../../../../lib/phone/png-stream";
 import { runnerFrame } from "../../../../../../lib/phone/runner-frame";
@@ -9,7 +10,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const { id } = await context.params;
   const url = new URL(request.url);
   const origin = request.headers.get("origin") ?? "";
-  if (origin !== url.origin || request.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response(null, { status: 403 });
+  if (crossOrigin(request, "session", { requireOrigin: true }) || request.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response(null, { status: 403 });
   try {
     const ticket = await takeSharedStreamTicket(asyncDb(), url.searchParams.get("ticket") ?? "", id, origin, request.headers.get("cookie") ?? "");
     if (!ticket) return new Response(null, { status: 403 });

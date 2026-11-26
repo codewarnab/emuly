@@ -1,5 +1,5 @@
 import "server-only";
-import { apiError, json as okJson } from "../http.ts";
+import { NO_STORE, apiError, json as okJson } from "../http.ts";
 import { crossOrigin } from "../auth/origin.ts";
 import type { RunnerPath } from "./phone-link.ts";
 
@@ -53,7 +53,7 @@ export function createPhoneScreenApi({ user, phone, runner }: {
       const bytes = await response.arrayBuffer();
       if (!response.ok || !response.headers.get("content-type")?.startsWith("image/png") ||
         Buffer.from(bytes).subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") throw new Error("Invalid screenshot");
-      return new Response(bytes, { headers: { "Content-Type": "image/png", "Cache-Control": "private, no-store",
+      return new Response(bytes, { headers: { "Content-Type": "image/png", "Cache-Control": NO_STORE,
         "X-Content-Type-Options": "nosniff" } });
     } catch { return json("Screen unavailable. Retrying…", 502); }
   };

@@ -1,3 +1,4 @@
+import { NO_STORE } from "../../../../../../lib/http";
 import { getUser } from "../../../../../../lib/auth/auth";
 import { findPhone } from "../../../../../../lib/phone/phones";
 import { asyncDb } from "../../../../../../lib/data/async-db";
@@ -5,7 +6,7 @@ import { recordDirectResult } from "../../../../../../lib/phone/network-hint";
 
 /** The browser reports whether the direct video path opened. Body: {"blocked": true|false}. */
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
-  const response = (status: number) => new Response(null, { status, headers: { "Cache-Control": "private, no-store" } });
+  const response = (status: number) => new Response(null, { status, headers: { "Cache-Control": NO_STORE } });
   if (request.headers.get("origin") !== new URL(request.url).origin) return response(403);
   const user = await getUser();
   if (!user) return response(401);

@@ -1,3 +1,4 @@
+import { NO_STORE } from "../http.ts";
 import { env } from "../env.ts";
 
 /** Agent keys have a deliberately smaller surface than a browser session.
@@ -7,7 +8,7 @@ export function forbidAgent(user: { authKind?: "session" | "agent" }, message: s
   managePath: string): Response | null {
   if (user.authKind !== "agent") return null;
   return Response.json({ error: "forbidden", message, manage_url: manageUrl(managePath) },
-    { status: 403, headers: { "Cache-Control": "private, no-store" } });
+    { status: 403, headers: { "Cache-Control": NO_STORE } });
 }
 
 /** An absolute link even when the request reached the app through an internal host. */
