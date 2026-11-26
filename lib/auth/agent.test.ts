@@ -257,12 +257,30 @@ test("database agent limits allow ten hits per bucket and expire after sixty sec
       assert.equal(attempts.filter(Boolean).length, 10);
       assert.equal(await allow(ip, client, NOW + 59_999), false);
     }
-    const rows = (await client.execute("SELECT key FROM rate_limit_hits")).rows;
+    const rows = (await client.execute("SELECT key FROM rate_limit_hits WHERE bucket NOT LIKE '%_network'")).rows;
     assert.equal(rows.length, 20);
     assert.ok(rows.every(row => row.key === createHash("sha256").update(ip).digest("base64url")));
     assert.equal(await allowAgentExchange(ip, client, NOW + 60_000), true);
     assert.equal(await allowAgentDeviceStart(ip, client, NOW + 60_000), true);
-    assert.equal(Number((await client.execute("SELECT count(*) AS n FROM rate_limit_hits")).rows[0]!.n), 2);
+    assert.equal(Number((await client.execute("SELECT count(*) AS n FROM rate_limit_hits")).rows[0]!.n), 4, "each hit also counts for its /24");
+  } finally { client.close(); }
+});
+
+test("agent limits count one IPv6 /64 as one address, and a wider /48 or IPv4 /24 limit stops many neighbours", async () => {
+  const client = await fixture();
+  try {
+    // Ten different addresses in one /64 use up its ten hits.
+    const sixtyFour = Array.from({ length: 10 }, (_, n) => `2001:db8:1:2::${(n + 1).toString(16)}`);
+    for (const ip of sixtyFour) assert.equal(await allowAgentDeviceStart(ip, client, NOW), true, ip);
+    assert.equal(await allowAgentDeviceStart("2001:db8:1:2:ffff:ffff:ffff:ffff", client, NOW), false);
+    // Other /64s in the same /48 get ten more hits in total, then the /48 is full.
+    for (let n = 3; n < 13; n++) assert.equal(await allowAgentDeviceStart(`2001:db8:1:${n}::1`, client, NOW), true, String(n));
+    assert.equal(await allowAgentDeviceStart("2001:db8:1:99::1", client, NOW), false);
+    assert.equal(await allowAgentDeviceStart("2001:db8:2::1", client, NOW), true, "another /48 is not affected");
+    // IPv4 addresses in one /24 share the wider limit too, also in the ::ffff: form.
+    for (let n = 1; n <= 20; n++) assert.equal(await allowAgentDeviceStart(`198.51.100.${n}`, client, NOW), true, String(n));
+    assert.equal(await allowAgentDeviceStart("::ffff:198.51.100.200", client, NOW), false);
+    assert.equal(await allowAgentDeviceStart("198.51.101.1", client, NOW), true);
   } finally { client.close(); }
 });
 
