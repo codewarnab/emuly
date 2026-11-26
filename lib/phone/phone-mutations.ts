@@ -244,10 +244,14 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
           }
         } else {
           await queries.execute({ sql: "DELETE FROM phone_setup_attempts WHERE phone_id = ? AND attempt_id = ?", args: [id, attemptId] });
-          await queries.execute({ sql: "UPDATE phones SET state = 'running', state_detail = NULL WHERE user_id = ? AND id = ?", args: [userId, id] });
+          // Mark Android as booting in the same write. A sync before the boot claim would read
+          // running + idle as "needs setup" and set the phone back to booting.
+          await queries.execute({ sql: `UPDATE phones SET state = 'running', state_detail = NULL, android_state = 'booting', android_started_at = ?, android_error = NULL
+            WHERE user_id = ? AND id = ?`, args: [iso(), userId, id] });
           // Diagnostics (anonymous): booting to running is the cold-start time, measured from the start request.
           states.record({ from: "booting", to: "running", reason: "user", since: current.last_started_at as string | null });
           await event(userId, id, "step", "Phone runner ready", queries);
+          await event(userId, id, "step", "Android starting", queries);
           await emit({ userId, type: "phone.ready", createdAt: iso(), data: {
             phone: { id, name: codespaceName, state: "running", machine: current.machine }, reason: "user" } }, queries);
         }

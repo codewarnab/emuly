@@ -719,6 +719,9 @@ test("an Available codespace starts phone setup, checks it until ready, then the
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(runs.length, 14);
     assert.equal(state().state, "running");
+    assert.equal(f.database.prepare("SELECT android_state FROM phones WHERE id = 'phone-cccc'").get()?.android_state, "booting");
+    await ready.sync(1);
+    assert.equal(state().state, "running", "a sync before the Android boot does not set the phone back to booting");
     assert.equal(state().state_detail, null);
     assert.equal(f.database.prepare("SELECT 1 FROM phone_setup_attempts").get(), undefined);
   } finally { await f.close(); }
