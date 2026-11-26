@@ -21,15 +21,22 @@ export type TokenPair = {
 export async function exchangeTokens(parameters: Record<string, string>, options: {
   fetch?: typeof fetch; clock?: () => number;
 } = {}): Promise<TokenPair> {
-  const response = await githubFetch("https://github.com/login/oauth/access_token", {
-    method: "POST",
-    headers: { Accept: "application/json", "User-Agent": "emuly-local" },
-    body: new URLSearchParams({ client_id: env.clientId, client_secret: env.clientSecret, ...parameters }),
-    cache: "no-store",
-    signal: AbortSignal.timeout(15_000),
-  }, options.fetch);
+  // "unavailable" means GitHub did not answer (network error, timeout, 5xx, 429 or a body that is not
+  // JSON). The caller can try again. Every other code means GitHub rejected the request.
+  let response: Response;
+  try {
+    response = await githubFetch("https://github.com/login/oauth/access_token", {
+      method: "POST",
+      headers: { Accept: "application/json", "User-Agent": "emuly-local" },
+      body: new URLSearchParams({ client_id: env.clientId, client_secret: env.clientSecret, ...parameters }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
+    }, options.fetch);
+  } catch { throw new SignInError("unavailable"); }
+  if (response.status >= 500 || response.status === 429) throw new SignInError("unavailable");
   if (!response.ok) throw new SignInError("exchange");
-  const data: unknown = await response.json();
+  let data: unknown;
+  try { data = await response.json(); } catch { throw new SignInError("unavailable"); }
   if (!isRecord(data) || data.error) throw new SignInError("exchange");
   if (typeof data.scope !== "string" || !data.scope.split(/[ ,]+/).includes("codespace")) {
     throw new SignInError("scope");

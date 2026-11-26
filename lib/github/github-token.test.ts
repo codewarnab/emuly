@@ -11,7 +11,7 @@ import { openDatabase } from "../data/database.ts";
 import { seal, open, contexts } from "../auth/crypto.ts";
 import { insertSession } from "../auth/session-store.ts";
 
-test("tokens refresh once for concurrent callers, persist encrypted, and invalidate sessions on failure", async () => {
+test("tokens refresh once for concurrent callers, persist encrypted, keep sessions during an outage, and invalidate sessions on rejection", async () => {
   const directory = mkdtempSync(join(tmpdir(), "emuly-token-test-"));
   process.env.EMULY_DB = join(directory, "test.db");
   process.env.EMULY_TOKEN_KEY = randomBytes(32).toString("base64");
@@ -21,6 +21,7 @@ test("tokens refresh once for concurrent callers, persist encrypted, and invalid
   const client = asyncDb();
   let calls = 0;
   let refuse = false;
+  let outage: "" | "network" | "5xx" | "429" | "html" = "";
   const timestamp = Date.parse("2026-11-07T00:00:00.000Z");
   const fetcher: typeof fetch = async (input, init) => {
     calls++;
@@ -29,6 +30,10 @@ test("tokens refresh once for concurrent callers, persist encrypted, and invalid
     const body = init?.body as URLSearchParams;
     assert.equal(body.get("grant_type"), "refresh_token");
     assert.equal(body.get("refresh_token"), refuse ? "synthetic-new-refresh" : "synthetic-refresh");
+    if (outage === "network") throw new TypeError("fetch failed");
+    if (outage === "5xx") return new Response("bad gateway", { status: 502 });
+    if (outage === "429") return new Response("slow down", { status: 429 });
+    if (outage === "html") return new Response("<html>unicorn</html>", { status: 200 });
     if (refuse) return Response.json({ error: "invalid_grant" }, { status: 400 });
     return Response.json({
       access_token: "synthetic-new-access", refresh_token: "synthetic-new-refresh",
@@ -54,6 +59,13 @@ test("tokens refresh once for concurrent callers, persist encrypted, and invalid
     assert.equal(calls, 1);
     await insertSession(client, userId);
     database.prepare("UPDATE users SET token_expires_at = ?").run("2000-01-01");
+    // A GitHub outage keeps the sessions, and the same refresh token works when GitHub is back.
+    for (const kind of ["network", "5xx", "429", "html"] as const) {
+      outage = kind;
+      await assert.rejects(getAccessToken(userId, options), (error: Error) => error.name === "TokenUnavailableError", kind);
+      assert.equal(database.prepare("SELECT count(*) AS n FROM sessions").get()?.n, 1, kind);
+    }
+    outage = "";
     refuse = true;
     await assert.rejects(getAccessToken(userId, options), /^Error: Sign in again$/);
     assert.equal(database.prepare("SELECT count(*) AS n FROM sessions").get()?.n, 0);
