@@ -24,15 +24,43 @@ export async function transaction<T>(client: Client, work: (queries: DatabaseQue
   return result;
 }
 
+/** A transaction passed its time limit and rolled back. Work after this point must not run. */
+export class TransactionTimeoutError extends Error {
+  readonly code = "TRANSACTION_TIMEOUT";
+  constructor(timeoutMs: number) { super(`Transaction took longer than ${timeoutMs} ms`); this.name = "TransactionTimeoutError"; }
+}
+
+const busyError = (error: unknown) => /SQLITE_BUSY|database is locked/i.test(String((error as { code?: unknown })?.code ?? "") + " " + String((error as Error)?.message ?? ""));
+
 async function performTransaction<T>(client: Client, work: (queries: DatabaseQueries) => Promise<T>, timeoutMs: number): Promise<T> {
-  const tx = await client.transaction("write");
+  // The limit covers the wait for the write lock too. A busy writer is retried until then.
+  const deadline = Date.now() + timeoutMs;
+  let tx: Awaited<ReturnType<Client["transaction"]>>;
+  for (let delay = 25; ; delay = Math.min(delay * 2, 500)) {
+    try { tx = await client.transaction("write"); break; }
+    catch (error) {
+      if (!busyError(error)) throw error;
+      if (Date.now() + delay >= deadline) throw new TransactionTimeoutError(timeoutMs);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`Transaction took longer than ${timeoutMs} ms`)), timeoutMs);
+    timer = setTimeout(() => { timedOut = true; reject(new TransactionTimeoutError(timeoutMs)); }, Math.max(0, deadline - Date.now()));
   });
+  // After the limit, every statement of the abandoned work fails at once, so its later steps stop.
+  const guarded: DatabaseQueries = new Proxy(tx, { get(target, key, receiver) {
+    const value = Reflect.get(target, key, receiver);
+    if (typeof value !== "function") return value;
+    return (...args: unknown[]) => {
+      if (timedOut) return Promise.reject(new TransactionTimeoutError(timeoutMs));
+      return value.apply(target, args);
+    };
+  } });
   try {
     await assertCoordination(tx);
-    const result = await Promise.race([work(tx), timeout]);
+    const result = await Promise.race([work(guarded), timeout]);
     await assertCoordination(tx);
     await tx.commit();
     return result;

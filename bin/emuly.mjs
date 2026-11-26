@@ -101,15 +101,16 @@ function parseAddress(ip) {
 
 /**
  * IPv4 ranges that no outside request may reach: this network, private, shared (CGNAT), loopback,
- * link-local, IETF protocol and TEST-NET-1 (192.0/16), benchmarking (198.18/15), TEST-NET-2
- * (198.51/16), TEST-NET-3 (203.0/16), multicast and reserved.
+ * link-local, IETF protocol (192.0.0/24), TEST-NET-1 (192.0.2/24), benchmarking (198.18/15),
+ * TEST-NET-2 (198.51.100/24), TEST-NET-3 (203.0.113/24), multicast and reserved.
  * @param {string} ip dotted quad @returns {boolean}
  */
 function blockedV4(ip) {
-  const [a, b] = ip.split(".").map(Number);
+  const [a, b, c] = ip.split(".").map(Number);
   return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127)
-    || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && (b === 0 || b === 168))
-    || (a === 198 && (b === 18 || b === 19 || b === 51)) || (a === 203 && b === 0);
+    || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
+    || (a === 192 && b === 0 && (c === 0 || c === 2)) || (a === 198 && (b === 18 || b === 19))
+    || (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113);
 }
 
 /**
@@ -633,6 +634,14 @@ function runRelay(url, targets, onReady, stopSignal) {
   });
 }
 
+/** DNS lookup with a 5 s limit, so a slow resolver does not hold a CONNECT open. */
+function lookupWithin(host, ms = 5000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`DNS lookup for ${host} took longer than ${ms / 1000} s.`)), ms);
+    lookup(host, { family: 0 }, (error, address) => { clearTimeout(timer); error ? reject(error) : resolve(address); });
+  });
+}
+
 async function link(args) {
   const { phone, ports, targets, route: forced } = linkArgs(args);
   const stop = new AbortController();
@@ -686,6 +695,7 @@ async function holdLink({ phone, ports, targets, forced, stop, onUp }) {
       app_urls: ports.flatMap(port => [`localhost:${port}`, `10.0.2.2:${port}`]) });
   };
 
+  let lastReconnect = 0;
   while (!stop.signal.aborted) {
     let created;
     try { created = await api("POST", path, { ports, route: choice.route }); }
@@ -709,7 +719,13 @@ async function holdLink({ phone, ports, targets, forced, stop, onUp }) {
           ? await runSsh(created.codespace_name, targets, ready, stop.signal, ghEnv)
           : await runRelay(`${emulyBase().replace(/^http/, "ws")}${path}/relay?ticket=${encodeURIComponent(created.ticket)}`, targets, ready, stop.signal);
         if (result === "stopped") break;
-        if (result === "reconnect") continue;
+        if (result === "reconnect") {
+          // A short floor, so a server that closes each relay at once cannot drive a fast loop.
+          const since = Date.now() - lastReconnect;
+          lastReconnect = Date.now();
+          if (since < 250) await new Promise(resolve => setTimeout(resolve, 250 - since));
+          continue;
+        }
       } catch (error) {
         if (stop.signal.aborted) break;
         const detail = (error.stderr ?? "").trim().split("\n").pop();
@@ -983,16 +999,27 @@ async function installByChunks(id, path, bytes, allowDowngrade) {
 }
 
 /**
- * `emuly install <phone> <apk>... [-r] [-t] [-g] [-d]`. The CLI checks the size and picks the route, so an
+ * `emuly install <phone> <apk>... [-r] [-t] [-g] [-d] [--abi <abi>]`. The CLI checks the size and picks the route, so an
  * agent never sends a large APK to /adb: at most 4 MB goes to /adb, larger files go to /adb/upload
  * (straight to the phone), and one APK falls back to the Apps endpoint when that direct route fails.
  */
 async function install(args) {
   const [phone, ...rest] = args;
-  const flags = rest.filter(a => a.startsWith("-")), paths = rest.filter(a => !a.startsWith("-"));
-  if (!phone || !paths.length) throw new Error("Usage: emuly install <phone> <apk>... [-r] [-t] [-g] [-d]");
-  const unknown = flags.find(flag => !INSTALL_FLAGS.has(flag));
-  if (unknown) throw new Error(`Unknown flag ${unknown}. Use -r, -t, -g or -d.`);
+  const usage = "Usage: emuly install <phone> <apk>... [-r] [-t] [-g] [-d] [--abi <abi>]";
+  // --abi takes the next word as its value, so that word is not an APK path.
+  const flags = [], paths = [];
+  for (let i = 0; i < rest.length; i++) {
+    const word = rest[i];
+    if (word === "--abi") {
+      const abi = rest[++i];
+      if (!abi || abi.startsWith("-")) throw new Error(`--abi needs a value, for example --abi arm64-v8a. ${usage}`);
+      flags.push(word, abi);
+    } else if (word.startsWith("-")) flags.push(word);
+    else paths.push(word);
+  }
+  if (!phone || !paths.length) throw new Error(usage);
+  const unknown = flags.find((flag, i) => flag.startsWith("-") && !INSTALL_FLAGS.has(flag) && flags[i - 1] !== "--abi");
+  if (unknown) throw new Error(`Unknown flag ${unknown}. Use -r, -t, -g, -d or --abi <abi>.`);
   const files = paths.map(path => {
     if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`No file at ${path}.`);
     return { path, bytes: readFileSync(path) };
@@ -1232,12 +1259,12 @@ function startLocalProxy({ via, allowLan, lookup = dnsLookup }) {
           else if (localName(host)) return refuse("403 Forbidden");
           else if (!via) {
             // Connect to the checked address, so a second lookup cannot point the name at the LAN.
-            target = await new Promise((resolve, reject) => lookup(host, { family: 0 }, (error, address) => error ? reject(error) : resolve(address)));
+            target = await lookupWithin(host);
             if (lanAddress(target)) return refuse("403 Forbidden");
           } else {
             // The upstream resolves the name itself. A name that this computer resolves to the LAN
             // is refused; a name it cannot resolve goes on, because the upstream may know it.
-            const address = await new Promise(resolve => lookup(host, { family: 0 }, (error, found) => resolve(error ? null : found)));
+            const address = await lookupWithin(host).catch(() => null);
             if (address && lanAddress(address)) return refuse("403 Forbidden");
           }
         }

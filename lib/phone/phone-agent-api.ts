@@ -191,7 +191,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
   async function change(request: Request, id: string, operation: "start" | "stop") {
     const identity = await user();
     if (!identity) return json({ error: "unauthorized" }, 401);
-    if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden" }, 403);
+    if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden", message: "This request is not allowed from this origin." }, 403);
     try {
       if (operation === "stop") await (service.requestStop ?? service.stop)(identity.id, id);
       else await service.start(identity.id, id);
@@ -253,7 +253,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
     async agentDevice(request: Request, id: string) {
       const identity = await user();
       if (!identity) return json({ error: "unauthorized" }, 401);
-      if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden" }, 403);
+      if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden", message: "This request is not allowed from this origin." }, 403);
       try {
         const stored = await phone(identity.id, id);
         if (!stored || stored.state !== "running" || stored.android_state !== "ready") return agentDeviceUnavailable();
@@ -272,7 +272,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
     async recording(request: Request, id: string, action: string) {
       const identity = await user();
       if (!identity) return json({ error: "unauthorized" }, 401);
-      if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden" }, 403);
+      if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden", message: "This request is not allowed from this origin." }, 403);
       const methods: Record<string, { method: string; action: RecordingAction }> = {
         start: { method: "POST", action: "start" }, stop: { method: "POST", action: "stop" },
         discard: { method: "POST", action: "discard" }, status: { method: "GET", action: "status" },
@@ -348,7 +348,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
     async screenshot(request: Request, id: string) {
       const identity = await user();
       if (!identity) return json({ error: "unauthorized" }, 401);
-      if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden" }, 403);
+      if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden", message: "This request is not allowed from this origin." }, 403);
       if (!screenshot) return json({ error: "not_available", message: "Screenshots are not available on this server." }, 503);
       const raw = new URL(request.url).searchParams.get("scale");
       const scale = raw === null || raw === "" ? undefined : Number(raw);
@@ -378,7 +378,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
     async ui(request: Request, id: string) {
       const identity = await user();
       if (!identity) return json({ error: "unauthorized" }, 401);
-      if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden" }, 403);
+      if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden", message: "This request is not allowed from this origin." }, 403);
       if (!ui) return json({ error: "not_available", message: "The UI tree is not available on this server." }, 503);
       const raw = new URL(request.url).searchParams.get("all");
       if (raw !== null && raw !== "0" && raw !== "1") return json({ error: "invalid_input", message: "all must be 0 or 1." }, 400);
@@ -411,7 +411,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
       const note = readAgentNote(request);
       const identity = await user();
       if (!identity) return json({ error: "unauthorized" }, 401);
-      if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden" }, 403);
+      if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden", message: "This request is not allowed from this origin." }, 403);
       let args: string[] = [];
       let loggable = false;
       try {
@@ -518,7 +518,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
       const note = readAgentNote(request);
       const identity = await user();
       if (!identity) return json({ error: "unauthorized" }, 401);
-      if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden" }, 403);
+      if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden", message: "This request is not allowed from this origin." }, 403);
       try {
         const body = await readJson(request, 64 * 1024);
         if (!Array.isArray(body.files) || !body.files.length) bad(400, "files must be a list of {name, size, sha256}.");

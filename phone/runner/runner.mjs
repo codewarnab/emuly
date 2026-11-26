@@ -46,6 +46,8 @@ let boot;
 let stopping;
 /** True once the cached stop has finished. A boot then clears it, so the next stop runs again. */
 let stopSettled = false;
+/** True when a boot came while the cached stop still ran. The stop then drops its cache as it ends. */
+let bootDuringStop = false;
 const STOP_ANSWER_MS = 80_000;
 // Busy work for GET /health: the server updates a running runner only when nothing uses it.
 let lifecycleWork = 0;
@@ -209,6 +211,14 @@ async function readAdbRequest(req, ticket) {
   return { args, seconds: adbTimeout(body.timeout_s, args), binary: body.binary === true, directory: undefined, paths: [] };
 }
 
+/** SHA-256 of one uploaded file. @param {string} path */
+function fileDigest(path) {
+  return new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    createReadStream(path).on("error", reject).on("data", chunk => hash.update(chunk)).on("end", () => resolve(hash.digest("base64url")));
+  });
+}
+
 /** One file command or ordinary adb call. Temp files are removed in every path. */
 async function adbRoute(req, ticket, key) {
   if (adbBusy) throw new HttpError(409, "Another adb command is running. Retry when it finishes.", false);
@@ -218,7 +228,9 @@ async function adbRoute(req, ticket, key) {
     const request = await readAdbRequest(req, ticket);
     directory = request.directory;
     if (!directory && isDownload(request.args)) directory = await mkdtemp(join(tmpdir(), "emuly-adb-"));
-    return key ? await adbReplay.run(key, request.args, () => runAdb(request, directory)) : await runAdb(request, directory);
+    // The replay key covers the uploaded bytes too, so a second push of a new file to the same path runs again.
+    const replayArgs = key && request.paths.length ? [...request.args, ...await Promise.all(request.paths.map(fileDigest))] : request.args;
+    return key ? await adbReplay.run(key, replayArgs, () => runAdb(request, directory)) : await runAdb(request, directory);
   } catch (error) {
     // A request that did not parse did not run.
     if (error instanceof HttpError) error.ran ??= false;
@@ -392,7 +404,7 @@ const routes = {
       idle_ms: Date.now() - lastRequestAt } }),
 
   "POST /boot": ({ diagnosticOperation, attempt }) => {
-    if (stopSettled) { stopping = undefined; stopSettled = false; }
+    if (stopSettled) { stopping = undefined; stopSettled = false; } else if (stopping) bootDuringStop = true;
     // Emuly sends its boot attempt id; a retry that joins this boot sends the newer one.
     if (typeof attempt === "string" && attempt.length <= 40) bootAttempt = attempt;
     return boot ??= exclusive(async () => {
@@ -414,7 +426,7 @@ const routes = {
   // GitHub's port forward ends a request after about 100 s, but stop.sh may wait 120 s for qemu.
   // So answer within 80 s. A later POST /stop joins the same stop and reports its result.
   "POST /stop": async () => {
-    if (!stopping) stopSettled = false;
+    if (!stopping) { stopSettled = false; bootDuringStop = false; }
     stopping ??= (async () => { await apps.stop(); return exclusive(async () => {
       const start = Date.now();
       scrcpy.closeAll();
@@ -424,6 +436,8 @@ const routes = {
       await script("stop.sh");
       return { stopped: true, seconds: Math.round((Date.now() - start) / 1000) };
     }); })().finally(() => {
+      // A boot queued behind this stop: the next POST /stop must stop Android again, not join this result.
+      if (bootDuringStop) { bootDuringStop = false; stopping = undefined; stopSettled = false; return; }
       stopSettled = true;
       // A late POST /stop within 60 s still joins this result. Clear only this stop, not a newer one.
       const settled = stopping;

@@ -4,7 +4,8 @@
 source "$(dirname "${BASH_SOURCE[0]}")/ports.sh"
 
 SDK_DIR="${SDK_DIR:-/opt/android-sdk}"
-AVD_NAME="${AVD_NAME:-t}"
+# Always "t": a stray AVD_NAME in the codespace environment must not pick a missing AVD.
+AVD_NAME=t
 # shellcheck disable=SC2034 # the scripts that source this file read it
 EMULATOR_SERIAL="emulator-$EMULATOR_CONSOLE_PORT"
 export ANDROID_HOME="$SDK_DIR"

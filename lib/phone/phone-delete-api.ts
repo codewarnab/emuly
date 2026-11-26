@@ -26,7 +26,7 @@ export function createPhoneDeleteApi({ user, phone, agentCanDelete, remove, reco
   return async function handle(request: Request, id: string) {
     const identity = await user();
     if (!identity) return json({ error: "unauthorized" }, 401);
-    if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden" }, 403);
+    if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden", message: "This request is not allowed from this origin." }, 403);
     if (identity.authKind === "agent" && !(await agentCanDelete(identity.id))) {
       return json({ error: "forbidden", message: AGENT_DELETE_PHONE_MESSAGE, manage_url: settingsUrl() }, 403);
     }
@@ -59,7 +59,7 @@ export function createPhoneDeleteRequestsApi({ user, phone, database, baseUrl }:
     async create(request: Request, id: string) {
       const identity = await user();
       if (!identity) return json({ error: "unauthorized" }, 401);
-      if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden" }, 403);
+      if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden", message: "This request is not allowed from this origin." }, 403);
       try {
         const stored = await phone(identity.id, id);
         if (!stored) return json({ error: "not_found", message: "Phone not found." }, 404);

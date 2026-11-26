@@ -19,6 +19,7 @@ export function createWebhookOutbox({ database, decrypt, baseUrl, resolve, send 
   async function prune() {
     if (clock() - prunedAt < PRUNE_EVERY_MS) return;
     prunedAt = clock();
+    // Rows from before the created_at column have created_at = '', so the first prune removes them all. That is intended.
     await database.execute({ sql: "DELETE FROM webhook_deliveries WHERE state != 'pending' AND created_at < ?", args: [new Date(clock() - DELIVERY_RETENTION_MS).toISOString()] });
   }
   async function disableFailing() {

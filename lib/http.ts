@@ -22,6 +22,8 @@ export function apiError(code: string, message: string, status: number, headers?
 export function errorResponse(error: unknown, login: string | null | undefined, fallback: string): Response {
   if (error instanceof GitHubError) return json(githubRefused(error, login), 409);
   if (error instanceof RateLimitError) return apiError("rate_limited", error.message, 429, { "Retry-After": String(error.retryAfter) });
+  // A token refresh that GitHub or the database did not finish: the sessions stay, so retry.
+  if (error instanceof Error && error.name === "TokenUnavailableError") return apiError("unavailable", error.message, 503, { "Retry-After": "5" });
   return apiError("request_failed", fallback, 502);
 }
 

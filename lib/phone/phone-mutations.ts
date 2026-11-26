@@ -267,8 +267,13 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       if (committed === "gave_up") {
         setupWorking.delete(id);
         void diagnostics.mark(operationId, "retry_wait", { retryDelayMs: 0, errorCode: "unknown_failure", outcome: "failed" });
-        try { await github.stopCodespace(userId, id); }
-        catch (error) { console.error("Stop after failed setup did not reach GitHub", (error as Error).name); }
+        // Stop only while no start or stop holds the phone: a restart in flight must not be stopped late.
+        const lock = await busy.acquire(id).catch(() => null);
+        if (lock) {
+          try { if ((await phone(userId, id)).state === "error") await github.stopCodespace(userId, id); }
+          catch (error) { console.error("Stop after failed setup did not reach GitHub", (error as Error).name); }
+          finally { await lock.release(); }
+        }
         return false;
       }
       if (status === "ready") {
@@ -478,7 +483,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     if (stored.codespace_name.startsWith("pending:")) throw new PhoneInputError("This phone has no codespace yet. Create a new phone.");
     // A start now would reach GitHub before Shutdown and do nothing, so the phone would stop anyway.
     const transition = nextState(stored.state, operation);
-    if (!transition.ok && stored.state === "stopping") throw new PhoneInputError(transition.reason);
+    // Every refused cell of the table is refused here, not only the stopping row.
+    if (!transition.ok) throw new PhoneInputError(transition.reason);
     const lock = await busy.acquire(id);
     if (!lock) throw new PhoneInputError("A phone request is already in progress. Try again shortly.");
     let claimed = false;
@@ -564,7 +570,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
           const detached = operationId.value;
           background(independentWork(async () => {
             try {
-              await finishStop(userId, id, stored, automatic, detached);
+              await finishStop(userId, id, stored, automatic, detached, lock);
               await event(userId, id, "step", "stop accepted");
             } catch (error) {
               void diagnostics.finish(detached, "unknown");
@@ -575,7 +581,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
           }));
           return id;
         }
-        await finishStop(userId, id, stored, automatic, operationId.value);
+        await finishStop(userId, id, stored, automatic, operationId.value, lock);
       }
       await event(userId, id, "step", "stop accepted");
       if ((await phone(userId, id)).state === "stopping") background(watchStop(userId, id));
@@ -596,7 +602,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
   const STOPPABLE = "('running', 'booting', 'error')";
 
   /** Save Android through the runner, then ask GitHub to stop the codespace. */
-  async function finishStop(userId: number, id: string, stored: StoredPhone, automatic: false | "auto-stop" | "idle stop", diagnosticOperation: string | undefined) {
+  async function finishStop(userId: number, id: string, stored: StoredPhone, automatic: false | "auto-stop" | "idle stop", diagnosticOperation: string | undefined, lock: HeldLease) {
         if (runner) {
           try {
             // The runner answers within 80 s; while the emulator still shuts down it says pending.
@@ -613,6 +619,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
             await event(userId, id, "error", "Android did not confirm a graceful stop; stopping the codespace without a snapshot.");
           }
         }
+        // The runner wait can pass 120 s. If the lease was lost, a delete or sync may own the phone now.
+        await lock.assertHeld();
         await diagnostics.scope(diagnosticOperation, () => measure("github_stop", () => github.stopCodespace(userId, id)));
         void diagnostics.finish(diagnosticOperation, "succeeded");
         void diagnostics.cancel(userId, id, true);
@@ -644,6 +652,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     // A keep that cannot finish (for example, every start gets a 402) must not block the phone forever.
     // Idle stop skips kept phones, so after this a running codespace is stopped as usual.
     const requestedAt = Date.parse(request.requested_at);
+    if (!Number.isFinite(requestedAt)) logError("keep_requested_at", new Error("phone_keeps.requested_at does not parse"));
     if (!(clock() - requestedAt < KEEP_MAX_MS)) {
       const removed = await database.execute({ sql: "DELETE FROM phone_keeps WHERE phone_id = ? AND requested_at = ?", args: [id, request.requested_at] });
       if (removed.rowsAffected) await event(userId, id, "error", `Keep it stopped after ${KEEP_MAX_MS / 60_000} minutes without finishing.`);
@@ -785,6 +794,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       await claim(userId, id, "delete");
       if ((await phone(userId, id)).codespace_name.startsWith("pending:")) await confirmBeforeDelete(userId, id);
       const operationId = await diagnostics.operation(userId, id, "delete");
+      await lock.assertHeld();
       await diagnostics.scope(operationId, () => measure("github_delete", () => github.deleteCodespace(userId, id)));
       void diagnostics.finish(operationId, "succeeded");
       const previous = await transaction(database, async queries => {
@@ -850,6 +860,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       });
       // A new id, so the lease is free. Null only if the database refused the claim.
       const lock = await busy.acquire(id);
+      // The create goes on (the row exists), but a missing lease is a data bug worth a trace.
+      if (!lock) logError("create_lease", new Error("busy lease for a new phone id was held"));
       const operationId = await diagnostics.operation(userId, id, "create");
       void diagnostics.mark(operationId, "request_accepted");
       let submitted = false;

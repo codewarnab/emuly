@@ -83,9 +83,12 @@ export function createRecorder({ attach, dir = tmpdir(), now = Date.now, maxByte
       await mkdir(dir, { recursive: true });
     } catch (error) { starting = false; throw error; }
     const id = randomUUID();
-    const file = createWriteStream(paths(dir, id).path);
-    const journal = createWriteStream(paths(dir, id).journalPath);
-    const muxer = createMp4Muxer({ journal: line => journal.write(`${line}\n`) });
+    let file, journal, muxer;
+    try {
+      file = createWriteStream(paths(dir, id).path);
+      journal = createWriteStream(paths(dir, id).journalPath);
+      muxer = createMp4Muxer({ journal: line => journal.write(`${line}\n`) });
+    } catch (error) { starting = false; file?.destroy(); journal?.destroy(); throw error; }
     const recording = current = { id, ...paths(dir, id), file, journal, muxer, quality, maxS: max_s, state: "recording",
       startedAt: now(), endedAt: null, reason: null, result: null, error: null, done: null, timer: null, socket: null,
       doneSet: null, firstFrameMs: null, videoStartAt: null, notes: [] };

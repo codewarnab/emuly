@@ -20,8 +20,9 @@ test("a retry key replays only the same adb command, and file bytes are not kept
   assert.equal(replay.size, sizeBefore, "no entry holds the file bytes");
 });
 
-test("the runner sends keyed /adb calls through the replay cache with the parsed arguments", () => {
+test("the runner sends keyed /adb calls through the replay cache with the parsed arguments and upload digests", () => {
   const source = readFileSync("phone/runner/runner.mjs", "utf8");
-  assert.match(source, /adbReplay\.run\(key, request\.args,/);
+  assert.match(source, /adbReplay\.run\(key, replayArgs,/);
+  assert.ok(source.includes("[...request.args, ...await Promise.all(request.paths.map(fileDigest))]"), "the key covers upload bytes");
   assert.doesNotMatch(source, /const adbResults = new Map/);
 });

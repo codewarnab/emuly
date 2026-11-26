@@ -329,8 +329,8 @@ test("agent limits count one IPv6 /64 as one address, and a wider /48 or IPv4 /2
     for (let n = 3; n < 13; n++) assert.equal(await allowAgentDeviceStart(`2001:db8:1:${n}::1`, client, NOW), true, String(n));
     assert.equal(await allowAgentDeviceStart("2001:db8:1:99::1", client, NOW), false);
     assert.equal(await allowAgentDeviceStart("2001:db8:2::1", client, NOW), true, "another /48 is not affected");
-    // IPv4 addresses in one /24 share the wider limit too, also in the ::ffff: form.
-    for (let n = 1; n <= 20; n++) assert.equal(await allowAgentDeviceStart(`198.51.100.${n}`, client, NOW), true, String(n));
+    // IPv4 addresses in one /24 share a wider limit of sixty (CGNAT), also in the ::ffff: form.
+    for (let n = 1; n <= 60; n++) assert.equal(await allowAgentDeviceStart(`198.51.100.${n}`, client, NOW), true, String(n));
     assert.equal(await allowAgentDeviceStart("::ffff:198.51.100.200", client, NOW), false);
     assert.equal(await allowAgentDeviceStart("198.51.101.1", client, NOW), true);
   } finally { client.close(); }

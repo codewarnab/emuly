@@ -14,6 +14,17 @@ const size = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
 /** First letter of the last package segment, for the app tile. */
 const monogram = (packageId: string) => (packageId.split(".").filter(Boolean).pop() ?? packageId).charAt(0).toUpperCase();
 
+
+/** The caller's signal plus a time limit. Not AbortSignal.any, which older Safari and Chrome lack. */
+function withTimeout(signal: AbortSignal | null | undefined, ms: number): AbortSignal {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException("The request timed out.", "TimeoutError")), ms);
+  const stop = () => { clearTimeout(timer); controller.abort(signal?.reason); };
+  if (signal?.aborted) stop(); else signal?.addEventListener("abort", stop, { once: true });
+  controller.signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
+  return controller.signal;
+}
+
 export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
   const base = `/v1/phones/${encodeURIComponent(id)}`;
   const [apps, setApps] = useState<InstalledApp[] | null>(null);
@@ -37,7 +48,7 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
   const active = operation !== null && !installFinished(operation.stage);
 
   const api = useCallback(async <T,>(path: string, parse: (value: unknown) => T, options: RequestInit = {}) => {
-    const response = await fetch(`${base}/${path}`, { ...options, cache: "no-store", signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(95_000)]) : AbortSignal.timeout(95_000) });
+    const response = await fetch(`${base}/${path}`, { ...options, cache: "no-store", signal: withTimeout(options.signal, 95_000) });
     if (!response.ok) {
       const result = await readPhoneResponse(response, parsePhoneError);
       if (result.error === "runner_update_required") setNeedsUpdate(true);

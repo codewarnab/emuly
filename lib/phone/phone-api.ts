@@ -22,7 +22,7 @@ export function createPhoneApi({ user, service, template, usage, defaults, clien
       const identity = await user();
       if (!identity) return json({ error: "unauthorized" }, 401);
       if (crossOrigin(request, identity.authKind)) {
-        return json({ error: "forbidden" }, 403);
+        return json({ error: "forbidden", message: "This request is not allowed from this origin." }, 403);
       }
       try {
         await service.keep(identity.id, id);
@@ -46,7 +46,7 @@ export function createPhoneApi({ user, service, template, usage, defaults, clien
       const identity = await user();
       if (!identity) return json({ error: "unauthorized" }, 401);
       if (crossOrigin(request, identity.authKind)) {
-        return json({ error: "forbidden" }, 403);
+        return json({ error: "forbidden", message: "This request is not allowed from this origin." }, 403);
       }
       const read = await readJsonObject(request);
       if (read.response) return read.response;

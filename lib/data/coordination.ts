@@ -70,7 +70,11 @@ export async function leaseHeld(database: DatabaseQueries, resource: string) {
   return row.rows.length > 0;
 }
 
-export type HeldLease = { release: () => Promise<void> };
+export type HeldLease = {
+  release: () => Promise<void>;
+  /** Renews now. Throws CoordinationBusyError when a renewal failed or the lease expired, so the caller stops before a provider call. */
+  assertHeld: () => Promise<void>;
+};
 /**
  * Claims `resource` without waiting and renews it every 20 s until `release`. Null when another
  * owner holds it. Unlike `withLease`, the caller may hand the lease to background work, which
@@ -79,10 +83,17 @@ export type HeldLease = { release: () => Promise<void> };
 export async function holdLease(database: DatabaseQueries, resource: string): Promise<HeldLease | null> {
   const owner = randomUUID();
   if (!(await claimLease(database, resource, owner))) return null;
-  const timer = setInterval(() => { void renewLease(database, resource, owner).catch(() => {}); }, 20_000);
+  // A failed or refused renewal marks the lease lost. Another request may claim it after 120 s.
+  let lost = false;
+  const timer = setInterval(() => {
+    void renewLease(database, resource, owner).then(held => { if (!held) lost = true; }, () => { lost = true; });
+  }, 20_000);
   timer.unref();
   let released = false;
   return {
+    async assertHeld() {
+      if (lost || released || !(await renewLease(database, resource, owner))) { lost = true; throw new CoordinationBusyError(); }
+    },
     async release() {
       if (released) return;
       released = true;

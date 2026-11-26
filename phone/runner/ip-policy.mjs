@@ -45,15 +45,16 @@ function parseAddress(ip) {
 
 /**
  * IPv4 ranges that no outside request may reach: this network, private, shared (CGNAT), loopback,
- * link-local, IETF protocol and TEST-NET-1 (192.0/16), benchmarking (198.18/15), TEST-NET-2
- * (198.51/16), TEST-NET-3 (203.0/16), multicast and reserved.
+ * link-local, IETF protocol (192.0.0/24), TEST-NET-1 (192.0.2/24), benchmarking (198.18/15),
+ * TEST-NET-2 (198.51.100/24), TEST-NET-3 (203.0.113/24), multicast and reserved.
  * @param {string} ip dotted quad @returns {boolean}
  */
 function blockedV4(ip) {
-  const [a, b] = ip.split(".").map(Number);
+  const [a, b, c] = ip.split(".").map(Number);
   return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127)
-    || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && (b === 0 || b === 168))
-    || (a === 198 && (b === 18 || b === 19 || b === 51)) || (a === 203 && b === 0);
+    || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
+    || (a === 192 && b === 0 && (c === 0 || c === 2)) || (a === 198 && (b === 18 || b === 19))
+    || (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113);
 }
 
 /**

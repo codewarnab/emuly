@@ -44,10 +44,14 @@ export function ipNetworks(ip: string): { address: string, network: string } {
   return { address: ip, network: ip };
 }
 
-/** Ten hits a minute for each address (or IPv6 /64), and twenty for each /24 or /48 network. */
+/**
+ * Ten hits a minute for each address (or IPv6 /64). Twenty for each IPv6 /48, and sixty for each
+ * IPv4 /24, because mobile carriers put many real users behind shared IPv4 addresses (CGNAT).
+ */
 async function allowAttempts(bucket: string, ip: string, database: Client, now: number) {
   const { address, network } = ipNetworks(ip);
-  const limits = [[bucket, sha256(address), 10], [`${bucket}_network`, sha256(network), 20]] as const;
+  const networkLimit = isIP(address) === 4 ? 60 : 20;
+  const limits = [[bucket, sha256(address), 10], [`${bucket}_network`, sha256(network), networkLimit]] as const;
   return transaction(database, async queries => {
     await queries.execute({ sql: "DELETE FROM rate_limit_hits WHERE ts <= ?", args: [now - 60_000] });
     for (const [name, key, limit] of limits) {
