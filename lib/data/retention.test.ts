@@ -7,7 +7,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "./database.ts";
-import { createGitHubClient, GitHubError, type Codespace } from "../github/github.ts";
+import { createGitHubClient, type Codespace } from "../github/github.ts";
 import { createPhoneService } from "../phone/phone-mutations.ts";
 import { createPhoneApi } from "../phone/phone-api.ts";
 import { createStatePoller } from "../phone/poller.ts";
@@ -268,7 +268,9 @@ test("a failed stop during Keep it retries and finishes only after GitHub confir
     f.spaces.get("generated-phone-aaaa")!.state = "Available";
     const stop = "/user/codespaces/generated-phone-aaaa/stop";
     f.failures.set(stop, 500);
-    await assert.rejects(f.service.sync(1), GitHubError);
+    // The failed stop is an error event. sync() itself goes on, so the user's other phones still sync.
+    await f.service.sync(1);
+    assert.ok(f.database.prepare("SELECT 1 FROM events WHERE phone_id = 'phone-aaaa' AND kind = 'error'").get());
     assert.equal(f.outgoing.filter(e => e.type === "phone.kept").length, 0);
     f.restart();
     f.failures.clear();
