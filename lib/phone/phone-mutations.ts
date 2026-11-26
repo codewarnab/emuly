@@ -693,12 +693,32 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     }
   }
 
+  /**
+   * A phone that is still `pending:` may already have a codespace on GitHub: the create POST can
+   * succeed after its reply is lost. Find that codespace first, so the delete removes it too.
+   * While Emuly cannot tell, refuse: a codespace that nothing points to runs and is kept for 30 days.
+   */
+  async function confirmBeforeDelete(userId: number, id: string) {
+    const operation = (await unconfirmed(userId)).find(item => item.phone_id === id);
+    if (!operation) return;
+    const matches = (await github.listCodespaces(userId)).filter(space => space.display_name === operation.display_name);
+    if (matches.length === 1) { await confirmCreation(userId, id, matches[0]!); return; }
+    if (matches.length === 0 && clock() - Date.parse(operation.requested_at) >= UNCONFIRMED_CREATION_EXPIRY_MS) {
+      await database.execute({ sql: "UPDATE phone_creations SET outcome = 'failed' WHERE phone_id = ? AND outcome = 'unconfirmed'", args: [id] });
+      return;
+    }
+    throw new PhoneInputError(matches.length === 0
+      ? "GitHub is still creating this phone. Try again in a few minutes."
+      : "GitHub has more than one codespace with this phone's name. Delete the extra one on GitHub first.");
+  }
+
   async function remove(userId: number, id: string) {
     await phone(userId, id);
     if (busy.has(id)) throw new PhoneInputError("A phone request is already in progress. Try again shortly.");
     busy.add(id);
     try {
       await claim(userId, id, "delete");
+      if ((await phone(userId, id)).codespace_name.startsWith("pending:")) await confirmBeforeDelete(userId, id);
       const operationId = await diagnostics.operation(userId, id, "delete");
       await diagnostics.scope(operationId, () => measure("github_delete", () => github.deleteCodespace(userId, id)));
       void diagnostics.finish(operationId, "succeeded");

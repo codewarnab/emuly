@@ -1004,3 +1004,55 @@ test("a Keep it whose start always fails gives up after 30 minutes, and does not
     assert.ok(f.database.prepare("SELECT 1 FROM events WHERE phone_id = 'phone-aaaa' AND message LIKE 'Keep it stopped after 30 minutes%'").get());
   } finally { await f.close(); }
 });
+
+test("delete of a pending phone finds and deletes its codespace, and refuses while GitHub may still create it", async () => {
+  let displayName = "";
+  let visible = false;
+  const deletes: string[] = [];
+  const f = fixture(async (url, init) => {
+    const target = new URL(String(url));
+    if (target.pathname.endsWith("/machines")) return Response.json({ machines: [machine] });
+    if (init?.method === "POST") {
+      displayName = JSON.parse(String(init.body)).display_name;
+      throw new Error("Response timed out after GitHub created the Codespace");
+    }
+    if (init?.method === "DELETE") { deletes.push(target.pathname); return new Response(null, { status: 202 }); }
+    const created = { ...space("github-created", "Available"), display_name: displayName };
+    if (target.pathname === "/user/codespaces") return Response.json({ codespaces: visible ? [created] : [] });
+    return Response.json(created);
+  });
+  try {
+    await assert.rejects(f.service.create(1, input), /Response timed out/);
+    const id = String(f.database.prepare("SELECT id FROM phones").get()!.id);
+    // GitHub does not list the codespace yet, so Emuly cannot tell if it exists. The delete waits.
+    f.advance(61_000);
+    await assert.rejects(f.service.remove(1, id), /still creating/);
+    assert.deepEqual(deletes, []);
+    assert.equal(f.database.prepare("SELECT state FROM phones").get()?.state !== "deleted", true);
+    // GitHub lists it now: the delete confirms the creation and deletes that codespace.
+    visible = true;
+    f.advance(61_000);
+    await f.service.remove(1, id);
+    assert.deepEqual(deletes, ["/user/codespaces/github-created"]);
+    assert.equal(f.database.prepare("SELECT state FROM phones").get()?.state, "deleted");
+  } finally { await f.close(); }
+});
+
+test("delete of a pending phone whose creation expired with no codespace deletes only the row", async () => {
+  const deletes: string[] = [];
+  const f = fixture(async (url, init) => {
+    if (String(url).endsWith("/machines")) return Response.json({ machines: [machine] });
+    if (init?.method === "POST") throw new Error("timed out");
+    if (init?.method === "DELETE") { deletes.push(String(url)); return new Response(null, { status: 202 }); }
+    return Response.json({ codespaces: [] });
+  });
+  try {
+    await assert.rejects(f.service.create(1, input), /timed out/);
+    const id = String(f.database.prepare("SELECT id FROM phones").get()!.id);
+    f.advance(UNCONFIRMED_CREATION_EXPIRY_MS + 61_000);
+    await f.service.remove(1, id);
+    assert.deepEqual(deletes, []);
+    assert.equal(f.database.prepare("SELECT state FROM phones").get()?.state, "deleted");
+    assert.equal(f.database.prepare("SELECT outcome FROM phone_creations").get()?.outcome, "failed");
+  } finally { await f.close(); }
+});
