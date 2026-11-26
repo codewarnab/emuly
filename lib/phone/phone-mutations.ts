@@ -464,81 +464,36 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     }
   }
 
-  async function change(userId: number, id: string, operation: "start" | "stop", bulk = false, automatic: false | "auto-stop" | "idle stop" = false, detach = false) {
+  type Automatic = false | "auto-stop" | "idle stop";
+  /** What a start or stop body needs from the shared guard. */
+  type ChangeContext = { stored: StoredPhone; operationId: { value: string | undefined }; handOff: () => void };
+
+  /**
+   * The guard that a start and a stop share: the transition check, the per-phone busy mark, the
+   * claim, and the failure path. `work` does the provider calls. A body that calls `handOff` keeps
+   * the busy mark and must clear it itself.
+   */
+  async function guardedChange(userId: number, id: string, operation: "start" | "stop", bulk: boolean, automatic: Automatic,
+    work: (context: ChangeContext) => Promise<string>) {
     const stored = await phone(userId, id);
     if ((await keeping(id))) throw new PhoneInputError("Keep it is in progress. Wait until the phone stops again.");
     if (operation === "stop" && stored.state === "stopping") return id;
-    // A start now would reach GitHub before Shutdown and do nothing, so the phone would stop anyway.
-    if (operation === "start" && stored.state === "stopping") throw new PhoneInputError("The phone is still stopping. Start it again after it stops.");
     if (stored.codespace_name.startsWith("pending:")) throw new PhoneInputError("This phone has no codespace yet. Create a new phone.");
+    // A start now would reach GitHub before Shutdown and do nothing, so the phone would stop anyway.
+    const transition = nextState(stored.state, operation);
+    if (!transition.ok && stored.state === "stopping") throw new PhoneInputError(transition.reason);
     if (busy.has(id)) throw new PhoneInputError("A phone request is already in progress. Try again shortly.");
     busy.add(id);
     let claimed = false;
     /** True when a detached stop owns `busy` and the rest of the work. */
     let handedOff = false;
-    let diagnosticOperation: string | undefined;
+    const operationId = { value: undefined as string | undefined };
     try {
       await claim(userId, id, automatic || operation, undefined, bulk);
       claimed = true;
-      if (operation === "stop") diagnosticOperation = await diagnostics.operation(userId, id, "stop");
-      if (operation === "stop") diagnostics.mark(diagnosticOperation, "stop_intent", { initiator: automatic ? "hours_budget" : bulk ? "stop_all" : "owner" });
-      let current = await github.getCodespace(userId, id);
-      // GitHub refuses a start while the codespace is still shutting down. Wait for Shutdown first.
-      for (let waited = 0; operation === "start" && current.state === "ShuttingDown" && waited < SHUTDOWN_WAIT_MS; waited += SHUTDOWN_POLL_MS) {
-        await sleep(SHUTDOWN_POLL_MS);
-        current = await github.getCodespace(userId, id);
-      }
-      let observed = current.state;
-      if (operation === "start") {
-        if (ACTIVE_GITHUB_STATES.includes(current.state)) {
-          await apply(userId, id, current);
-        } else {
-          await apply(userId, id, current, "reconciled");
-          await outgoing(userId, id, "phone.starting", { reason: "user" });
-          diagnosticOperation = await diagnostics.operation(userId, id, "resume");
-          const result = await diagnostics.scope(diagnosticOperation, () => measure("github_start", () => github.startCodespace(userId, id)));
-          // Show the start at once; the transition keeps "booting" while GitHub still reports Shutdown.
-          const started = await database.execute({ sql: `UPDATE phones SET state = 'booting', state_detail = ?, last_started_at = ?
-            WHERE user_id = ? AND id = ? AND state IN ('stopped', 'error')`, args: [START_PENDING_DETAIL, iso(), userId, id] });
-          // Diagnostics (anonymous): a requested start. The time counted is how long the phone was stopped.
-          if (started.rowsAffected) states.record({ from: stored.state, to: "booting", reason: "user", since: stored.last_stopped_at });
-          await database.execute({ sql: "UPDATE phones SET last_started_at = ? WHERE user_id = ? AND id = ?", args: [iso(), userId, id] });
-          if (result) { observed = result.state; await apply(userId, id, result); }
-        }
-      } else if (["Shutdown", "ShuttingDown"].includes(current.state)) {
-        await apply(userId, id, current);
-      } else {
-        await apply(userId, id, current, "reconciled");
-        if (runner) await database.execute({ sql: "UPDATE phones SET android_state = 'stopping' WHERE id = ?", args: [id] });
-        if (detach) {
-          // Answer now. The Android save and the GitHub stop run on; the state and the
-          // phone.stopped event tell the caller when they finish.
-          handedOff = true;
-          const operationId = diagnosticOperation;
-          background(independentWork(async () => {
-            try {
-              await finishStop(userId, id, stored, automatic, operationId);
-              await event(userId, id, "step", "stop accepted");
-            } catch (error) {
-              void diagnostics.finish(operationId, "unknown");
-              await stopFailed(userId, id, error);
-              return;
-            } finally { busy.delete(id); }
-            await watchStop(userId, id);
-          }));
-          return id;
-        }
-        await finishStop(userId, id, stored, automatic, diagnosticOperation);
-      }
-      await event(userId, id, "step", `${operation} accepted`);
-      if (operation === "start" && observed !== "Available") {
-        // GitHub has no webhook for codespace state; watch until setup can start.
-        if ((await phone(userId, id)).state === "booting") background(watchStart(userId, id));
-      }
-      if (operation === "stop" && (await phone(userId, id)).state === "stopping") background(watchStop(userId, id));
-      return id;
+      return await work({ stored, operationId, handOff: () => { handedOff = true; } });
     } catch (error) {
-      void diagnostics.finish(diagnosticOperation, "unknown");
+      void diagnostics.finish(operationId.value, "unknown");
       if (claimed) {
         if (operation === "stop") await stopFailed(userId, id, error);
         else {
@@ -551,6 +506,84 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       }
       throw error;
     } finally { if (!handedOff) busy.delete(id); }
+  }
+
+  /** Start a stopped phone, or reconcile one that GitHub already runs. */
+  function startPhone(userId: number, id: string) {
+    return guardedChange(userId, id, "start", false, false, async ({ stored, operationId }) => {
+      let current = await github.getCodespace(userId, id);
+      // GitHub refuses a start while the codespace is still shutting down. Wait for Shutdown first.
+      for (let waited = 0; current.state === "ShuttingDown" && waited < SHUTDOWN_WAIT_MS; waited += SHUTDOWN_POLL_MS) {
+        await sleep(SHUTDOWN_POLL_MS);
+        current = await github.getCodespace(userId, id);
+      }
+      let observed = current.state;
+      if (ACTIVE_GITHUB_STATES.includes(current.state)) {
+        await apply(userId, id, current);
+      } else {
+        await apply(userId, id, current, "reconciled");
+        await outgoing(userId, id, "phone.starting", { reason: "user" });
+        operationId.value = await diagnostics.operation(userId, id, "resume");
+        const result = await diagnostics.scope(operationId.value, () => measure("github_start", () => github.startCodespace(userId, id)));
+        // Show the start at once; the transition keeps "booting" while GitHub still reports Shutdown.
+        const started = await database.execute({ sql: `UPDATE phones SET state = 'booting', state_detail = ?, last_started_at = ?
+          WHERE user_id = ? AND id = ? AND state IN ('stopped', 'error')`, args: [START_PENDING_DETAIL, iso(), userId, id] });
+        // Diagnostics (anonymous): a requested start. The time counted is how long the phone was stopped.
+        if (started.rowsAffected) states.record({ from: stored.state, to: "booting", reason: "user", since: stored.last_stopped_at });
+        await database.execute({ sql: "UPDATE phones SET last_started_at = ? WHERE user_id = ? AND id = ?", args: [iso(), userId, id] });
+        if (result) { observed = result.state; await apply(userId, id, result); }
+      }
+      await event(userId, id, "step", "start accepted");
+      // GitHub has no webhook for codespace state; watch until setup can start.
+      if (observed !== "Available" && (await phone(userId, id)).state === "booting") background(watchStart(userId, id));
+      return id;
+    });
+  }
+
+  /** Stop a phone and wait for Android to save and GitHub to accept the stop. */
+  function stopPhone(userId: number, id: string, bulk = false, automatic: Automatic = false) {
+    return stopWith(userId, id, bulk, automatic, false);
+  }
+
+  /** Accept a stop at once. The Android save and the GitHub stop run on in the background. */
+  function detachStop(userId: number, id: string) {
+    return stopWith(userId, id, false, false, true);
+  }
+
+  function stopWith(userId: number, id: string, bulk: boolean, automatic: Automatic, detach: boolean) {
+    return guardedChange(userId, id, "stop", bulk, automatic, async ({ stored, operationId, handOff }) => {
+      operationId.value = await diagnostics.operation(userId, id, "stop");
+      diagnostics.mark(operationId.value, "stop_intent", { initiator: automatic ? "hours_budget" : bulk ? "stop_all" : "owner" });
+      const current = await github.getCodespace(userId, id);
+      if (["Shutdown", "ShuttingDown"].includes(current.state)) {
+        await apply(userId, id, current);
+      } else {
+        await apply(userId, id, current, "reconciled");
+        if (runner) await database.execute({ sql: "UPDATE phones SET android_state = 'stopping' WHERE id = ?", args: [id] });
+        if (detach) {
+          // Answer now. The Android save and the GitHub stop run on; the state and the
+          // phone.stopped event tell the caller when they finish.
+          handOff();
+          const detached = operationId.value;
+          background(independentWork(async () => {
+            try {
+              await finishStop(userId, id, stored, automatic, detached);
+              await event(userId, id, "step", "stop accepted");
+            } catch (error) {
+              void diagnostics.finish(detached, "unknown");
+              await stopFailed(userId, id, error);
+              return;
+            } finally { busy.delete(id); }
+            await watchStop(userId, id);
+          }));
+          return id;
+        }
+        await finishStop(userId, id, stored, automatic, operationId.value);
+      }
+      await event(userId, id, "step", "stop accepted");
+      if ((await phone(userId, id)).state === "stopping") background(watchStop(userId, id));
+      return id;
+    });
   }
 
   async function stopFailed(userId: number, id: string, error: unknown) {
@@ -859,13 +892,13 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         throw error;
       } finally { busy.delete(id); }
     },
-    start: (userId: number, id: string) => change(userId, id, "start"),
-    stop: (userId: number, id: string) => change(userId, id, "stop"),
+    start: (userId: number, id: string) => startPhone(userId, id),
+    stop: (userId: number, id: string) => stopPhone(userId, id),
     /** Like stop, but answers once the stop is claimed. The phone state and phone.stopped report the end. */
-    requestStop: (userId: number, id: string) => change(userId, id, "stop", false, false, true),
-    autoStop: (userId: number, id: string) => change(userId, id, "stop", true, "auto-stop"),
+    requestStop: (userId: number, id: string) => detachStop(userId, id),
+    autoStop: (userId: number, id: string) => stopPhone(userId, id, true, "auto-stop"),
     /** Emuly's own idle rule: no human or agent action for the phone's idle time. */
-    idleStop: (userId: number, id: string) => change(userId, id, "stop", true, "idle stop"),
+    idleStop: (userId: number, id: string) => stopPhone(userId, id, true, "idle stop"),
     /** Record a codespace state observed outside the poller through the same transition code, without new SQL. */
     async observeCodespace(userId: number, id: string, codespace: Codespace) {
       if (busy.has(id)) return;
@@ -916,7 +949,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       let stopped = 0;
       const errors: string[] = [];
       for (const row of rows) {
-        try { await change(userId, row.id, "stop", true); stopped++; }
+        try { await stopPhone(userId, row.id, true); stopped++; }
         catch (error) { errors.push(error instanceof Error ? redact(error.message) : "Stop could not be confirmed."); }
       }
       return { stopped, errors };
