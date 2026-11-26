@@ -54,6 +54,25 @@ export function parseAdbAction(args: string[]): AgentAction | null {
   return null;
 }
 
+const WORD = /^[a-z][a-z0-9_.-]{0,31}$/;
+/** Device programs whose next word is a subcommand (input text, am start), not a payload. */
+const SUBCOMMANDS = new Set(["input", "am", "pm", "cmd", "settings", "wm", "dumpsys", "monkey", "svc"]);
+
+/**
+ * The adb command names for an activity row, such as "shell input text". It never holds an
+ * argument value: typed text, URLs, paths, package names and flags stay out of the database.
+ */
+export function adbCommandLabel(args: string[]): string {
+  const tokens = args.flatMap(arg => arg.split(/\s+/)).filter(token => token !== "");
+  const [first, program, sub] = tokens;
+  if (!first) return "request";
+  if (!WORD.test(first)) return "command";
+  if (first !== "shell" && first !== "exec-out") return first;
+  if (!program) return first;
+  if (!WORD.test(program)) return `${first} command`;
+  return SUBCOMMANDS.has(program) && sub && WORD.test(sub) ? `${first} ${program} ${sub}` : `${first} ${program}`;
+}
+
 const WM_SIZE = /^\s*(Physical|Override) size:\s*(\d+)x(\d+)\s*$/gm;
 
 /**

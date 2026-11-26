@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { adbEventMeta, parseAdbAction, parseWmSize } from "./agent-action.ts";
+import { adbCommandLabel, adbEventMeta, parseAdbAction, parseWmSize } from "./agent-action.ts";
 
 test("taps parse with or without a shell prefix and round fractional coordinates", () => {
   assert.deepEqual(parseAdbAction(["shell", "input", "tap", "540", "1200"]), { type: "tap", x: 540, y: 1200 });
@@ -104,4 +104,22 @@ test("the agent note goes into meta, even with no action", () => {
   assert.deepEqual(JSON.parse(adbEventMeta(["shell", "input", "tap", "1", "2"], 0, 7, "Tap Save")!),
     { agent_key_id: 7, action: { type: "tap", x: 1, y: 2 }, note: "Tap Save" });
   assert.equal(adbEventMeta(["shell", "dumpsys", "battery"], 0, undefined, null), null);
+});
+
+test("adbCommandLabel keeps command names and never an argument value", () => {
+  const cases: [string[], string][] = [
+    [["shell", "input text hunter2"], "shell input text"],
+    [["shell", "input", "text", "hunter2"], "shell input text"],
+    [["shell", "am start -a android.intent.action.VIEW -d https://x.test/?token=abc"], "shell am start"],
+    [["shell", "cat /sdcard/secret.txt"], "shell cat"],
+    [["shell", "echo hunter2"], "shell echo"],
+    [["shell", "input", "Hunter2"], "shell input"],
+    [["push", "/tmp/a", "/sdcard/a"], "push"],
+    [["shell"], "shell"],
+    [["shell", "/system/bin/sh -c x"], "shell command"],
+    [["--secret"], "command"],
+    [[], "request"],
+  ];
+  for (const [args, label] of cases) assert.equal(adbCommandLabel(args), label, args.join(" "));
+  for (const [args] of cases) assert.doesNotMatch(adbCommandLabel(args), /hunter2|token|secret|sdcard/);
 });
