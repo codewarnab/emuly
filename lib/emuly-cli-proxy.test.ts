@@ -129,6 +129,10 @@ test("--via http:// sends Basic auth upstream, and a wrong password gives 502 wi
   assert.deepEqual(seen, ["CONNECT example.test:443 HTTP/1.1"]);
   // A LAN address is still refused before it reaches the upstream.
   assert.match(await connectThrough(good.line.local_port, "192.168.1.1:80"), /^HTTP\/1\.1 403/);
+  // Local names are refused too, so an upstream on this computer cannot reach it or the LAN.
+  for (const name of ["localhost", "LocalHost.", "api.localhost", "router.lan", "nas.local", "db.internal", "box.home.arpa", "printer"])
+    assert.match(await connectThrough(good.line.local_port, `${name}:80`), /^HTTP\/1\.1 403/, name);
+  assert.deepEqual(seen, ["CONNECT example.test:443 HTTP/1.1"]);
   assert.match(await connectThrough(bad.line.local_port, "example.test:443"), /^HTTP\/1\.1 502/);
   await new Promise(done => setTimeout(done, 100));
   assert.match(bad.output(), /refused the user name or password/);

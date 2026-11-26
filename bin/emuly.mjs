@@ -1096,6 +1096,12 @@ async function viaTunnel(via, host, port) {
   } catch (error) { socket.destroy(); throw error; }
 }
 
+/** Names that point at this computer or the local network: localhost, LAN suffixes and names with no dot. */
+function localName(host) {
+  const name = host.toLowerCase().replace(/\.$/, "");
+  return !name.includes(".") || /(^|\.)localhost$/.test(name) || /\.(local|lan|internal|home\.arpa)$/.test(name);
+}
+
 /**
  * The CONNECT server on 127.0.0.1 that the phone's link reaches. It only takes CONNECT (the
  * runner gateway sends nothing else). Without --allow-lan it refuses this computer's loopback
@@ -1125,10 +1131,16 @@ function startLocalProxy({ via, allowLan, lookup = dnsLookup }) {
         let target = host;
         if (!allowLan) {
           if (isIP(host)) { if (lanAddress(host)) return refuse("403 Forbidden"); }
+          else if (localName(host)) return refuse("403 Forbidden");
           else if (!via) {
             // Connect to the checked address, so a second lookup cannot point the name at the LAN.
             target = await new Promise((resolve, reject) => lookup(host, { family: 0 }, (error, address) => error ? reject(error) : resolve(address)));
             if (lanAddress(target)) return refuse("403 Forbidden");
+          } else {
+            // The upstream resolves the name itself. A name that this computer resolves to the LAN
+            // is refused; a name it cannot resolve goes on, because the upstream may know it.
+            const address = await new Promise(resolve => lookup(host, { family: 0 }, (error, found) => resolve(error ? null : found)));
+            if (address && lanAddress(address)) return refuse("403 Forbidden");
           }
         }
         upstream = via ? await viaTunnel(via, target, port) : await dialTcp(target, port);
