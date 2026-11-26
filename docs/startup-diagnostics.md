@@ -22,7 +22,7 @@ Set these server settings:
 
 ```dotenv
 EMULY_DIAGNOSTICS=1
-EMULY_RELEASE=0123456
+EMULY_RELEASE=0123456  # only outside Vercel; Vercel uses VERCEL_GIT_COMMIT_SHA
 ```
 
 Collection covers every phone. The old `EMULY_DIAGNOSTICS_PHONE` filter is gone.

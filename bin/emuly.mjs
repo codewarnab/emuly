@@ -216,7 +216,7 @@ function emulyBase() {
 
 async function api(method, path, body) {
   const response = await fetch(`${emulyBase()}${path}`, { method, signal: AbortSignal.timeout(60_000),
-    headers: { authorization: `Bearer ${emulyKey()}`, "x-emuly-client": "cli", ...(body ? { "content-type": "application/json" } : {}) },
+    headers: { authorization: `Bearer ${emulyKey()}`, "x-emuly-client": cliClient(), ...(body ? { "content-type": "application/json" } : {}) },
     body: body ? JSON.stringify(body) : undefined });
   let value = {};
   try { value = await response.json(); } catch {}
@@ -325,6 +325,15 @@ function portOpen(host, port) {
  * EMULY_CLI_AUTO_UPDATE=0. Then it only says how to update. A network failure is silent.
  */
 const sha256 = text => createHash("sha256").update(text).digest("hex");
+/** "cli/<first 7 hex of this file's SHA-256>". Diagnostics count calls by this version; it holds no user data. */
+let clientHeader;
+function cliClient() {
+  if (!clientHeader) {
+    try { clientHeader = `cli/${sha256(readFileSync(fileURLToPath(import.meta.url), "utf8").split(String.fromCharCode(13)).join("")).slice(0, 7)}`; }
+    catch { clientHeader = "cli"; }
+  }
+  return clientHeader;
+}
 const sayCli = message => console.error(`emuly: ${message}`);
 async function updateCli() {
   const self = fileURLToPath(import.meta.url);
@@ -784,7 +793,7 @@ const INSTALL_FLAGS = new Set(["-r", "-t", "-g", "-d"]);
 
 async function emulyFetch(path, init) {
   const response = await fetch(`${emulyBase()}${path}`, { ...init, signal: AbortSignal.timeout(init.timeoutMs ?? 120_000),
-    headers: { authorization: `Bearer ${emulyKey()}`, "x-emuly-client": "cli", ...init.headers } });
+    headers: { authorization: `Bearer ${emulyKey()}`, "x-emuly-client": cliClient(), ...init.headers } });
   let value = {};
   try { value = await response.json(); } catch {}
   if (!response.ok) {

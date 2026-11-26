@@ -21,6 +21,8 @@ test("paths become route templates, never real ids", () => {
 
 test("client and auth come from headers only", () => {
   assert.deepEqual(clientOf(new Headers({ "x-emuly-client": "cli" })), { client: "cli", version: "unknown" });
+  assert.deepEqual(clientOf(new Headers({ "x-emuly-client": "cli/ab12cd3" })), { client: "cli", version: "ab12cd3" });
+  assert.deepEqual(clientOf(new Headers({ "x-emuly-client": "cli/not-hex" })), { client: "cli", version: "unknown" });
   assert.deepEqual(clientOf(new Headers({ "x-emuly-skill": "2026-11-25.2" })), { client: "skill", version: "2026-11-25.2" });
   assert.deepEqual(clientOf(new Headers({ "x-emuly-skill": "private text" })), { client: "skill", version: "unknown" });
   assert.equal(clientOf(new Headers({ "user-agent": "curl/8.4.0" })).client, "curl");

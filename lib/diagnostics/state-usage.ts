@@ -1,3 +1,4 @@
+import { releaseId } from "./release.ts";
 import type { Client } from "@libsql/client";
 import { MIN_GROUP, bucketOf } from "./api-usage.ts";
 
@@ -78,7 +79,7 @@ export function createStateCounts(database: () => Client, schedule: (task: Promi
       try {
         const now = change.now ?? Date.now();
         const since = typeof change.since === "number" ? change.since : change.since ? Date.parse(change.since) : NaN;
-        const key = [day(now), process.env.EMULY_RELEASE?.slice(0, 7) || "unknown", pick(phoneStates, change.from, "creating"),
+        const key = [day(now), releaseId(), pick(phoneStates, change.from, "creating"),
           pick(phoneStates, change.to, "error"), pick(stateReasons, change.reason, "system"), pick(stateErrors, change.error, "none"),
           regionOf(change.region), Number.isFinite(since) ? bucketOf(now - since) : 0];
         const text = JSON.stringify(key);

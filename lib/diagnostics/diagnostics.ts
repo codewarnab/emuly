@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import type { Client } from "@libsql/client";
 import { waitUntil } from "@vercel/functions";
 import { transaction, type DatabaseQueries } from "../data/async-database.ts";
+import { releaseId } from "./release.ts";
 import { errorCodes, validateStep, type Step, type StepCode, type Outcome, type OperationKind, type ErrorCode } from "./diagnostic-contract.ts";
 
 type Scope = { store: Diagnostics; operationId: string; parentStepId?: string };
@@ -32,7 +33,7 @@ export function writeFailureClass(error: unknown): WriteFailureClass {
   if (/no such (table|column)|has no column/i.test(text)) return "schema";
   return "other";
 }
-const release = () => /^[a-f0-9]{7,40}$/.test(process.env.EMULY_RELEASE ?? "") ? process.env.EMULY_RELEASE! : "unknown";
+const release = releaseId;
 export type Diagnostics = ReturnType<typeof createDiagnostics>;
 
 /**

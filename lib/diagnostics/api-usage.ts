@@ -1,3 +1,4 @@
+import { releaseId } from "./release.ts";
 import type { Client } from "@libsql/client";
 import { V1_ROUTES } from "../v1-routes.ts";
 import { AGENT_RUNBOOK_VERSION } from "../agent-runbook.ts";
@@ -50,7 +51,8 @@ export function routeTemplate(method: string, pathname: string): string {
 /** The kind of client, from headers only. The CLI sends X-Emuly-Client, the skill sends X-Emuly-Skill. */
 export function clientOf(headers: Headers): { client: typeof apiClients[number]; version: string } {
   const skill = headers.get("x-emuly-skill"), cli = headers.get("x-emuly-client");
-  if (cli?.startsWith("cli")) return { client: "cli", version: "unknown" };
+  // The CLI sends cli/<first 7 hex of its own SHA-256>, the same hash it uses to update itself.
+  if (cli?.startsWith("cli")) return { client: "cli", version: /^cli\/([a-f0-9]{7})$/.exec(cli)?.[1] ?? "unknown" };
   // Skill versions are dates shared by every user of that release, for example 2026-11-25.2.
   if (skill) return { client: "skill", version: /^\d{4}-\d\d-\d\d(\.\d{1,3})?$/.test(skill) ? skill : "unknown" };
   const agent = headers.get("user-agent") ?? "";
@@ -126,7 +128,7 @@ export function createApiUsage(database: () => Client, schedule: (task: Promise<
         const now = call.now ?? Date.now(), route = routeTemplate(call.method, call.pathname);
         const { client, version } = clientOf(call.headers);
         const status = call.status >= 500 ? "5xx" : call.status >= 400 ? "4xx" : call.status >= 300 ? "3xx" : "2xx";
-        add([day(now), process.env.EMULY_RELEASE?.slice(0, 7) || "unknown", route, client, version, authOf(call.headers), status,
+        add([day(now), releaseId(), route, client, version, authOf(call.headers), status,
           call.status >= 400 ? errorOf(call.error) : "none", bucketOf(call.durationMs)]);
         for (const pattern of patterns(call, route, now, caller, client, version)) add(["pattern", day(now), pattern]);
       } catch { return; }
