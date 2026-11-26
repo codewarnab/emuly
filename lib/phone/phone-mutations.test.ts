@@ -1120,3 +1120,35 @@ test("delete of a pending phone whose creation expired with no codespace deletes
     assert.equal(f.database.prepare("SELECT outcome FROM phone_creations").get()?.outcome, "failed");
   } finally { await f.close(); }
 });
+
+test("the per-phone lease lets only one server instance change a phone, and an expired lease can be taken again", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let gets = 0;
+  const f = fixture(async (url, init) => {
+    if (init?.method === "POST") return Response.json(space("generated-phone-aaaa", "Starting"));
+    gets++;
+    if (gets === 1) await gate;
+    return Response.json(space("generated-phone-aaaa"));
+  });
+  // A second instance: its own service object on the same database, with no shared memory.
+  const other = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
+    clock: () => Date.parse("2026-11-07T00:00:00.000Z") });
+  try {
+    f.add("phone-aaaa");
+    const first = f.service.start(1, "phone-aaaa");
+    while (!gets) await flush();
+    await assert.rejects(other.start(1, "phone-aaaa"), /already in progress/);
+    release();
+    await first;
+    assert.equal((await f.asyncDatabase.execute("SELECT count(*) AS n FROM coordination_leases WHERE resource = 'phone:phone-aaaa:busy'")).rows[0]!.n, 0);
+
+    // A lease left by an instance that died blocks until it expires.
+    await f.asyncDatabase.execute(`INSERT INTO coordination_leases (resource, owner, expires_at) VALUES ('phone:phone-aaaa:busy', 'dead', 9e15)`);
+    await assert.rejects(other.keep(1, "phone-aaaa"), /already in progress|Only a stopped phone/);
+    await f.asyncDatabase.execute("UPDATE coordination_leases SET expires_at = 0 WHERE resource = 'phone:phone-aaaa:busy'");
+    const lock = await import("../data/coordination.ts").then(m => m.holdLease(f.asyncDatabase, "phone:phone-aaaa:busy"));
+    assert.ok(lock, "an expired lease can be taken again");
+    await lock!.release();
+  } finally { await f.close(); }
+});

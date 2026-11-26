@@ -2,7 +2,7 @@ import "server-only";
 import { logError } from "../shared/log-error.ts";
 import { redactSecrets } from "../shared/redact.ts";
 import { waitUntil } from "@vercel/functions";
-import { withLease, independentWork } from "../data/coordination.ts";
+import { holdLease, leaseHeld, withLease, independentWork, type HeldLease } from "../data/coordination.ts";
 import type { SetupResult } from "./phone-setup.ts";
 import { DEFAULT_DEVICE_PRESET, devicePreset } from "../shared/device-presets.ts";
 import { PROVIDER_IDLE_MIN, validIdle } from "../shared/idle.ts";
@@ -73,7 +73,14 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
   if (maxPhones !== undefined && (!Number.isSafeInteger(maxPhones) || maxPhones < 1)) {
     throw new Error("EMULY_MAX_PHONES must be a positive integer or unset");
   }
-  const busy = new Set<string>();
+  /**
+   * One request at a time for each phone, across every server instance: a database lease
+   * `phone:<id>:busy`. acquire() is null when another request holds it.
+   */
+  const busy = {
+    held: (id: string, queries: DatabaseQueries = database) => leaseHeld(queries, `phone:${id}:busy`),
+    acquire: (id: string) => holdLease(database, `phone:${id}:busy`),
+  };
   const background = (work: Promise<unknown>) => {
     // Reconciliation retries persisted state. Log the kind of failure, never its message.
     const settled = work.catch(error => logError("background", error));
@@ -85,10 +92,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
   const states = createStateCounts(() => database, task => { if (process.env.VERCEL) waitUntil(task); });
   void diagnostics.reconcile();
   const iso = () => new Date(clock()).toISOString();
-  const settingUp = new Set<string>();
-  const setupRetryAt = new Map<string, number>();
   const setupWorking = new Map<string, number>();
-  const setupStarted = new Set<string>();
   const SETUP_RETRY_MS = 10 * 60_000;
   const SETUP_CHECK_MS = 20_000;
   const SHUTDOWN_WAIT_MS = 120_000;
@@ -97,13 +101,10 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
   /** A setup that still fails this long after the start gives up and stops the codespace, so it uses no more hours. */
   const SETUP_GIVE_UP_MS = 60 * 60_000;
   const SETUP_GAVE_UP_DETAIL = "Phone setup failed for 1 hour. Emuly stopped the codespace. Start the phone to try again.";
-  // In-memory guard against a second boot in this process. A function that Vercel stopped mid-boot
-  // never clears its entry, so an entry older than BOOT_STALE_MS no longer blocks a retry.
-  const booting = new Map<string, number>();
-  const BOOT_STALE_MS = 6 * 60_000;
   /** A boot that has not finished after this long is a real failure, not a slow boot. */
   const BOOT_GIVE_UP_MS = 15 * 60_000;
-  const bootingNow = (id: string) => clock() - (booting.get(id) ?? -Infinity) < BOOT_STALE_MS;
+  /** A boot holds the lease `boot:<id>` (startBoot). A boot that died leaves it to expire after 120 s. */
+  const bootingNow = (id: string) => leaseHeld(database, `boot:${id}`);
 
   const startBoot = (userId: number, id: string) => independentWork(() => withLease(database, `boot:${id}`, () => performBoot(userId, id)));
   /** Start a boot in its own request when the host provides one, so it gets a full time budget. */
@@ -114,15 +115,15 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     })
     : startBoot(userId, id));
   async function performBoot(userId: number, id: string) {
-    if (!runner || bootingNow(id) || busy.has(id)) return;
-    booting.set(id, clock());
+    // startBoot holds the boot lease, so only one boot runs for each phone.
+    if (!runner || (await busy.held(id))) return;
     const started = iso();
     let operationId: string | undefined;
     try {
       operationId = await diagnostics.current(userId, id);
       let firstStarted = started;
       const claimed = await transaction(database, async queries => {
-        if (busy.has(id)) return false;
+        if (await busy.held(id, queries)) return false;
         const before = (await queries.execute({ sql: "SELECT android_state, android_started_at FROM phones WHERE user_id = ? AND id = ?", args: [userId, id] })).rows[0];
         // A retry joins a boot that is still running; keep its first start time for the total.
         const joining = before?.android_state === "booting" && typeof before.android_started_at === "string";
@@ -173,7 +174,6 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       const changed = ended !== "stale";
       void diagnostics.finish(operationId, changed ? booted ? "succeeded" : "failed" : "cancelled");
     } finally {
-      booting.delete(id);
       // Progress collection is independent of the readiness transaction.
       if (operationId && collectProgress) {
         const target = (await database.execute({ sql: "SELECT codespace_name FROM phones WHERE id = ? AND user_id = ? AND state = 'running'", args: [id, userId] })).rows[0];
@@ -185,14 +185,14 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
   const startSetup = (userId: number, id: string, codespaceName: string, chained = false) => independentWork(async () => {
     const again = await withLease(database, `setup:${id}`, () => performSetup(userId, id, codespaceName, chained));
     // The lease is released here, so the next check cannot overlap the previous one.
-    if (!again || busy.has(id)) return;
+    if (!again || (await busy.held(id))) return;
     const stored = await phone(userId, id).catch(() => undefined);
     if (stored?.state === "booting") background(startSetup(userId, id, codespaceName, true));
   });
   async function performSetup(userId: number, id: string, codespaceName: string, chained = false) {
-    if (!setup || settingUp.has(id)) return false;
-    settingUp.add(id);
-    try {
+    // startSetup holds the setup lease, so only one setup runs for each phone.
+    if (!setup) return false;
+    {
       const operationId = await diagnostics.current(userId, id);
       const attemptId = newDiagnosticId();
       // A phone that was stopped before had a finished setup, so autostart.sh starts its runner.
@@ -204,19 +204,19 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         wake = current.last_stopped_at !== null;
         preset = current.device_preset ?? DEFAULT_DEVICE_PRESET;
         const saved = (await queries.execute({ sql: "SELECT attempt, retry_at, failed FROM phone_setup_attempts WHERE phone_id = ?", args: [id] })).rows[0];
-        if (!chained && Math.max(Number(saved?.retry_at ?? 0), setupRetryAt.get(id) ?? 0) > clock()) return;
+        if (!chained && Number(saved?.retry_at ?? 0) > clock()) return;
         const next = Number(saved?.attempt ?? 0) + 1;
         await queries.execute({ sql: `INSERT INTO phone_setup_attempts (phone_id, attempt, retry_at, operation_id, attempt_id) VALUES (?, ?, ?, ?, ?)
           ON CONFLICT(phone_id) DO UPDATE SET attempt = excluded.attempt, retry_at = excluded.retry_at,
             operation_id = excluded.operation_id, attempt_id = excluded.attempt_id, failed = 0`, args: [id, next, clock() + SETUP_CHECK_MS, operationId ?? null, attemptId] });
-        if (!setupStarted.has(id) || saved?.failed) {
+        // No attempt row: this is the first check of this setup, so show that it started.
+        if (!saved || saved.failed) {
           await queries.execute({ sql: "UPDATE phones SET state_detail = ? WHERE user_id = ? AND id = ?", args: ["Installing Android and starting the runner. The first setup takes several minutes.", userId, id] });
           await event(userId, id, "step", "Phone setup started", queries);
         }
         return next;
       });
       if (attempt === undefined) return false;
-      setupStarted.add(id);
       let status: "ready" | "working" | "failed";
       try {
         status = await diagnostics.scope(operationId, () => measure("setup_check", async () => {
@@ -264,8 +264,6 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       });
       if (!committed) return false;
       if (committed === "gave_up") {
-        setupStarted.delete(id);
-        setupRetryAt.delete(id);
         setupWorking.delete(id);
         void diagnostics.mark(operationId, "retry_wait", { retryDelayMs: 0, errorCode: "unknown_failure", outcome: "failed" });
         try { await github.stopCodespace(userId, id); }
@@ -273,8 +271,6 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         return false;
       }
       if (status === "ready") {
-        setupStarted.delete(id);
-        setupRetryAt.delete(id);
         setupWorking.delete(id);
         // Collect setup progress now; a boot that Vercel stops would otherwise skip it.
         if (operationId && collectProgress) background(collectProgress(userId, codespaceName));
@@ -282,7 +278,6 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         kickBoot(userId, id);
         return false;
       }
-      setupRetryAt.set(id, clock() + (status === "failed" ? SETUP_RETRY_MS : SETUP_CHECK_MS));
       if (status === "failed") {
         setupWorking.delete(id);
         void diagnostics.mark(operationId, "retry_wait", { retryDelayMs: SETUP_RETRY_MS, errorCode: "unknown_failure", outcome: "failed" });
@@ -291,7 +286,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       const working = (setupWorking.get(id) ?? 0) + 1;
       setupWorking.set(id, working);
       return working < 12;
-    } finally { settingUp.delete(id); }
+    }
   }
 
   const watchStart = (userId: number, id: string) => independentWork(async () => {
@@ -306,7 +301,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     while (clock() < deadline) {
       await sleep(START_WATCH_MS);
       if (clock() >= deadline) return;
-      if (busy.has(id)) continue;
+      if (await busy.held(id)) continue;
       let stored: StoredPhone;
       try { stored = await phone(userId, id); } catch { return; }
       if (stored.state !== "booting") return;
@@ -425,7 +420,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       }
       // Start setup only after the state and fan-out have committed.
       if (codespace.state === "Available" && state === "booting" && !isKeeping) background(startSetup(userId, id, codespace.name));
-      else if (state !== "booting") { setupRetryAt.delete(id); setupWorking.delete(id); }
+      else if (state !== "booting") setupWorking.delete(id);
     };
   }
 
@@ -444,7 +439,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     let errors = 0;
     while (clock() < deadline) {
       await sleep(STOP_WATCH_MS);
-      if (busy.has(id)) continue;
+      if (await busy.held(id)) continue;
       let stored: StoredPhone;
       try { stored = await phone(userId, id); } catch { return; }
       if (stored.state !== "stopping") return;
@@ -457,8 +452,9 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       }
       errors = 0;
       if (reply.state === "Shutdown" || reply.state === "Deleted") {
-        busy.add(id);
-        try { await apply(userId, id, reply, "emuly"); } finally { busy.delete(id); }
+        const lock = await busy.acquire(id);
+        if (!lock) continue;
+        try { await apply(userId, id, reply, "emuly"); } finally { await lock.release(); }
         return;
       }
     }
@@ -466,7 +462,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
 
   type Automatic = false | "auto-stop" | "idle stop";
   /** What a start or stop body needs from the shared guard. */
-  type ChangeContext = { stored: StoredPhone; operationId: { value: string | undefined }; handOff: () => void };
+  type ChangeContext = { stored: StoredPhone; operationId: { value: string | undefined }; lock: HeldLease; handOff: () => void };
 
   /**
    * The guard that a start and a stop share: the transition check, the per-phone busy mark, the
@@ -482,8 +478,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     // A start now would reach GitHub before Shutdown and do nothing, so the phone would stop anyway.
     const transition = nextState(stored.state, operation);
     if (!transition.ok && stored.state === "stopping") throw new PhoneInputError(transition.reason);
-    if (busy.has(id)) throw new PhoneInputError("A phone request is already in progress. Try again shortly.");
-    busy.add(id);
+    const lock = await busy.acquire(id);
+    if (!lock) throw new PhoneInputError("A phone request is already in progress. Try again shortly.");
     let claimed = false;
     /** True when a detached stop owns `busy` and the rest of the work. */
     let handedOff = false;
@@ -491,7 +487,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     try {
       await claim(userId, id, automatic || operation, undefined, bulk);
       claimed = true;
-      return await work({ stored, operationId, handOff: () => { handedOff = true; } });
+      return await work({ stored, operationId, lock, handOff: () => { handedOff = true; } });
     } catch (error) {
       void diagnostics.finish(operationId.value, "unknown");
       if (claimed) {
@@ -505,7 +501,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         }
       }
       throw error;
-    } finally { if (!handedOff) busy.delete(id); }
+    } finally { if (!handedOff) await lock.release(); }
   }
 
   /** Start a stopped phone, or reconcile one that GitHub already runs. */
@@ -551,7 +547,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
   }
 
   function stopWith(userId: number, id: string, bulk: boolean, automatic: Automatic, detach: boolean) {
-    return guardedChange(userId, id, "stop", bulk, automatic, async ({ stored, operationId, handOff }) => {
+    return guardedChange(userId, id, "stop", bulk, automatic, async ({ stored, operationId, lock, handOff }) => {
       operationId.value = await diagnostics.operation(userId, id, "stop");
       diagnostics.mark(operationId.value, "stop_intent", { initiator: automatic ? "hours_budget" : bulk ? "stop_all" : "owner" });
       const current = await github.getCodespace(userId, id);
@@ -573,7 +569,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
               void diagnostics.finish(detached, "unknown");
               await stopFailed(userId, id, error);
               return;
-            } finally { busy.delete(id); }
+            } finally { await lock.release(); }
             await watchStop(userId, id);
           }));
           return id;
@@ -710,8 +706,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     if (stored.state !== "stopped" || stored.codespace_name.startsWith("pending:")) {
       throw new PhoneInputError("Only a stopped phone can be kept.");
     }
-    if (busy.has(id)) throw new PhoneInputError("A phone request is already in progress. Try again shortly.");
-    busy.add(id);
+    const lock = await busy.acquire(id);
+    if (!lock) throw new PhoneInputError("A phone request is already in progress. Try again shortly.");
     try {
       await claim(userId, id, "keep", undefined, automatic);
       const current = await github.getCodespace(userId, id);
@@ -720,7 +716,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       await database.execute({ sql: "INSERT OR IGNORE INTO phone_keeps (phone_id, phase, requested_at) VALUES (?, 'starting', ?)", args: [id, iso()] });
       await advanceKeep(userId, id, current);
       return id;
-    } finally { busy.delete(id); }
+    } finally { await lock.release(); }
   }
 
   async function unconfirmed(userId: number, queries: DatabaseQueries = database) {
@@ -747,7 +743,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
 
   async function recoverCreations(userId: number, spaces: Codespace[]) {
     for (const operation of (await unconfirmed(userId))) {
-      if (busy.has(operation.phone_id)) continue;
+      if (await busy.held(operation.phone_id)) continue;
       const matches = spaces.filter(space => space.display_name === operation.display_name);
       // No match is not proof that a timed-out POST failed. Never submit a replacement automatically.
       // GitHub lists a new Codespace within minutes, so a long absence does prove failure.
@@ -782,8 +778,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
 
   async function remove(userId: number, id: string) {
     await phone(userId, id);
-    if (busy.has(id)) throw new PhoneInputError("A phone request is already in progress. Try again shortly.");
-    busy.add(id);
+    const lock = await busy.acquire(id);
+    if (!lock) throw new PhoneInputError("A phone request is already in progress. Try again shortly.");
     try {
       await claim(userId, id, "delete");
       if ((await phone(userId, id)).codespace_name.startsWith("pending:")) await confirmBeforeDelete(userId, id);
@@ -802,7 +798,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       disconnect?.(userId, id, previous.codespace_name);
       void diagnostics.cancel(userId, id);
       return id;
-    } finally { busy.delete(id); }
+    } finally { await lock.release(); }
   }
 
   const service = {
@@ -810,7 +806,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     bootNow: (userId: number, id: string) => startBoot(userId, id),
     async retryBoot(userId: number, id: string) {
       const stored = await phone(userId, id);
-      if (stored.state !== "running" || (await keeping(id)) || busy.has(id) || bootingNow(id)) throw new PhoneInputError("Wait until the phone is running.");
+      if (stored.state !== "running" || (await keeping(id)) || (await busy.held(id)) || (await bootingNow(id))) throw new PhoneInputError("Wait until the phone is running.");
       await claim(userId, id, "retry boot");
       void diagnostics.operation(userId, id, "boot_retry", true);
       kickBoot(userId, id);
@@ -851,7 +847,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         await queries.execute({ sql: `INSERT INTO phone_creations (phone_id, display_name, outcome, requested_at)
           VALUES (?, ?, 'unconfirmed', ?)`, args: [id, id, iso()] });
       });
-      busy.add(id);
+      // A new id, so the lease is free. Null only if the database refused the claim.
+      const lock = await busy.acquire(id);
       const operationId = await diagnostics.operation(userId, id, "create");
       void diagnostics.mark(operationId, "request_accepted");
       let submitted = false;
@@ -890,7 +887,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
         });
         if (failed) void diagnostics.finish(operationId, "failed");
         throw error;
-      } finally { busy.delete(id); }
+      } finally { await lock?.release(); }
     },
     start: (userId: number, id: string) => startPhone(userId, id),
     stop: (userId: number, id: string) => stopPhone(userId, id),
@@ -901,10 +898,10 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     idleStop: (userId: number, id: string) => stopPhone(userId, id, true, "idle stop"),
     /** Record a codespace state observed outside the poller through the same transition code, without new SQL. */
     async observeCodespace(userId: number, id: string, codespace: Codespace) {
-      if (busy.has(id)) return;
-      busy.add(id);
+      const lock = await busy.acquire(id);
+      if (!lock) return;
       try { await apply(userId, id, codespace, "reconciled"); }
-      finally { busy.delete(id); }
+      finally { await lock.release(); }
     },
     // Known gap (not built): sync reads only phones that have a database row. If a self-host user
     // deletes the database (docker compose down -v), the codespaces stay in GitHub and still use
@@ -922,8 +919,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       await recoverCreations(userId, spaces);
       for (const row of rows) {
         const space = spaces.find(item => item.name === row.codespace_name);
-        if (space && !busy.has(row.id)) {
-          busy.add(row.id);
+        const lock = space ? await busy.acquire(row.id) : null;
+        if (space && lock) {
           try {
             if ((await phone(userId, row.id)).state !== row.state) continue;
             await apply(userId, row.id, space, "reconciled");
@@ -932,12 +929,12 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
               console.error(`[sync] ${row.id}: keep failed`, error instanceof Error ? error.name : "unknown");
             });
           }
-          finally { busy.delete(row.id); }
+          finally { await lock.release(); }
           const android = (await database.execute({ sql: "SELECT android_state FROM phones WHERE id = ? AND state = 'running'", args: [row.id] })).rows[0];
           // Recover a boot interrupted by a server restart. /boot is idempotent on the runner.
-          if (android && ["idle", "booting"].includes(String(android.android_state)) && !bootingNow(row.id)) kickBoot(userId, row.id);
+          if (android && ["idle", "booting"].includes(String(android.android_state)) && !(await bootingNow(row.id))) kickBoot(userId, row.id);
         }
-        else if (!space && !row.codespace_name.startsWith("pending:") && !busy.has(row.id)) {
+        else if (!space && !row.codespace_name.startsWith("pending:") && !(await busy.held(row.id))) {
           await apply(userId, row.id, { id: 0, name: row.codespace_name, state: "Deleted" }, "reconciled");
           await database.execute({ sql: "DELETE FROM phone_keeps WHERE phone_id = ?", args: [row.id] });
         }
