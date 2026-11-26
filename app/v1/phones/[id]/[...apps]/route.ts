@@ -10,18 +10,19 @@ import { withLease } from "../../../../../lib/data/coordination";
 import { recordPhoneAgentAction } from "../../../../../lib/phone/phone-activity";
 import { runnerUpdateMessage } from "@/lib/phone/phone-response";
 import { withApiUsage } from "@/lib/diagnostics/api-usage-route";
+import { createRunnerCapabilities } from "@/lib/phone/runner-capabilities";
 
 const setup = createPhoneSetup({ token: getAccessToken });
+const capabilities = createRunnerCapabilities((userId, id) => runnerRequest(userId, id, "/health"));
 const upgrades = new Map<string, Promise<{ status: string }>>();
 const handle = createPhoneAppsApi({ user: getUser, phone: findPhone, action: recordPhoneAgentAction, sharedAdmission: {
   current: (...args) => sharedAppAdmission(asyncDb()).current(...args),
   claim: (...args) => sharedAppAdmission(asyncDb()).claim(...args),
   release: (...args) => sharedAppAdmission(asyncDb()).release(...args),
 }, runner: async (userId, id, path, options) => {
-  const health = await runnerRequest(userId, id, "/health");
-  const status = await health.json();
-  if (!status.capabilities?.includes("apkUpload")) return Response.json({ error: runnerUpdateMessage(id, "Apps"), errorCode: "runner_update_required" }, { status: 503 });
-  if (path.startsWith("/file-fetches") && !status.capabilities?.includes("fileFetch"))
+  const can = await capabilities.get(userId, id);
+  if (!can.includes("apkUpload")) return Response.json({ error: runnerUpdateMessage(id, "Apps"), errorCode: "runner_update_required" }, { status: 503 });
+  if (path.startsWith("/file-fetches") && !can.includes("fileFetch"))
     return Response.json({ error: runnerUpdateMessage(id, "File fetch"), errorCode: "runner_update_required" }, { status: 503 });
   return runnerApps(userId, id, path, options);
 }, upgrade: async (userId, id) => {
@@ -34,6 +35,7 @@ const handle = createPhoneAppsApi({ user: getUser, phone: findPhone, action: rec
     const result = await setup(userId, phone.codespace_name);
     const status = result.state;
     if (status === "failed") throw new Error("Phone setup failed. Try again.");
+    capabilities.forget(userId, id);
     if (status === "ready") closeRunner(userId, id, phone.codespace_name, "scripts_updated");
     return { status };
   }).finally(() => upgrades.delete(key));
