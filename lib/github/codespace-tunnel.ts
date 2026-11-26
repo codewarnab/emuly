@@ -6,6 +6,7 @@ import type { Tunnel } from "@microsoft/dev-tunnels-contracts";
 import { ManagementApiVersions, TunnelManagementHttpClient } from "@microsoft/dev-tunnels-management";
 import ssh2 from "ssh2";
 import { measure } from "../diagnostics/diagnostics.ts";
+import { githubFetch } from "./github.ts";
 
 /**
  * Runs a shell command in a codespace without the gh binary. Same path as `gh codespace ssh`:
@@ -35,7 +36,7 @@ type TunnelProperties = {
 /** A reusable TCP bridge to the runner; no SSH process or command per request. */
 export async function openCodespacePort(token: string, codespaceName: string, signal: AbortSignal) {
   if (!/^[\w-]{1,100}$/.test(codespaceName)) throw new CodespaceTunnelError("Invalid codespace name");
-  const res = await measure("metadata_fetch", () => fetch(`https://api.github.com/user/codespaces/${codespaceName}?internal=true&refresh=true`, {
+  const res = await measure("metadata_fetch", () => githubFetch(`https://api.github.com/user/codespaces/${codespaceName}?internal=true&refresh=true`, {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "emuly" }, signal,
   }));
   if (!res.ok) throw new CodespaceTunnelError(`GitHub returned ${res.status} for the codespace connection.`);
@@ -96,11 +97,11 @@ export async function openCodespacePort(token: string, codespaceName: string, si
   }
 }
 
-export async function codespaceExec({ token, codespaceName, command, stdin, pty = false, timeoutMs = 60_000, api = "https://api.github.com", outputLimit = 4000 }: {
-  token: string; codespaceName: string; command: string; stdin?: string; pty?: boolean; timeoutMs?: number; api?: string; outputLimit?: number;
+export async function codespaceExec({ token, codespaceName, command, stdin, pty = false, timeoutMs = 60_000, outputLimit = 4000 }: {
+  token: string; codespaceName: string; command: string; stdin?: string; pty?: boolean; timeoutMs?: number; outputLimit?: number;
 }): Promise<{ code: number; output: string }> {
   if (!/^[\w-]{1,100}$/.test(codespaceName)) throw new CodespaceTunnelError("Invalid codespace name");
-  const res = await measure("metadata_fetch", () => fetch(`${api}/user/codespaces/${codespaceName}?internal=true&refresh=true`, {
+  const res = await measure("metadata_fetch", () => githubFetch(`https://api.github.com/user/codespaces/${codespaceName}?internal=true&refresh=true`, {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "emuly" },
   }));
   if (!res.ok) throw new CodespaceTunnelError(`GitHub returned ${res.status} for the codespace connection.`);
@@ -226,7 +227,7 @@ function varint(n: number) {
  */
 export async function makeDirectPortPublic(token: string, codespaceName: string, signal?: AbortSignal) {
   if (!/^[\w-]{1,100}$/.test(codespaceName)) throw new CodespaceTunnelError("Invalid codespace name");
-  const res = await fetch(`https://api.github.com/user/codespaces/${codespaceName}?internal=true&refresh=true`, {
+  const res = await githubFetch(`https://api.github.com/user/codespaces/${codespaceName}?internal=true&refresh=true`, {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "emuly" }, signal,
   });
   if (!res.ok) throw new CodespaceTunnelError(`GitHub returned ${res.status} for the codespace connection.`);
