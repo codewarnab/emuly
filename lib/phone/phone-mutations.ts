@@ -439,6 +439,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     const stored = await phone(userId, id);
     if ((await keeping(id))) throw new PhoneInputError("Keep it is in progress. Wait until the phone stops again.");
     if (operation === "stop" && stored.state === "stopping") return id;
+    // A start now would reach GitHub before Shutdown and do nothing, so the phone would stop anyway.
+    if (operation === "start" && stored.state === "stopping") throw new PhoneInputError("The phone is still stopping. Start it again after it stops.");
     if (stored.codespace_name.startsWith("pending:")) throw new PhoneInputError("This phone has no codespace yet. Create a new phone.");
     if (busy.has(id)) throw new PhoneInputError("A phone request is already in progress. Try again shortly.");
     busy.add(id);

@@ -354,6 +354,8 @@ test("start and stop are idempotent, reconcile asynchronous state, and preserve 
     await f.service.stop(1, "phone-aaaa");
     assert.equal(f.database.prepare("SELECT state FROM phones").get()?.state, "stopping");
     assert.equal(f.database.prepare("SELECT last_stopped_at FROM phones").get()?.last_stopped_at, null);
+    await assert.rejects(f.service.start(1, "phone-aaaa"), /still stopping/);
+    assert.deepEqual(writes, ["start", "stop"]);
     f.advance(15_000);
     current = { ...space(current.name), retention_expires_at: "2026-11-14T01:00:00.000Z" };
     await f.service.sync(1);
