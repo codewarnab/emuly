@@ -10,7 +10,7 @@ import { createEvents } from "./events.mjs";
 import { liveQualities, qualities } from "./scrcpy-protocol.mjs";
 import { createApps, CHUNK_SIZE } from "./apps.mjs";
 import { startAgentDeviceProxy } from "./agent-device-proxy.mjs";
-import { pullSize, ADB_DOWNLOAD_MAX_BYTES, ADB_FILES_MAX, ADB_OUTPUT_MAX_BYTES, ADB_UPLOAD_MAX_BYTES,
+import { inputTextArg, pullSize, ADB_DOWNLOAD_MAX_BYTES, ADB_FILES_MAX, ADB_OUTPUT_MAX_BYTES, ADB_UPLOAD_MAX_BYTES,
   adbArguments, adbTimeout, isDownload, isScreencap } from "./adb-protocol.mjs";
 import { AppError } from "./apk-download.mjs";
 import { createAdbReplay } from "./adb-replay.mjs";
@@ -386,7 +386,7 @@ function screenshot() {
 const ui = createUiReader({ adb });
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: 31, key: await runnerKey.fingerprint(), scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale", "fileFetch", "uiTree", "egress"], avd: "t", api_level: 36, booted: await booted(),
+  "GET /health": async () => ({ ok: true, version: 32, key: await runnerKey.fingerprint(), scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale", "fileFetch", "uiTree", "egress"], avd: "t", api_level: 36, booted: await booted(),
     busy: { viewers: scrcpy.viewers(), links: links.count(), work: requestsInFlight + lifecycleWork + fetches.active() + (adbBusy ? 1 : 0) + (boot || stopping ? 1 : 0),
       idle_ms: Date.now() - lastRequestAt } }),
 
@@ -456,10 +456,9 @@ const routes = {
   },
 
   "POST /text": async ({ text }) => {
-    if (typeof text !== "string" || !text || text.length > 500) throw new HttpError(400, "bad text");
-    // `input text` runs through the device shell: escape metacharacters, spaces become %s.
-    const escaped = text.replace(/[\\'"`$&|;<>()*?!#~{}[\]]/g, c => "\\" + c).replace(/ /g, "%s");
-    await adb(["shell", "input", "text", escaped]);
+    let arg;
+    try { arg = inputTextArg(text); } catch (error) { throw new HttpError(400, error.message); }
+    await adb(["shell", "input", "text", arg]);
     return { ok: true };
   },
 

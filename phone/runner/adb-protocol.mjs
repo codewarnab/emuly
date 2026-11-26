@@ -264,6 +264,18 @@ export function adbTimeout(value, args = []) {
   return Number(value);
 }
 
+/**
+ * The argument for `adb shell input text`, which runs through the device shell. Shell characters are
+ * escaped and spaces become %s. Control and line-break characters are refused: a newline would end the
+ * command and run the rest as a second one. Multi-line text goes through `adb text` (pasteText).
+ * @param {unknown} text @returns {string}
+ */
+export function inputTextArg(text) {
+  if (typeof text !== "string" || !text || text.length > 500) throw new AdbError("bad text");
+  if (/[\p{Cc}\p{Zl}\p{Zp}]/u.test(text)) throw new AdbError("Text cannot have control characters such as a new line. Use `adb text` for multi-line text.");
+  return text.replace(/[\\'"`$&|;<>()*?!#~{}[\]]/g, c => "\\" + c).replace(/ /g, "%s");
+}
+
 /** A screenshot is binary instead of JSON encoded.
  * @param {string[]} args @returns {boolean} */
 export function isScreencap(args) {
