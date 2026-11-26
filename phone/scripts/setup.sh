@@ -9,10 +9,9 @@ exec 8>/tmp/emuly-setup.lock
 flock -w 900 8 || { echo "FATAL: another setup still runs after 900 s"; exit 1; }
 source "$(dirname "$0")/progress.sh"
 source "$(dirname "$0")/node-path.sh"
+source "$(dirname "$0")/env.sh"
 ph_begin kvm
 
-SDK_DIR="${SDK_DIR:-/opt/android-sdk}"
-AVD_NAME="${AVD_NAME:-t}"
 IMAGE="${IMAGE:-system-images;android-36;google_apis;x86_64}"  # Android 16, default slot
 CMD_TOOLS_ZIP="commandlinetools-linux-11076708_latest.zip"
 CMD_TOOLS_URL="https://dl.google.com/android/repository/${CMD_TOOLS_ZIP}"
@@ -25,9 +24,7 @@ PREBUILD="${EMULY_PREBUILD:-0}"
 if [ "$PREBUILD" = 1 ]; then
   echo "KVM: skipped (prebuild)"
 elif [ -e /dev/kvm ]; then
-  sudo chgrp "$(id -gn)" /dev/kvm 2>/dev/null || sudo chmod 660 /dev/kvm
-  sudo chmod 660 /dev/kvm
-  test -r /dev/kvm && test -w /dev/kvm || { echo "FATAL: /dev/kvm not accessible even after fix"; exit 1; }
+  kvm_fix || exit 1
   echo "KVM: accessible"
 else
   echo "FATAL: /dev/kvm missing on this codespace; KVM tier required"; exit 1

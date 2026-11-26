@@ -159,6 +159,18 @@ const REFRESH_ARGS = ["auth", "refresh", "-h", "github.com", "-s", "codespace"];
 // wording, because running gh on the host would store the token outside the volume.
 const inContainer = () => existsSync("/.dockerenv") || existsSync("/run/.containerenv");
 
+/** The gh command that fixes a missing login or a missing scope, worded for a container when needed. */
+function fixCommand(/** @type {"login" | "refresh"} */ kind) {
+  const command = `gh ${(kind === "login" ? LOGIN_ARGS : REFRESH_ARGS).join(" ")}`;
+  return inContainer() ? `docker compose run --rm emuly ${command}` : command;
+}
+
+/** The CLI's own folder: the key, the base URL and the dev locks. */
+const CONFIG_DIR = join(homedir(), ".config", "emuly");
+
+/** A host for a URL or an ssh forward: an IPv6 address goes in brackets. */
+const bracketHost = (/** @type {string} */ host) => host.includes(":") ? `[${host}]` : host;
+
 function spawnClose(file, args, stdio) {
   return new Promise((resolve, reject) => {
     const child = spawn(file, args, { stdio: stdio === "inherit" ? "inherit" : ["ignore", "pipe", "pipe"] });
@@ -210,8 +222,7 @@ async function hasCodespaceScope() {
 async function scopeReady() {
   try { await probe("gh", ["auth", "status"]); } catch {
     console.error("\nNo GitHub account in gh's credential store. Run:");
-    console.error(`\n  ${inContainer() ? "docker compose run --rm emuly gh auth login -h github.com -s codespace"
-      : "gh auth login -h github.com -s codespace"}\n`);
+    console.error(`\n  ${fixCommand("login")}\n`);
     return false;
   }
   let ready;
@@ -219,8 +230,7 @@ async function scopeReady() {
   catch (error) { report(error); return false; }
   if (!ready) {
     console.error("\nThe gh account is missing the codespace scope. Run:");
-    console.error(`\n  ${inContainer() ? "docker compose run --rm emuly gh auth refresh -h github.com -s codespace"
-      : "gh auth refresh -h github.com -s codespace"}\n`);
+    console.error(`\n  ${fixCommand("refresh")}\n`);
     return false;
   }
   return true;
@@ -254,7 +264,7 @@ async function up(args) {
   // inside a container the file would land in the container, not where the agent runs.
   if (!inContainer()) {
     try {
-      const dir = join(homedir(), ".config", "emuly");
+      const dir = CONFIG_DIR;
       mkdirSync(dir, { recursive: true });
       // A tailnet or proxy address set in EMULY_BASE_URL is the one agents must call.
       writeFileSync(join(dir, "base-url"), `${(process.env.EMULY_BASE_URL || url).replace(/\/$/, "")}\n`);
@@ -297,19 +307,17 @@ async function doctor() {
   }
   await probe("gh", ["auth", "status"]).then(() => ok("gh has a signed-in account"))
     .catch(() => fail(inContainer()
-      ? "gh has no signed-in account. Run `docker compose run --rm emuly gh auth login -h github.com -s codespace`."
+      ? `gh has no signed-in account. Run \`${fixCommand("login")}\`.`
       : "gh has no signed-in account. Run `emuly login`."));
   await hasCodespaceScope().then(ready => {
     if (ready) ok("the gh token has the codespace scope");
-    else fail(inContainer()
-      ? "the gh token lacks the codespace scope. Run `docker compose run --rm emuly gh auth refresh -h github.com -s codespace`."
-      : "the gh token lacks the codespace scope. Run `gh auth refresh -h github.com -s codespace`.");
+    else fail(`the gh token lacks the codespace scope. Run \`${fixCommand("refresh")}\`.`);
   }).catch(error => { fail("Could not verify GitHub scopes. Check the API error below."); report(error); });
   await probe("gh", ["api", "user", "--jq", ".login"]).then(login => ok(`GitHub identity: ${login} (active account; switch with gh auth switch -h github.com)`))
     .catch(error => { fail("`gh api user` failed. Check connectivity."); report(error); });
   await probe("gh", ["auth", "token"]).then(() => ok("`gh auth token` returned a token"))
     .catch(() => fail(inContainer()
-      ? "`gh auth token` failed. Run `docker compose run --rm emuly gh auth login -h github.com -s codespace`."
+      ? `\`gh auth token\` failed. Run \`${fixCommand("login")}\`.`
       : "`gh auth token` failed. Run `emuly login`."));
   // The database can live elsewhere through EMULY_DB; check the directory that will hold it.
   const { mkdirSync, writeFileSync, rmSync } = await import("node:fs");
@@ -337,7 +345,7 @@ const FATAL_CLOSE = new Map([[CLOSE.PORTS_REFUSED, "The runner refused the ports
 /** The same order as the skill: environment, then the saved file, then (Windows) the user variable. */
 function emulyKey() {
   if (process.env.EMULY_KEY) return process.env.EMULY_KEY.trim();
-  try { const key = readFileSync(join(homedir(), ".config", "emuly", "key"), "utf8").trim(); if (key) return key; } catch {}
+  try { const key = readFileSync(join(CONFIG_DIR, "key"), "utf8").trim(); if (key) return key; } catch {}
   if (process.platform === "win32") {
     const out = spawnSync("reg", ["query", "HKCU\\Environment", "/v", "EMULY_KEY"], { encoding: "utf8" }).stdout ?? "";
     const match = /EMULY_KEY\s+REG_\w+\s+(\S+)/.exec(out);
@@ -348,20 +356,26 @@ function emulyKey() {
 
 function emulyBase() {
   if (process.env.EMULY_BASE_URL) return process.env.EMULY_BASE_URL.trim().replace(/\/$/, "");
-  try { const base = readFileSync(join(homedir(), ".config", "emuly", "base-url"), "utf8").trim(); if (base) return base.replace(/\/$/, ""); } catch {}
+  try { const base = readFileSync(join(CONFIG_DIR, "base-url"), "utf8").trim(); if (base) return base.replace(/\/$/, ""); } catch {}
   throw new Error("No Emuly base URL. Set EMULY_BASE_URL, or write it to ~/.config/emuly/base-url.");
 }
 
-async function api(method, path, body) {
-  const response = await fetch(`${emulyBase()}${path}`, { method, signal: AbortSignal.timeout(60_000),
-    headers: { authorization: `Bearer ${emulyKey()}`, "x-emuly-client": cliClient(), ...(body ? { "content-type": "application/json" } : {}) },
-    body: body ? JSON.stringify(body) : undefined });
+/** One authenticated call to the Emuly API. A failure throws with the API's message, status and body. */
+async function emulyFetch(path, init) {
+  const response = await fetch(`${emulyBase()}${path}`, { ...init, signal: AbortSignal.timeout(init.timeoutMs ?? 120_000),
+    headers: { authorization: `Bearer ${emulyKey()}`, "x-emuly-client": cliClient(), ...init.headers } });
   let value = {};
   try { value = await response.json(); } catch {}
   if (!response.ok) {
     throw Object.assign(new Error(value.message ?? value.error ?? `Emuly returned ${response.status}.`), { status: response.status, body: value });
   }
   return value;
+}
+
+/** A JSON call with a 60 s limit. */
+function api(method, path, body) {
+  return emulyFetch(path, { method, timeoutMs: 60_000, headers: body ? { "content-type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined });
 }
 
 /** stdout carries JSON only, so an agent can parse it. People read stderr. */
@@ -546,7 +560,7 @@ function runSsh(codespace, targets, onReady, stopSignal, env = process.env, loca
   return new Promise((resolve, reject) => {
     const args = ["codespace", "ssh", "-c", codespace, "--", "-N", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=30",
       ...(locals.length ? ["-C"] : []), ...locals.flatMap(spec => ["-L", spec]),
-      ...[...targets].flatMap(([port, target]) => ["-R", `${port}:${target.host.includes(":") ? `[${target.host}]` : target.host}:${target.port}`])];
+      ...[...targets].flatMap(([port, target]) => ["-R", `${port}:${bracketHost(target.host)}:${target.port}`])];
     const child = spawn("gh", args, { env, stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "", running = true;
     child.stderr.on("data", chunk => { stderr = (stderr + chunk).slice(-2000); });
@@ -795,7 +809,7 @@ async function wslWarning() {
   }
 }
 
-const lockPath = phone => join(homedir(), ".config", "emuly", `dev-${phone.replace(/[^\w.-]/g, "_")}.json`);
+const lockPath = phone => join(CONFIG_DIR, `dev-${phone.replace(/[^\w.-]/g, "_")}.json`);
 function readLock(phone) {
   try { const lock = JSON.parse(readFileSync(lockPath(phone), "utf8")); return Number.isInteger(lock.port) && Number.isInteger(lock.pid) ? lock : undefined; }
   catch { return undefined; }
@@ -874,7 +888,7 @@ async function dev(args) {
     }
   }
 
-  const loginHint = `gh auth login -h github.com -s codespace${current.github_login ? ` (as ${current.github_login})` : ""}`;
+  const loginHint = `${fixCommand("login")}${current.github_login ? ` (as ${current.github_login})` : ""}`;
   if ((await run("gh", ["--version"], 10_000)).code !== 0) return fail("needs_gh", `emuly dev needs the GitHub CLI. Install gh, then run: ${loginHint}`);
   const ghEnv = await ghEnvFor(current.codespace_name, current.github_login);
   if (!ghEnv) return fail("needs_gh", `No gh account here can open this phone's codespace. Run: ${loginHint}`);
@@ -946,17 +960,6 @@ async function dev(args) {
 }
 
 const APP_CHUNK = APK_CHUNK_BYTES;
-
-async function emulyFetch(path, init) {
-  const response = await fetch(`${emulyBase()}${path}`, { ...init, signal: AbortSignal.timeout(init.timeoutMs ?? 120_000),
-    headers: { authorization: `Bearer ${emulyKey()}`, "x-emuly-client": cliClient(), ...init.headers } });
-  let value = {};
-  try { value = await response.json(); } catch {}
-  if (!response.ok) {
-    throw Object.assign(new Error(value.message ?? value.error ?? `Emuly returned ${response.status}.`), { status: response.status, body: value });
-  }
-  return value;
-}
 
 /** One APK through the Apps endpoint: 4 MiB chunks through Emuly, then poll until the install ends. */
 async function installByChunks(id, path, bytes, allowDowngrade) {
@@ -1061,7 +1064,7 @@ const PROXY_LINK_PORT = 18792;
 
 
 /** A --via proxy without its user name and password, for messages. */
-const viaLabel = via => via ? `${via.protocol}://${via.host.includes(":") ? `[${via.host}]` : via.host}:${via.port}` : "this computer";
+const viaLabel = via => via ? `${via.protocol}://${bracketHost(via.host)}:${via.port}` : "this computer";
 
 /** Parses --via. The error never contains the URL, because it may hold a password. */
 function parseVia(text) {
@@ -1155,7 +1158,7 @@ async function viaTunnel(via, host, port) {
   });
   try {
     if (via.protocol === "http") {
-      const name = isIP(host) === 6 ? `[${host}]` : host;
+      const name = isIP(host) === 6 ? bracketHost(host) : host;
       const auth = via.user || via.pass ? `Proxy-Authorization: Basic ${Buffer.from(`${via.user}:${via.pass}`).toString("base64")}\r\n` : "";
       socket.write(`CONNECT ${name}:${port} HTTP/1.1\r\nHost: ${name}:${port}\r\n${auth}\r\n`);
       const reply = await readReplyHead(socket);

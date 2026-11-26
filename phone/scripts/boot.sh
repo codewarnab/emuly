@@ -12,13 +12,10 @@ set -euo pipefail
 # shellcheck disable=SC2034 # progress.sh reads it
 PH_PRODUCER=boot
 source "$(dirname "$0")/progress.sh"
-source "$(dirname "$0")/ports.sh"
+source "$(dirname "$0")/env.sh"
 
 MODE="${1:-cold}" # accepted for compatibility with POST /boot; every boot is cold
-AVD_NAME="${2:-t}"
-SDK_DIR="${SDK_DIR:-/opt/android-sdk}"
-export ANDROID_HOME="$SDK_DIR"
-export PATH="$HOME/.local/bin:$SDK_DIR/platform-tools:$SDK_DIR/emulator:$SDK_DIR/cmdline-tools/latest/bin:$PATH"
+AVD_NAME="${2:-$AVD_NAME}"
 LOG=/tmp/emulator.log
 PORT=$EMULATOR_CONSOLE_PORT
 
@@ -30,14 +27,12 @@ hide_anr_dialogs() {
 }
 
 # KVM access re-fix (resets on every codespace stop/start)
-[ -e /dev/kvm ] || { echo "FATAL: /dev/kvm missing"; exit 1; }
-sudo chgrp "$(id -gn)" /dev/kvm 2>/dev/null || true
-sudo chmod 660 /dev/kvm
+kvm_fix || exit 1
 
 # Refuse to double-start (bracket trick so pkill via ssh can't kill itself).
 # issue #15 P3: a wake can reach here while setup's early boot still runs, so join
 # that boot instead of returning before Android is ready for POST /boot.
-if pgrep -f "qemu-system-x86_6[4]" >/dev/null 2>&1; then
+if qemu_running; then
   echo "ALREADY RUNNING. Attach with: adb connect localhost:$PORT"
   adb start-server >/dev/null 2>&1 || true
   joined=0
@@ -45,10 +40,10 @@ if pgrep -f "qemu-system-x86_6[4]" >/dev/null 2>&1; then
   # boot that owns qemu writes the boot progress records.
   # Check every second: the old 5 s step added up to 5 s to every ready time.
   for _ in $(seq 1 600); do
-    if [ "$(adb -s "emulator-$PORT" shell getprop sys.boot_completed 2>/dev/null | tr -d '[:space:]')" = "1" ]; then
+    if boot_completed; then
       joined=1; break
     fi
-    pgrep -f "qemu-system-x86_6[4]" >/dev/null 2>&1 || { echo "EMULATOR DIED while joining. Last log:"; tail -20 "$LOG" 2>/dev/null || true; exit 1; }
+    qemu_running || { echo "EMULATOR DIED while joining. Last log:"; tail -20 "$LOG" 2>/dev/null || true; exit 1; }
     sleep 1
   done
   [ "$joined" = 1 ] || { echo "TIMEOUT: emulator did not finish booting."; exit 1; }
@@ -84,20 +79,20 @@ if [ -z "${EMULY_LCD_WIDTH:-}" ]; then
 fi
 cfg="$avd_dir/config.ini"
 if [ -f "$cfg" ]; then
-  set_cfg() { sed -i "/^$1[ ]*=/d" "$cfg"; echo "$1=$2" >> "$cfg"; }
-  set_cfg hw.lcd.width "$EMULY_LCD_WIDTH"
-  set_cfg hw.lcd.height "$EMULY_LCD_HEIGHT"
-  set_cfg hw.lcd.density "$EMULY_LCD_DENSITY"
+  # set_cfg (env.sh) for this one file. Self-contained: lib/shared/device-presets.test.ts runs this block alone.
+  cfg_set() { sed -i "/^$1[ ]*=/d" "$cfg"; echo "$1=$2" >> "$cfg"; }
+  cfg_set hw.lcd.width "$EMULY_LCD_WIDTH"
+  cfg_set hw.lcd.height "$EMULY_LCD_HEIGHT"
+  cfg_set hw.lcd.density "$EMULY_LCD_DENSITY"
   # A phone moved to a preset without a device id must not keep the old one.
-  if [ -n "${EMULY_DEVICE:-}" ]; then set_cfg hw.device.name "$EMULY_DEVICE"; else sed -i '/^hw.device.name[ ]*=/d' "$cfg"; fi
+  if [ -n "${EMULY_DEVICE:-}" ]; then cfg_set hw.device.name "$EMULY_DEVICE"; else sed -i '/^hw.device.name[ ]*=/d' "$cfg"; fi
   echo "preset: ${EMULY_PRESET:-generic} ${EMULY_LCD_WIDTH}x${EMULY_LCD_HEIGHT} ${EMULY_LCD_DENSITY}dpi"
 fi
 
 # 2 guest cores: cold boot 68 s -> 35 s and no startup ANRs (1 core before).
 # 4 cores gave no further gain and leaves no CPU for SwiftShader and the encoder.
 if [ -f "$avd_dir/config.ini" ]; then
-  sed -i '/^hw.cpu.ncore[ ]*=/d' "$avd_dir/config.ini"
-  echo "hw.cpu.ncore=2" >> "$avd_dir/config.ini"
+  set_cfg "$avd_dir/config.ini" hw.cpu.ncore 2
 fi
 
 # 8 GB guest RAM. avdmanager writes hw.ramSize=96M, and the emulator then gives Android ~3.8 GB.
@@ -107,8 +102,7 @@ fi
 # The boot time does not change; the gain is that apps the user opens stay in memory.
 # The host pays only for pages Android uses, so the cost at boot is ~150 MB.
 if [ -f "$avd_dir/config.ini" ]; then
-  sed -i '/^hw.ramSize[ ]*=/d' "$avd_dir/config.ini"
-  echo "hw.ramSize=8192" >> "$avd_dir/config.ini"
+  set_cfg "$avd_dir/config.ini" hw.ramSize 8192
 fi
 
 ph_begin adb_init
@@ -163,7 +157,7 @@ booted=0
 ph_begin boot_completed
 for _ in $(seq 1 600); do
   sleep 1
-  if [ "$(adb -s "emulator-$PORT" shell getprop sys.boot_completed 2>/dev/null | tr -d '[:space:]')" = "1" ]; then
+  if boot_completed; then
     booted=1; break
   fi
   kill -0 "$EMU_PID" 2>/dev/null || { echo "EMULATOR DIED. Last log:"; tail -20 "$LOG"; exit 1; }

@@ -58,7 +58,7 @@ const INSTALL_FLAGS = new Set(["-r", "-t", "-g", "-d", "--abi"]);
 const isCodespaceName = name => typeof name === "string" && /^[\w-]{1,100}$/.test(name);
 
 /** The runner reports this in /health. A server with another number updates the runner. */
-const RUNNER_VERSION = 35;
+const RUNNER_VERSION = 36;
 
 export { PORTS, RESERVED_PORTS, EMULATOR_SERIAL, runnerHost, FRAME, RELAY_CHUNK, CLOSE, FATAL_STATUSES,
   INLINE_MAX, APK_CHUNK_BYTES, INSTALL_FLAGS, RUNNER_VERSION, isCodespaceName };

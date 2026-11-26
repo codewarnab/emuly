@@ -18,7 +18,7 @@ import { env } from "../env.ts";
 export { RUNNER_VERSION };
 
 /** Files copied into each codespace, relative to `phone/` in this repository. */
-export const FILES = ["scripts/progress.sh", "scripts/node-path.sh", "scripts/read-progress.py", "scripts/bounded-log.py", "scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "scripts/autostart.sh", "runner/runner.mjs", "runner/agent-device-proxy.mjs", "runner/apps.mjs", "runner/apps-protocol.mjs", "runner/adb-protocol.mjs", "runner/adb-replay.mjs", "runner/apk-download.mjs", "runner/safe-download.mjs", "runner/file-fetch.mjs", "runner/scrcpy.mjs", "runner/scrcpy-hub.mjs", "runner/scrcpy-protocol.mjs", "runner/paste-text.mjs", "runner/recording.mjs", "runner/grid.mjs", "runner/ui-tree.mjs", "runner/mp4-mux.mjs", "runner/links.mjs", "runner/links-protocol.mjs", "runner/direct-ticket.mjs", "runner/direct-server.mjs", "runner/events.mjs", "runner/runner-key.mjs", "runner/egress.mjs", "runner/egress-dns.mjs", "runner/ip-policy.mjs", "runner/contracts.mjs", "scripts/ports.sh"];
+export const FILES = ["scripts/progress.sh", "scripts/node-path.sh", "scripts/read-progress.py", "scripts/bounded-log.py", "scripts/setup.sh", "scripts/boot.sh", "scripts/stop.sh", "scripts/start-runner.sh", "scripts/autostart.sh", "runner/runner.mjs", "runner/agent-device-proxy.mjs", "runner/apps.mjs", "runner/apps-protocol.mjs", "runner/adb-protocol.mjs", "runner/adb-replay.mjs", "runner/apk-download.mjs", "runner/safe-download.mjs", "runner/file-fetch.mjs", "runner/scrcpy.mjs", "runner/scrcpy-hub.mjs", "runner/scrcpy-protocol.mjs", "runner/paste-text.mjs", "runner/recording.mjs", "runner/grid.mjs", "runner/ui-tree.mjs", "runner/mp4-mux.mjs", "runner/links.mjs", "runner/links-protocol.mjs", "runner/direct-ticket.mjs", "runner/direct-server.mjs", "runner/events.mjs", "runner/runner-key.mjs", "runner/egress.mjs", "runner/egress-dns.mjs", "runner/ip-policy.mjs", "runner/contracts.mjs", "scripts/ports.sh", "scripts/env.sh", "scripts/launch-setup.sh"];
 
 /** The pinned version reaches shell scripts, so refuse anything that is not a plain release version. */
 function agentDeviceExport() {
@@ -120,10 +120,8 @@ ph_begin setup_upload
 ${writes.slice(1).join("\n")}
 ph_end
 chmod +x scripts/*.sh run.sh
-[ ! -f setup.log ] || mv -f setup.log setup.log.previous
 ph_begin setup_launch
-nohup setsid bash -c 'bash run.sh 2>&1 | python3 scripts/bounded-log.py "$HOME/emuly/setup.log"' >/dev/null 2>&1 < /dev/null &
-echo $! > .pid
+source scripts/launch-setup.sh
 ph_end
 emuly_wait
 echo EMULY_WORKING

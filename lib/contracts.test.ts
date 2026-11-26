@@ -7,7 +7,8 @@ import { RESERVED_PORTS as LINK_RESERVED } from "../phone/runner/links-protocol.
 
 test("the shell port file matches contracts.mjs", () => {
   const values = Object.fromEntries([...readFileSync("phone/scripts/ports.sh", "utf8").matchAll(/^(\w+)=(\d+)$/gm)].map(m => [m[1], Number(m[2])]));
-  assert.deepEqual(values, { EMULATOR_CONSOLE_PORT: PORTS.EMULATOR_CONSOLE, RUNNER_PORT: PORTS.RUNNER, EGRESS_PORT: PORTS.EGRESS });
+  assert.deepEqual(values, { EMULATOR_CONSOLE_PORT: PORTS.EMULATOR_CONSOLE, RUNNER_PORT: PORTS.RUNNER, EGRESS_PORT: PORTS.EGRESS,
+    EMULATOR_ADB_PORT: PORTS.EMULATOR_ADB });
 });
 
 test("links and the egress gateway refuse the same reserved ports", () => {

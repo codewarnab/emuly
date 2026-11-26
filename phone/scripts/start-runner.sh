@@ -5,13 +5,12 @@ set -euo pipefail
 PH_PRODUCER=runner
 source "$(dirname "$0")/progress.sh"
 source "$(dirname "$0")/node-path.sh"
+source "$(dirname "$0")/env.sh"
 ph_begin runner_launch
 builtin cd "$(dirname "$0")/.."
-# KVM access resets on every codespace start.
-if [ -e /dev/kvm ]; then
-  sudo chgrp "$(id -gn)" /dev/kvm 2>/dev/null || true
-  sudo chmod 660 /dev/kvm || true
-fi
+# KVM access resets on every codespace start. The runner must start even when KVM fails: its
+# /health and /boot report the problem, and boot.sh fails on it. So a failure here is a warning.
+if [ -e /dev/kvm ]; then kvm_fix || echo "WARN: KVM access could not be fixed; boot.sh reports it"; fi
 command -v node >/dev/null || { echo "emuly: node is not on PATH"; exit 1; }
 pkill -f "node runner/runner.mjs" 2>/dev/null || true
 # The old runner finishes a running recording on SIGTERM (up to 5 s). Wait for it to exit,
