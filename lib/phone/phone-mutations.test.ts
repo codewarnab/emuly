@@ -975,3 +975,32 @@ test("a dead runner still stops the codespace, and a GitHub stop failure leaves 
     assert.equal(f.database.prepare("SELECT android_state FROM phones").get()?.android_state, "failed");
   } finally { await f.close(); }
 });
+
+test("a Keep it whose start always fails gives up after 30 minutes, and does not stop the sync of other phones", async () => {
+  const states: Record<string, string> = { "keep-owned": "Shutdown", "other-owned": "Available" };
+  const starts: string[] = [];
+  const f = fixture(async url => {
+    const path = new URL(String(url)).pathname;
+    const name = path.split("/")[3];
+    if (path.endsWith("/start")) { starts.push(name); return Response.json({ message: "Payment required" }, { status: 402 }); }
+    if (path === "/user/codespaces") return Response.json({ codespaces: Object.entries(states).map(([item, state]) => space(item, state)) });
+    return Response.json(space(name, states[name]));
+  });
+  try {
+    f.add("phone-aaaa", 1, "keep-owned");
+    f.add("phone-bbbb", 1, "other-owned");
+    await assert.rejects(f.service.keep(1, "phone-aaaa"));
+    assert.equal(starts.length, 1);
+    // The next sync retries the start, gets 402 again, and still reconciles the phone after it.
+    f.advance(61_000);
+    await f.service.sync(1);
+    assert.equal(starts.length, 2);
+    assert.equal(f.database.prepare("SELECT state FROM phones WHERE id = 'phone-bbbb'").get()?.state, "booting");
+    assert.ok(f.database.prepare("SELECT 1 FROM phone_keeps").get());
+    f.advance(30 * 60_000);
+    await f.service.sync(1);
+    assert.equal(starts.length, 2);
+    assert.equal(f.database.prepare("SELECT count(*) AS n FROM phone_keeps").get()?.n, 0);
+    assert.ok(f.database.prepare("SELECT 1 FROM events WHERE phone_id = 'phone-aaaa' AND message LIKE 'Keep it stopped after 30 minutes%'").get());
+  } finally { await f.close(); }
+});

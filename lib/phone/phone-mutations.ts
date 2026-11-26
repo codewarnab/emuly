@@ -40,6 +40,8 @@ export const STOP_WATCH_DEADLINE_MS = 5 * 60_000;
 
 /** A user action waits this long for a sync or another action to release the phone lock. */
 export const USER_LOCK_WAIT_MS = 20_000;
+/** A Keep it request (start, then stop) that has not finished after this long is dropped. A normal one takes a few minutes. */
+const KEEP_MAX_MS = 30 * 60_000;
 /** Each runner /stop call answers within 80 s, so three calls cover stop.sh's 120 s qemu wait. */
 const STOP_ATTEMPTS = 3;
 /** How long a wake asks the autostarted runner before setup falls back to SSH. */
@@ -562,7 +564,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
 
   async function keeping(id: string, queries: DatabaseQueries = database) {
     return (await queries.execute({ sql: "SELECT * FROM phone_keeps WHERE phone_id = ?", args: [id] })).rows[0] as unknown as
-      { phase: string; attempted_at: string | null } | undefined;
+      { phase: string; requested_at: string; attempted_at: string | null } | undefined;
   }
 
   /** Durable stages avoid holding an HTTP request open while GitHub boots. */
@@ -572,6 +574,14 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     if (["Deleted", "Failed"].includes(current.state)) {
       await database.execute({ sql: "DELETE FROM phone_keeps WHERE phone_id = ?", args: [id] });
       await event(userId, id, "error", `Keep it failed: GitHub reports ${current.state}.`);
+      return;
+    }
+    // A keep that cannot finish (for example, every start gets a 402) must not block the phone forever.
+    // Idle stop skips kept phones, so after this a running codespace is stopped as usual.
+    const requestedAt = Date.parse(request.requested_at);
+    if (!(clock() - requestedAt < KEEP_MAX_MS)) {
+      const removed = await database.execute({ sql: "DELETE FROM phone_keeps WHERE phone_id = ? AND requested_at = ?", args: [id, request.requested_at] });
+      if (removed.rowsAffected) await event(userId, id, "error", `Keep it stopped after ${KEEP_MAX_MS / 60_000} minutes without finishing.`);
       return;
     }
     if (request.phase === "stopping" && current.state === "Shutdown") {
@@ -829,7 +839,10 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
           try {
             if ((await phone(userId, row.id)).state !== row.state) continue;
             await apply(userId, row.id, space, "reconciled");
-            await advanceKeep(userId, row.id, space);
+            // advanceKeep records its own error event. One failing keep must not stop the other phones' sync.
+            await advanceKeep(userId, row.id, space).catch(error => {
+              console.error(`[sync] ${row.id}: keep failed`, error instanceof Error ? error.name : "unknown");
+            });
           }
           finally { busy.delete(row.id); }
           const android = (await database.execute({ sql: "SELECT android_state FROM phones WHERE id = ? AND state = 'running'", args: [row.id] })).rows[0];
