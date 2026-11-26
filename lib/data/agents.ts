@@ -212,16 +212,32 @@ export async function pollDeviceCode(database: Client, rawDeviceCode: unknown,
   });
 }
 
-/** Hash lookup, not a string scan, so a wrong key does not leak length or prefix timing. */
-export async function findAgentKey(database: DatabaseQueries, value: string, now = Date.now()): Promise<AgentIdentity | null> {
+/** The settings page shows "last used" to the minute, so one write a minute for each key is enough. */
+export const LAST_USED_WRITE_INTERVAL_MS = 60 * 1000;
+
+/** Runs a task after the response. The default lets it run on its own; callers on Vercel pass waitUntil. */
+export type Background = (task: Promise<unknown>) => void;
+
+/**
+ * Hash lookup, not a string scan, so a wrong key does not leak length or prefix timing.
+ * The last_used_at write runs in the background and never fails or delays the agent call.
+ */
+export async function findAgentKey(database: DatabaseQueries, value: string, now = Date.now(),
+  background: Background = () => {}): Promise<AgentIdentity | null> {
   if (!AGENT_KEY_PATTERN.test(value)) return null;
   const at = new Date(now).toISOString();
-  const row = (await database.execute({ sql: `SELECT k.id, k.user_id, k.name FROM agent_keys k
+  const row = (await database.execute({ sql: `SELECT k.id, k.user_id, k.name, k.last_used_at FROM agent_keys k
     JOIN users u ON u.id = k.user_id
     WHERE k.key_hash = ? AND k.revoked_at IS NULL AND k.expires_at > ? AND u.blocked = 0`,
-    args: [sha256(value), at] })).rows[0] as unknown as { id: number; user_id: number; name: string } | undefined;
+    args: [sha256(value), at] })).rows[0] as unknown as
+    { id: number; user_id: number; name: string; last_used_at: string | null } | undefined;
   if (!row) return null;
-  await database.execute({ sql: "UPDATE agent_keys SET last_used_at = ? WHERE id = ?", args: [at, row.id] });
+  const last = row.last_used_at ? Date.parse(row.last_used_at) : NaN;
+  if (!(now - last < LAST_USED_WRITE_INTERVAL_MS)) {
+    const write = database.execute({ sql: "UPDATE agent_keys SET last_used_at = ? WHERE id = ?", args: [at, row.id] })
+      .then(() => undefined, () => undefined);
+    background(write);
+  }
   return { keyId: row.id, userId: row.user_id, name: row.name };
 }
 

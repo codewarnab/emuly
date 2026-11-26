@@ -1,5 +1,5 @@
 import "server-only";
-import { ipAddress } from "@vercel/functions";
+import { ipAddress, waitUntil } from "@vercel/functions";
 import { isIP } from "node:net";
 import { transaction } from "../data/async-database.ts";
 import { sha256 } from "./crypto-core.ts";
@@ -17,7 +17,8 @@ export function bearerValue(authorization: string | null): string | null {
 /** An expired, revoked or unknown key returns null, which every `/v1` route treats as signed out. */
 export async function authenticateAgent(authorization: string | null, database: Client = asyncDb(), now = Date.now()) {
   const value = bearerValue(authorization);
-  return value ? findAgentKey(database, value, now) : null;
+  // On Vercel, waitUntil keeps the function alive for the last_used_at write after the response.
+  return value ? findAgentKey(database, value, now, task => { if (process.env.VERCEL) waitUntil(task); }) : null;
 }
 
 /** Vercel overwrites x-real-ip; local proxies append their client to x-forwarded-for. */

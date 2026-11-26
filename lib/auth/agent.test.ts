@@ -49,7 +49,9 @@ test("setup codes exchange once, store only hashes and reject reused or expired 
     const old = await createSetupCode(client, 1, NOW - 2 * 60 * 60 * 1000);
     assert.equal(await exchangeSetupCode(client, old.code, "Late", NOW), null, "an expired code is rejected");
 
-    const identity = await findAgentKey(client, exchanged.key, NOW + 1_000);
+    const writes: Promise<unknown>[] = [];
+    const identity = await findAgentKey(client, exchanged.key, NOW + 1_000, task => writes.push(task));
+    await Promise.all(writes);
     assert.deepEqual(identity && { userId: identity.userId, name: identity.name }, { userId: 1, name: "Claude Code on DESKTOP-ABC" });
     const used = (await client.execute({ sql: "SELECT last_used_at FROM agent_keys WHERE id = ?", args: [identity!.keyId] })).rows[0]!;
     assert.equal(used.last_used_at, new Date(NOW + 1_000).toISOString());
@@ -61,6 +63,56 @@ test("setup codes exchange once, store only hashes and reject reused or expired 
     await client.execute({ sql: "UPDATE agent_keys SET expires_at = ? WHERE key_hash = ?",
       args: [new Date(NOW - 1).toISOString(), createHash("sha256").update(expired!.key).digest("base64url")] });
     assert.equal(await findAgentKey(client, expired!.key, NOW), null, "expired keys stop working");
+  } finally {
+    client.close();
+  }
+});
+
+test("findAgentKey writes last_used_at in the background, at most once a minute, and a failed write does not fail the call", async () => {
+  const client = await fixture();
+  try {
+    const { key } = (await exchangeSetupCode(client, (await createSetupCode(client, 1, NOW)).code, "Busy agent", NOW))!;
+    const updates: string[] = [];
+    const tasks: Promise<unknown>[] = [];
+    let failWrites = false;
+    const watched = {
+      execute: (query: { sql: string; args: unknown[] }) => {
+        if (query.sql.startsWith("UPDATE agent_keys SET last_used_at")) {
+          updates.push(String(query.args[0]));
+          if (failWrites) return Promise.reject(new Error("database is busy"));
+        }
+        return client.execute(query as never);
+      },
+    } as unknown as typeof client;
+    const call = async (at: number) => {
+      const found = await findAgentKey(watched, key, at, task => tasks.push(task));
+      await Promise.all(tasks);
+      return found;
+    };
+
+    assert.ok(await call(NOW + 1_000));
+    assert.ok(await call(NOW + 11_000));
+    assert.deepEqual(updates, [new Date(NOW + 1_000).toISOString()], "two calls 10 s apart write once");
+
+    assert.ok(await call(NOW + 61_000));
+    assert.equal(updates.length, 2, "a call 60 s after the last write writes again");
+
+    failWrites = true;
+    assert.ok(await call(NOW + 125_000), "a failed write does not fail the call");
+    assert.equal(updates.length, 3);
+
+    // The call returns before the write finishes: the write goes to `background`, not into the await.
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const slow = { execute: async (query: { sql: string }) => {
+      if (query.sql.startsWith("UPDATE")) await gate;
+      return client.execute(query as never);
+    } } as unknown as typeof client;
+    const pending: Promise<unknown>[] = [];
+    assert.ok(await findAgentKey(slow, key, NOW + 999_000, task => pending.push(task)));
+    assert.equal(pending.length, 1, "the write was handed to background");
+    release();
+    await Promise.all(pending);
   } finally {
     client.close();
   }
