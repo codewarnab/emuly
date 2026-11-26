@@ -228,9 +228,9 @@ test("emuly proxy <phone> status and off call the proxy API", async t => {
   }
 });
 
-test("the CLI and the runner share the same IPv6 address parser", () => {
-  const body = (file: string) => /\nfunction ipv6Groups\(ip\) \{\n[^]*?\n\}\n/.exec(readFileSync(resolve(file), "utf8"))?.[0];
+test("the CLI and the runner share the same address policy", () => {
+  const body = (file: string) => /\/\/ ip-policy:start\n[^]*?\/\/ ip-policy:end/.exec(readFileSync(resolve(file), "utf8"))?.[0];
   const cliCopy = body("bin/emuly.mjs");
-  assert.ok(cliCopy, "bin/emuly.mjs has ipv6Groups");
-  assert.equal(cliCopy, body("phone/runner/egress.mjs"));
+  assert.ok(cliCopy, "bin/emuly.mjs has the ip-policy block");
+  assert.equal(cliCopy, body("phone/runner/ip-policy.mjs"));
 });

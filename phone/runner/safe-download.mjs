@@ -1,6 +1,7 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { request } from "node:https";
+import { publicOnly } from "./ip-policy.mjs";
 
 // One downloader for every URL the runner fetches for an agent (APK installs, file fetches).
 // The agent can read the result back from the phone, so a bad check here leaks anything the
@@ -15,21 +16,8 @@ export class AppError extends Error {
 /** @returns {never} */
 export function fail(status, code, message) { throw new AppError(status, code, message); }
 
-/** Permit ordinary global addresses only, including strict handling of IPv6 transition ranges. */
-export function publicAddress(address) {
-  if (isIP(address) === 4) {
-    const [a, b] = address.split(".").map(Number);
-    return !(a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127)
-      || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31)
-      || (a === 192 && [0, 168].includes(b)) || (a === 198 && [18, 19, 51].includes(b))
-      || (a === 203 && b === 0));
-  }
-  if (isIP(address) !== 6) return false;
-  const normalized = new URL(`https://[${address}]/`).hostname.slice(1, -1).toLowerCase();
-  if (!/^[23][0-9a-f]{3}:/.test(normalized) || normalized.startsWith("2002:") || normalized.startsWith("3fff:")) return false;
-  const [first, second] = normalized.split(":");
-  return first !== "2001" || (parseInt(second || "0", 16) >= 0x200 && !normalized.startsWith("2001:db8:"));
-}
+/** Permit ordinary global addresses only (ip-policy.mjs `publicOnly`). */
+export const publicAddress = address => publicOnly(address);
 
 /** An HTTPS URL on port 443 with no credentials and no fragment. */
 export function httpsUrl(input, message = "Enter a direct HTTPS download URL.") {

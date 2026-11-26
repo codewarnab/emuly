@@ -238,7 +238,7 @@ test("keep API authenticates, rejects foreign phones and cross-site calls, and r
     const api = createPhoneApi({ user: async () => signedIn ? { id: 1 } : null, service: f.service,
       template: () => { throw new Error("No creation expected"); },
       usage: async id => (await readUsage(f.asyncDatabase, id, f.clock)), defaults: () => ({ default_machine: null, default_idle_min: 30 }) });
-    const request = (headers = {}) => new Request("http://localhost/v1/phones/phone-aaaa/keep", { method: "POST", headers });
+    const request = (headers = {}) => new Request("http://localhost/v1/phones/phone-aaaa/keep", { method: "POST", headers: { Origin: "http://localhost", ...headers } });
     assert.equal((await api.keep(request(), "phone-aaaa")).status, 401);
     signedIn = true;
     assert.equal((await api.keep(request({ Origin: "https://foreign.invalid" }), "phone-aaaa")).status, 403);

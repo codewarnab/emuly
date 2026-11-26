@@ -12,6 +12,7 @@ import { lookup as dnsLookup } from "node:dns";
 import { request } from "node:http";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { lanBlocked } from "./ip-policy.mjs";
 
 export const EGRESS_PORT = 8792;
 export const EGRESS_MODES = ["direct", "laptop"];
@@ -31,58 +32,12 @@ const WATCH_MS = 15_000;
 
 export class EgressError extends Error { status = 400; }
 
-/** @param {string} ip v4 dotted quad @returns {number[]} */
-const octets = ip => ip.split(".").map(Number);
-
 /**
- * True when direct mode must refuse this address: loopback (other than 127.0.0.1, which the
- * caller handles), private, shared, link-local, multicast and reserved ranges, in v4 and v6.
+ * True when direct mode must refuse this address (ip-policy.mjs `lanBlocked`). The caller
+ * handles 127.0.0.1.
  * @param {string} ip @returns {boolean}
  */
-export function blockedAddress(ip) {
-  const family = isIP(ip);
-  if (family === 4) {
-    const [a, b] = octets(ip);
-    return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254)
-      || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 192 && b === 0 && octets(ip)[2] === 0)
-      || (a === 198 && (b === 18 || b === 19)) || a >= 224;
-  }
-  if (family === 6) {
-    const groups = ipv6Groups(ip);
-    if (!groups) return true;
-    const [g0, g1, g2, g3, g4, g5] = groups;
-    const embedded = () => `${groups[6] >> 8}.${groups[6] & 0xff}.${groups[7] >> 8}.${groups[7] & 0xff}`;
-    // ::/96 (with :: and ::1) and ::ffff:0:0/96 carry an IPv4 address in the last 32 bits, in hex
-    // or dotted form. Check that address, so ::ffff:7f00:1 is 127.0.0.1.
-    if (!g0 && !g1 && !g2 && !g3 && !g4 && (g5 === 0 || g5 === 0xffff)) return blockedAddress(embedded());
-    // NAT64 (64:ff9b::/96) also carries an IPv4 address. All other 64:ff9b: addresses are refused.
-    if (g0 === 0x64 && g1 === 0xff9b) return g2 || g3 || g4 || g5 ? true : blockedAddress(embedded());
-    return (g0 & 0xfe00) === 0xfc00 || (g0 & 0xffc0) === 0xfe80 || (g0 & 0xff00) === 0xff00
-      || (g0 === 0x2001 && g1 === 0xdb8);
-  }
-  return true;
-}
-
-// The same function is in bin/emuly.mjs. lib/emuly-cli-proxy.test.ts checks that the two copies match.
-/**
- * The 8 groups of a valid IPv6 address (the caller checks it with isIP), with a dotted IPv4 tail as the last 2.
- * @param {string} ip @returns {number[] | undefined}
- */
-function ipv6Groups(ip) {
-  let text = ip.toLowerCase().split("%")[0];
-  const dotted = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
-  if (dotted) {
-    const [a, b, c, d] = dotted.slice(1).map(Number);
-    text = `${text.slice(0, dotted.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
-  }
-  const [head, tail] = text.split("::");
-  const left = head ? head.split(":") : [];
-  const right = tail ? tail.split(":") : [];
-  const fill = text.includes("::") ? 8 - left.length - right.length : 0;
-  if (fill < 0) return undefined;
-  const groups = [...left, ...Array(fill).fill("0"), ...right].map(group => parseInt(group, 16));
-  return groups.length === 8 && groups.every(group => group >= 0 && group <= 0xffff) ? groups : undefined;
-}
+export const blockedAddress = ip => lanBlocked(ip);
 
 /** The phone's own slirp network (10.0.2.0/24): DNS 10.0.2.3, and Private DNS on 10.0.2.3:853. */
 export const slirpAddress = (/** @type {string} */ host) => /^10\.0\.2\.\d{1,3}$/.test(host);

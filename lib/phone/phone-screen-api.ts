@@ -1,10 +1,11 @@
 import "server-only";
+import { crossOrigin } from "../auth/origin.ts";
 import type { RunnerPath } from "./phone-link.ts";
 
 type ScreenPhone = { state: string; android_state: string };
 /** Session identity and ownership are checked on every frame and input request. */
 export function createPhoneScreenApi({ user, phone, runner }: {
-  user: () => Promise<{ id: number } | null>;
+  user: () => Promise<{ id: number; authKind?: "session" | "agent" } | null>;
   phone: (userId: number, id: string) => ScreenPhone | undefined | Promise<ScreenPhone | undefined>;
   runner: (userId: number, id: string, path: RunnerPath, body?: Record<string, unknown>) => Promise<Response>;
 }) {
@@ -16,8 +17,7 @@ export function createPhoneScreenApi({ user, phone, runner }: {
     if (!stored) return json("Phone not found.", 404);
     if (stored.state !== "running" || stored.android_state !== "ready") return json("Android is not ready.", 409);
     if (request.method === "POST") {
-      const origin = request.headers.get("origin");
-      if ((origin && origin !== new URL(request.url).origin) || request.headers.get("sec-fetch-site") === "cross-site") return json("Forbidden.", 403);
+      if (crossOrigin(request, identity.authKind)) return json("Forbidden.", 403);
       if (!request.headers.get("content-type")?.startsWith("application/json")) return json("Expected JSON.", 415);
       try {
         // Inputs are tiny. Bound the body even when Content-Length is absent.

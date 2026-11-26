@@ -124,14 +124,14 @@ test("create sends a public caller IP as client_ip, never a private one, and sto
     return Response.json({ ...space(`github-region-${++creates}`, "Provisioning"), id: creates, location: "EastUs" });
   });
   try {
-    const ips = ["203.0.113.9", "2a00:1450:4001:80b::200e", "10.0.0.5", "127.0.0.1", "::1", "unknown", undefined];
+    const ips = ["1.0.0.9", "2a00:1450:4001:80b::200e", "10.0.0.5", "127.0.0.1", "::1", "unknown", undefined];
     const ids: string[] = [];
     for (const clientIp of ips) {
       ids.push(await f.service.create(1, { ...input, clientIp }));
       f.advance(60_000);
       f.database.prepare("DELETE FROM phones").run();
     }
-    assert.deepEqual(bodies.map(body => body.client_ip), ["203.0.113.9", "2a00:1450:4001:80b::200e", undefined, undefined, undefined, undefined, undefined]);
+    assert.deepEqual(bodies.map(body => body.client_ip), ["1.0.0.9", "2a00:1450:4001:80b::200e", undefined, undefined, undefined, undefined, undefined]);
     assert.equal(ids.length, ips.length);
   } finally { await f.close(); }
 });
@@ -563,7 +563,7 @@ test("phone HTTP API authenticates, rejects cross-site creation, passes defaults
   const api = createPhoneApi({ user: async () => signedIn ? { id: 1, login: "octo-cat", name: "Octo", avatarUrl: null } : null, service: f.service,
     template: () => input, usage: async id => (await readUsage(f.asyncDatabase, id, () => Date.parse("2026-11-07T00:00:00Z"))),
     defaults: id => userSettings(f.asyncDatabase, id) });
-  const request = (origin?: string, body = "{}") => new Request("http://localhost/v1/phones", { method: "POST",
+  const request = (origin: string | null = "http://localhost", body = "{}") => new Request("http://localhost/v1/phones", { method: "POST",
     headers: { "Content-Type": "application/json", ...(origin ? { Origin: origin } : {}) }, body });
   try {
     assert.equal((await api.usage()).status, 401);
@@ -571,6 +571,7 @@ test("phone HTTP API authenticates, rejects cross-site creation, passes defaults
     assert.equal((await api.create(request())).status, 401);
     signedIn = true;
     assert.equal((await api.create(request("https://foreign.invalid"))).status, 403);
+    assert.equal((await api.create(request(null))).status, 403);
     assert.equal((await api.create(request(undefined, "[]"))).status, 400);
     const response = await api.create(request());
     assert.equal(response.status, 409);

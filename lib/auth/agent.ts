@@ -2,6 +2,7 @@ import "server-only";
 import { ipAddress, waitUntil } from "@vercel/functions";
 import { isIP } from "node:net";
 import { transaction } from "../data/async-database.ts";
+import { ipv6Groups } from "../../phone/runner/ip-policy.mjs";
 import { sha256 } from "./crypto-core.ts";
 import type { Client } from "@libsql/client";
 import { asyncDb } from "../data/async-db.ts";
@@ -25,21 +26,6 @@ export async function authenticateAgent(authorization: string | null, database: 
 export function clientIp(request: Request): string {
   const vercelIp = process.env.VERCEL === "1" ? ipAddress(request)?.trim() : undefined;
   return vercelIp || request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim() || "unknown";
-}
-
-/** The 8 groups of an IPv6 address, or undefined. */
-function ipv6Groups(ip: string) {
-  if (isIP(ip) !== 6) return undefined;
-  let text = ip.toLowerCase().split("%")[0]!;
-  const dotted = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
-  if (dotted) {
-    const [a, b, c, d] = dotted.slice(1).map(Number) as [number, number, number, number];
-    text = `${text.slice(0, dotted.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
-  }
-  const [head, tail] = text.split("::");
-  const left = head ? head.split(":") : [], right = tail ? tail.split(":") : [];
-  const fill = text.includes("::") ? 8 - left.length - right.length : 0;
-  return [...left, ...Array(fill).fill("0"), ...right].map(group => parseInt(group, 16));
 }
 
 /**

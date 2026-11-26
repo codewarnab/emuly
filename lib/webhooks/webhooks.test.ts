@@ -215,7 +215,7 @@ test("API enforces authentication, origin, ownership and validation; secrets app
     let identity: { id: number } | null = null;
     const api = createWebhookApi({ user: async () => identity, service: f.service() });
     const request = (method = "GET", body?: unknown, headers = {}) => new Request("https://app.example/v1/webhooks", {
-      method, ...(body === undefined ? {} : { body: JSON.stringify(body) }), headers: { "Content-Type": "application/json", ...headers },
+      method, ...(body === undefined ? {} : { body: JSON.stringify(body) }), headers: { "Content-Type": "application/json", Origin: "https://app.example", ...headers },
     });
     assert.equal((await api(request())).status, 401);
     identity = { id: 1 };
@@ -366,7 +366,7 @@ test("synchronous tests sign and persist the real result, isolate the delivery, 
     const other = await service.create(1, { url: "https://other.example" });
     await service.test(1, other.id);
     const api = createWebhookApi({ user: async () => ({ id: 1 }), service });
-    const request = () => new Request(`https://app.example/v1/webhooks/${hook.id}/test?wait=1`, { method: "POST" });
+    const request = () => new Request(`https://app.example/v1/webhooks/${hook.id}/test?wait=1`, { method: "POST", headers: { Origin: "https://app.example" } });
     const response = await api(request(), hook.id, "test");
     assert.equal(response.status, 200);
     const result = await response.json();

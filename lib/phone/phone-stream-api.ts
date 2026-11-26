@@ -1,4 +1,5 @@
 import "server-only";
+import { crossOrigin } from "../auth/origin.ts";
 import { issueStreamTicket } from "./phone-stream-ticket.ts";
 
 type Identity = { id: number; sessionId: string };
@@ -18,7 +19,7 @@ export function createPhoneStreamApi({ user, phone, open, observation, issue, di
   return async (request: Request, id: string) => {
     const origin = new URL(request.url).origin;
     if (request.method !== "POST") return new Response(null, { status: 405 });
-    if (request.headers.get("origin") !== origin || request.headers.get("sec-fetch-site") === "cross-site") return new Response(null, { status: 403 });
+    if (crossOrigin(request, "session", { requireOrigin: true })) return new Response(null, { status: 403 });
     const identity = await user();
     if (!identity) return new Response(null, { status: 401 });
     const stored = await phone(identity.id, id);

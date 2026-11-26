@@ -1,3 +1,4 @@
+import { crossOrigin } from "../auth/origin.ts";
 import { DEFAULT_DEVICE_PRESET, DEVICE_PRESETS, devicePreset } from "../shared/device-presets.ts";
 import type { createPhoneService } from "./phone-mutations.ts";
 import { PhoneInputError } from "./phone-mutations.ts";
@@ -9,7 +10,7 @@ import type { Usage } from "../data/usage.ts";
 
 /** HTTP boundary shared by route handlers. Identity always comes from the session. */
 export function createPhoneApi({ user, service, template, usage, defaults, clientIp }: {
-  user: () => Promise<{ id: number; login?: string; name?: string | null; avatarUrl?: string | null } | null>;
+  user: () => Promise<{ id: number; login?: string; name?: string | null; avatarUrl?: string | null; authKind?: "session" | "agent" } | null>;
   service: Pick<ReturnType<typeof createPhoneService>, "create" | "keep">;
   template: () => { repository: string; repositoryId: number; devcontainerPath?: string };
   usage: (userId: number) => Usage | Promise<Usage>;
@@ -23,8 +24,7 @@ export function createPhoneApi({ user, service, template, usage, defaults, clien
     async keep(request: Request, id: string) {
       const identity = await user();
       if (!identity) return json({ error: "unauthorized" }, 401);
-      const origin = request.headers.get("origin");
-      if ((origin && origin !== new URL(request.url).origin) || request.headers.get("sec-fetch-site") === "cross-site") {
+      if (crossOrigin(request, identity.authKind)) {
         return json({ error: "forbidden" }, 403);
       }
       try {
@@ -50,8 +50,7 @@ export function createPhoneApi({ user, service, template, usage, defaults, clien
     async create(request: Request) {
       const identity = await user();
       if (!identity) return json({ error: "unauthorized" }, 401);
-      const origin = request.headers.get("origin");
-      if ((origin && origin !== new URL(request.url).origin) || request.headers.get("sec-fetch-site") === "cross-site") {
+      if (crossOrigin(request, identity.authKind)) {
         return json({ error: "forbidden" }, 403);
       }
       if (!request.headers.get("content-type")?.startsWith("application/json")) return json({ error: "invalid_input" }, 415);

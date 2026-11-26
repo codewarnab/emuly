@@ -1,3 +1,4 @@
+import { crossOrigin } from "../auth/origin.ts";
 import type { createWebhookService } from "./webhooks.ts";
 import { WebhookInputError } from "./webhook-security.ts";
 import { WebhookRateLimitError } from "./webhooks.ts";
@@ -18,8 +19,7 @@ export function createWebhookApi({ user, service }: {
         manage_url: manageUrl(`/app/settings/webhooks${id ? `#webhook-${encodeURIComponent(id)}` : ""}`) }, 403);
     }
     if (method !== "GET") {
-      const origin = request.headers.get("origin");
-      if ((origin && origin !== new URL(request.url).origin) || request.headers.get("sec-fetch-site") === "cross-site") {
+      if (crossOrigin(request, identity.authKind)) {
         return json({ error: "forbidden" }, 403);
       }
     }

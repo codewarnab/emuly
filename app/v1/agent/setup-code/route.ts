@@ -1,3 +1,4 @@
+import { crossOrigin } from "../../../../lib/auth/origin";
 import { getUser } from "../../../../lib/auth/auth";
 import { forbidAgent } from "../../../../lib/auth/scope";
 import { asyncDb } from "../../../../lib/data/async-db";
@@ -13,8 +14,7 @@ async function handlePOST(request: Request) {
   if (!user) return json({ error: "unauthorized", message: "Sign in to copy a setup prompt.", base_url: env.baseUrl, prompt: buildDevicePrompt(env.baseUrl) }, 401);
   const denied = forbidAgent(user, "Agent keys cannot create setup codes. Open manage_url to do this yourself.", "/app");
   if (denied) return denied;
-  const origin = request.headers.get("origin");
-  if ((origin && origin !== new URL(request.url).origin) || request.headers.get("sec-fetch-site") === "cross-site") {
+  if (crossOrigin(request, user.authKind)) {
     return json({ error: "forbidden" }, 403);
   }
   const { code, expiresAt } = await createSetupCode(asyncDb(), user.id);

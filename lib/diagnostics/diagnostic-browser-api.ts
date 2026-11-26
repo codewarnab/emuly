@@ -1,3 +1,4 @@
+import { crossOrigin } from "../auth/origin.ts";
 import { diagnosticHealth } from "./diagnostics.ts";
 import type { phoneObservations } from "../phone/phone-observation.ts";
 
@@ -10,7 +11,7 @@ export function createDiagnosticBrowserApi({ user, phone, observations }: {
   return async (request: Request, id: string) => {
     const response = (status: number) => new Response(null, { status, headers: { "Cache-Control": "private, no-store" } });
     if (request.method !== "POST") return response(405);
-    if (request.headers.get("origin") !== new URL(request.url).origin || request.headers.get("sec-fetch-site") === "cross-site") return response(403);
+    if (crossOrigin(request, "session", { requireOrigin: true })) return response(403);
     const owner = await user();
     if (!owner) return response(401);
     const stored = await phone(owner.id, id);

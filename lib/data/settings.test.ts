@@ -52,7 +52,7 @@ test("settings default to Free, 30-minute idle and auto-stop off; partial update
     let signedIn = false;
     const patch = createSettingsApi({ database, user: async () => signedIn ? { id: 1 } : null });
     const request = (body = '{"auto_stop_before_empty":false,"auto_keep":false}', headers: Record<string, string> = {}) =>
-      new Request("http://localhost/v1/settings", { method: "PATCH", body, headers: { "Content-Type": "application/json", ...headers } });
+      new Request("http://localhost/v1/settings", { method: "PATCH", body, headers: { "Content-Type": "application/json", Origin: "http://localhost", ...headers } });
     assert.equal((await patch.patch(request())).status, 401);
     signedIn = true;
     assert.equal((await patch.patch(request(undefined, { Origin: "https://foreign.invalid" }))).status, 403);

@@ -1,3 +1,4 @@
+import { crossOrigin } from "../auth/origin.ts";
 import type { Client } from "@libsql/client";
 import { SettingsInputError, chosenPlan, updateSettings, userSettings } from "./settings.ts";
 import { listAgentKeys } from "./agents.ts";
@@ -36,8 +37,7 @@ export function createSettingsApi({ database, user }: {
       if (!identity) return json({ error: "unauthorized" }, 401);
       const denied = forbidAgent(identity, AGENT_SETTINGS_MESSAGE, "/app/settings/hours");
       if (denied) return denied;
-      const origin = request.headers.get("origin");
-      if ((origin && origin !== new URL(request.url).origin) || request.headers.get("sec-fetch-site") === "cross-site") {
+      if (crossOrigin(request, identity.authKind)) {
         return json({ error: "forbidden" }, 403);
       }
       if (!request.headers.get("content-type")?.startsWith("application/json")) return json({ error: "invalid_input" }, 415);

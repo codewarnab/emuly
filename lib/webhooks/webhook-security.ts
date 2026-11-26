@@ -3,28 +3,15 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { request as httpsRequest } from "node:https";
 import { request as httpRequest } from "node:http";
+import { publicOnly } from "../../phone/runner/ip-policy.mjs";
 
 export class WebhookInputError extends Error {}
 export type ResolveHost = (host: string) => Promise<{ address: string; family: number }[]>;
 export type WebhookTarget = { url: URL; addresses: { address: string; family: number }[] };
 export const resolveHost: ResolveHost = host => lookup(host, { all: true, verbatim: true });
 
-/** Public unicast IPv4 or global IPv6 only. Shared with the codespace region hint. */
-export function publicAddress(address: string): boolean {
-  if (isIP(address) === 4) {
-    const [a, b] = address.split(".").map(Number) as [number, number];
-    return !(a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127)
-      || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31)
-      || (a === 192 && (b === 168 || b === 0)) || (a === 198 && (b === 18 || b === 19)));
-  }
-  if (isIP(address) !== 6) return false;
-  const normalized = new URL(`https://[${address}]/`).hostname.slice(1, -1).toLowerCase();
-  // Only global unicast. Refuse mapped IPv4, translation and transition ranges too.
-  if (!/^[23][0-9a-f]{3}:/.test(normalized) || normalized.startsWith("2002:")) return false;
-  const [first, second] = normalized.split(":");
-  // 2001::/23 is reserved for special protocols (including Teredo), not ordinary hosts.
-  return first !== "2001" || parseInt(second || "0", 16) >= 0x200;
-}
+/** Public unicast IPv4 or global IPv6 only (ip-policy.mjs). Shared with the codespace region hint. */
+export const publicAddress = (address: string): boolean => publicOnly(address);
 
 /** Validate all DNS answers at registration and immediately before each send. */
 export async function webhookTarget(value: unknown, baseUrl: string, resolve: ResolveHost = resolveHost): Promise<WebhookTarget> {
