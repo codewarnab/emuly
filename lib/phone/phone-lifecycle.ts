@@ -10,6 +10,51 @@ type ProviderObservation = {
   machine?: { cpus: number } | null;
 };
 
+/** GitHub codespace states in which the machine runs and uses hours. */
+export const ACTIVE_GITHUB_STATES: readonly string[] = ["Available", "Starting", "Creating", "Provisioning", "Rebuilding"];
+/** GitHub states that end in a running codespace. Unavailable is a short host problem, not an error. */
+const BOOTING_GITHUB_STATES: readonly string[] = [...ACTIVE_GITHUB_STATES, "Queued", "Awaiting", "Unavailable"];
+
+export const PHONE_STATES = ["creating", "booting", "running", "stopping", "stopped", "error", "deleted"] as const;
+export type PhoneState = typeof PHONE_STATES[number];
+export const PHONE_EVENTS = ["start", "stop", "setup_ready", "setup_gave_up", "stopped", "delete"] as const;
+export type PhoneEvent = typeof PHONE_EVENTS[number];
+export type Transition = { ok: true; state: PhoneState } | { ok: false; reason: string };
+
+const refuse = (reason: string): Transition => ({ ok: false, reason });
+const to = (state: PhoneState): Transition => ({ ok: true, state });
+const STILL_STOPPING = "The phone is still stopping. Start it again after it stops.";
+const DELETED = "The phone was deleted.";
+const NO_CODESPACE = "This phone has no codespace yet. Wait until it is created.";
+
+/**
+ * Every allowed change of persisted phone state, in one table. A refusal carries the reason for
+ * the user. Provider observations go through `decidePhoneTransition`; this table is for requests
+ * and for the results of Emuly's own work.
+ */
+const TRANSITIONS: Record<PhoneState, Record<PhoneEvent, Transition>> = {
+  creating: { start: refuse(NO_CODESPACE), stop: refuse(NO_CODESPACE), setup_ready: refuse(NO_CODESPACE),
+    setup_gave_up: to("error"), stopped: to("stopped"), delete: to("deleted") },
+  booting: { start: to("booting"), stop: to("stopping"), setup_ready: to("running"), setup_gave_up: to("error"),
+    stopped: to("stopped"), delete: to("deleted") },
+  running: { start: to("running"), stop: to("stopping"), setup_ready: to("running"), setup_gave_up: refuse("Setup already finished."),
+    stopped: to("stopped"), delete: to("deleted") },
+  stopping: { start: refuse(STILL_STOPPING), stop: to("stopping"), setup_ready: refuse(STILL_STOPPING),
+    setup_gave_up: refuse(STILL_STOPPING), stopped: to("stopped"), delete: to("deleted") },
+  stopped: { start: to("booting"), stop: to("stopped"), setup_ready: refuse("The phone is stopped."),
+    setup_gave_up: refuse("The phone is stopped."), stopped: to("stopped"), delete: to("deleted") },
+  error: { start: to("booting"), stop: to("stopping"), setup_ready: refuse("Start the phone again."),
+    setup_gave_up: to("error"), stopped: to("stopped"), delete: to("deleted") },
+  deleted: { start: refuse(DELETED), stop: refuse(DELETED), setup_ready: refuse(DELETED), setup_gave_up: refuse(DELETED),
+    stopped: refuse(DELETED), delete: to("deleted") },
+};
+
+/** The state after `event`, or the reason it is refused. An unknown state is refused. */
+export function nextState(current: string, event: PhoneEvent): Transition {
+  const row = (TRANSITIONS as Record<string, Record<PhoneEvent, Transition> | undefined>)[current];
+  return row ? row[event] : refuse(`Unknown phone state ${current}.`);
+}
+
 /** How long after a stop request GitHub may still report a starting codespace. */
 export const STOP_GRACE_MS = 180_000;
 /** How long after a start request GitHub may still report a stopped codespace. */
@@ -61,7 +106,7 @@ export function decideRunChanges({ previous, codespace, state, source, open, now
 }) {
   let close: { id: number; stoppedAt: string } | undefined;
   let create: { cores: number; startedAt: string } | undefined;
-  const active = ["Available", "Starting", "Creating", "Provisioning", "Rebuilding"].includes(codespace.state);
+  const active = ACTIVE_GITHUB_STATES.includes(codespace.state);
   const cores = codespace.machine?.cpus ?? previous.cores ?? (previous.machine === "basicLinux32gb" ? 2 : 4);
   if (open && (state === "stopped" || state === "deleted" || (active && open.cores !== cores))) {
     // last_used_at is activity, not a stop timestamp. Add the idle window that GitHub got.
@@ -89,6 +134,6 @@ function phoneState(state: string) {
   if (state === "ShuttingDown") return "stopping";
   // Unavailable is GitHub's short host problem while it creates or resumes a codespace. It
   // clears on its own or after a new start request, so it is not a phone error.
-  if (["Available", "Starting", "Creating", "Provisioning", "Rebuilding", "Queued", "Awaiting", "Unavailable"].includes(state)) return "booting";
+  if (BOOTING_GITHUB_STATES.includes(state)) return "booting";
   return "error";
 }

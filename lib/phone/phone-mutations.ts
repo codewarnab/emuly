@@ -13,7 +13,7 @@ import { GitHubError, type Codespace, type createGitHubClient } from "../github/
 import { assertMutationRate } from "../data/rate-limit.ts";
 import { emitEvent, type EventEmitter } from "../data/events.ts";
 import type { Client } from "@libsql/client";
-import { decidePhoneTransition, decideRunChanges, START_PENDING_DETAIL } from "./phone-lifecycle.ts";
+import { ACTIVE_GITHUB_STATES, decidePhoneTransition, decideRunChanges, nextState, START_PENDING_DETAIL } from "./phone-lifecycle.ts";
 import { candidatePhoneName, PHONE_ID } from "../shared/phone-name.ts";
 import { createDiagnostics, measure, newDiagnosticId } from "../diagnostics/diagnostics.ts";
 import { createStateCounts, stateErrorOf, type StateReason } from "../diagnostics/state-usage.ts";
@@ -490,7 +490,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       }
       let observed = current.state;
       if (operation === "start") {
-        if (["Available", "Starting", "Creating", "Provisioning", "Rebuilding"].includes(current.state)) {
+        if (ACTIVE_GITHUB_STATES.includes(current.state)) {
           await apply(userId, id, current);
         } else {
           await apply(userId, id, current, "reconciled");
