@@ -134,6 +134,9 @@ function NewPhoneSkeleton() {
   </div>;
 }
 
+// TODO(audit 2026-11-26 item 17): `received` is set once per mount, so each reconnect (every 270 s and on
+// tab show) refreshes the page and every phone preview with no change, and the first snapshot after mount
+// is dropped. Send `user_changes.version` in each message and in the page render; refresh only when it differs.
 export function PhoneRefresh() {
   const router = useRouter();
   useEffect(() => {
