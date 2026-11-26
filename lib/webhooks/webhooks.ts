@@ -8,6 +8,8 @@ import { webhookTarget, WebhookInputError, type ResolveHost } from "./webhook-se
 export type Webhook = { id: string; url: string; events: "*" | string[]; enabled: boolean; created_at: string; failing_since: string | null };
 export type Delivery = { id: string; event_id: string; type: string; created_at: string; attempted_at: string | null;
   attempt: number; status: number | null; duration_ms: number | null; state: string; next_try_at: string | null };
+/** Ends the pending deliveries of a webhook that is turned off. */
+export const cancelPending = (webhookId: string) => ({ sql: "UPDATE webhook_deliveries SET state = 'cancelled', next_try_at = NULL WHERE webhook_id = ? AND state = 'pending'", args: [webhookId] });
 type StoredWebhook = Omit<Webhook, "events" | "enabled"> & { events: string; enabled: number };
 export class WebhookRateLimitError extends WebhookInputError {}
 
@@ -76,14 +78,22 @@ export function createWebhookService({ database, encrypt, baseUrl, resolve, deli
       const secret = body.roll_secret ? `whsec_${randomBytes(32).toString("base64url")}` : undefined;
       // URL validation awaits DNS. Recheck ownership after that wait.
       await owned(userId, id);
-      await database.execute({ sql: `UPDATE webhooks SET url = COALESCE(?, url), events = COALESCE(?, events),
-        enabled = COALESCE(?, enabled), secret_cipher = COALESCE(?, secret_cipher),
-        failing_since = CASE WHEN ? IS NOT NULL THEN NULL ELSE failing_since END WHERE id = ? AND user_id = ?`, args: [url ?? null, events ?? null, body.enabled === undefined ? null : Number(body.enabled), secret ? encrypt(secret, contexts.webhookSecret(id)) : null, body.enabled === undefined ? null : Number(body.enabled), id, userId] });
+      await transaction(database, async queries => {
+        await queries.execute({ sql: `UPDATE webhooks SET url = COALESCE(?, url), events = COALESCE(?, events),
+          enabled = COALESCE(?, enabled), secret_cipher = COALESCE(?, secret_cipher),
+          failing_since = CASE WHEN ? IS NOT NULL THEN NULL ELSE failing_since END WHERE id = ? AND user_id = ?`, args: [url ?? null, events ?? null, body.enabled === undefined ? null : Number(body.enabled), secret ? encrypt(secret, contexts.webhookSecret(id)) : null, body.enabled === undefined ? null : Number(body.enabled), id, userId] });
+        // A disabled webhook drops its queue, so turning it on again sends only new events.
+        if (body.enabled === false) await queries.execute(cancelPending(id));
+      });
       return { ...publicHook(await owned(userId, id)), ...(secret ? { secret } : {}) };
     },
     async remove(userId: number, id: string) {
       await owned(userId, id);
-      await database.execute({ sql: "DELETE FROM webhooks WHERE id = ? AND user_id = ?", args: [id, userId] });
+      // Foreign keys can be off on Turso, so delete the delivery rows here.
+      await transaction(database, async queries => {
+        const removed = await queries.execute({ sql: "DELETE FROM webhooks WHERE id = ? AND user_id = ?", args: [id, userId] });
+        if (removed.rowsAffected) await queries.execute({ sql: "DELETE FROM webhook_deliveries WHERE webhook_id = ?", args: [id] });
+      });
       return { deleted: true };
     },
     test: enqueueTest,

@@ -155,7 +155,7 @@ function Endpoint({ hook, initialDeliveries, pending, run, reveal }: { hook: Web
     </div>
     <div className={s.deliveryDots} aria-label="Recent deliveries">
       {deliveries.map(delivery => <button type="button" key={delivery.id} className={s.deliveryDot}
-        data-state={delivery.state === "ok" ? "ok" : delivery.attempt > 0 ? "failed" : "pending"}
+        data-state={delivery.state === "ok" ? "ok" : delivery.state === "cancelled" || delivery.attempt > 0 ? "failed" : "pending"}
         title={`${delivery.type} · ${delivery.status ?? delivery.state} · ${delivery.attempted_at ?? delivery.created_at}`}
         aria-label={`${delivery.type} · ${delivery.status ?? delivery.state} · ${delivery.attempted_at ?? delivery.created_at}`}
         aria-expanded={selected?.id === delivery.id} onClick={() => setSelected(value => value?.id === delivery.id ? null : delivery)} />)}

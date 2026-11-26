@@ -1,17 +1,26 @@
 import type { Client } from "@libsql/client";
 import { contexts } from "../auth/crypto-core.ts";
 import { transaction } from "../data/async-database.ts";
+import { cancelPending } from "./webhooks.ts";
 import { webhookTarget, signWebhook, sendWebhook, type SendWebhook, type ResolveHost } from "./webhook-security.ts";
 
 // One initial attempt, followed by five retries. Each delay starts after a failure.
 const RETRY_MS = [60_000, 300_000, 1_800_000, 7_200_000, 21_600_000];
 const FAILURE_WINDOW = 3 * 86_400_000;
+/** Finished deliveries are kept this long, then deleted. */
+export const DELIVERY_RETENTION_MS = 30 * 86_400_000;
+const PRUNE_EVERY_MS = 3_600_000;
 
 export function createWebhookOutbox({ database, decrypt, baseUrl, resolve, send = sendWebhook, clock = Date.now }: {
   database: Client; decrypt: (cipher: Uint8Array, context: string) => string; baseUrl: string;
   resolve?: ResolveHost; send?: SendWebhook; clock?: () => number;
 }) {
-  let running = false;
+  let running = false, prunedAt = -Infinity;
+  async function prune() {
+    if (clock() - prunedAt < PRUNE_EVERY_MS) return;
+    prunedAt = clock();
+    await database.execute({ sql: "DELETE FROM webhook_deliveries WHERE state != 'pending' AND created_at < ?", args: [new Date(clock() - DELIVERY_RETENTION_MS).toISOString()] });
+  }
   async function disableFailing() {
     const cutoff = new Date(clock() - FAILURE_WINDOW).toISOString();
     await transaction(database, async queries => {
@@ -21,6 +30,7 @@ export function createWebhookOutbox({ database, decrypt, baseUrl, resolve, send 
           >= strftime('%Y-%m-%dT%H:%M:%fZ', failing_since, '+3 days')`, args: [cutoff] })).rows;
       for (const hook of failed) {
         await queries.execute({ sql: "UPDATE webhooks SET enabled = 0 WHERE id = ?", args: [hook.id!] });
+        await queries.execute(cancelPending(String(hook.id)));
         await queries.execute({ sql: "INSERT INTO events (user_id, ts, kind, message) VALUES (?, ?, 'webhook.disabled', ?)", args: [hook.user_id!, new Date(clock()).toISOString(), `Webhook ${hook.id} disabled after 3 days of only failures. Re-enable it in Settings → Webhooks.`] });
       }
     });
@@ -69,6 +79,7 @@ export function createWebhookOutbox({ database, decrypt, baseUrl, resolve, send 
     if (!deliveryId) running = true;
     try {
       await disableFailing();
+      if (!deliveryId) await prune();
       const due = (await database.execute({ sql: `SELECT d.*, w.url FROM webhook_deliveries d
         JOIN webhooks w ON w.id = d.webhook_id JOIN users u ON u.id = w.user_id
         WHERE d.state = 'pending' AND d.next_try_at <= ? AND w.enabled = 1 AND u.blocked = 0

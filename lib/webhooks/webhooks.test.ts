@@ -427,3 +427,30 @@ test("a synchronous test and a concurrent outbox tick attempt a delivery only on
     assert.equal((await service.deliveries(1, hook.id))[0]?.attempt, 1);
   } finally { release(); await f.close(); }
 });
+
+test("delete removes delivery rows, disable cancels pending ones, and finished rows go after 30 days", async () => {
+  const f = fixture();
+  const count = (sql: string, ...args: string[]) => f.database.prepare(`SELECT count(*) AS n FROM webhook_deliveries WHERE ${sql}`).get(...args)?.n;
+  try {
+    const gone = await f.service().create(1, { url: "https://receiver.example" });
+    await f.service().test(1, gone.id);
+    await f.service().remove(1, gone.id);
+    assert.equal(count("webhook_id = ?", gone.id), 0);
+
+    const hook = await f.service().create(1, { url: "https://receiver.example" });
+    await f.service().test(1, hook.id);
+    await f.service().update(1, hook.id, { enabled: false });
+    await f.service().update(1, hook.id, { enabled: true });
+    let sent = 0;
+    await f.outbox(async () => { sent++; return 200; })();
+    assert.equal(sent, 0, "a re-enabled webhook does not send the old event");
+    assert.equal((await f.service().deliveries(1, hook.id))[0]?.state, "cancelled");
+
+    f.advance(5000); await f.service().test(1, hook.id); await f.outbox(async () => 200)();
+    f.advance(30 * 86_400_000 + 1000);
+    await f.service().test(1, hook.id);
+    await f.outbox(async () => { throw new Error("synthetic"); })();
+    assert.equal(count("webhook_id = ? AND created_at < ?", hook.id, new Date(f.clock() - 86_400_000).toISOString()), 0);
+    assert.equal(count("webhook_id = ?", hook.id), 1, "the new pending row stays");
+  } finally { await f.close(); }
+});
