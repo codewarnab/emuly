@@ -7,7 +7,6 @@ import { seal, contexts } from "../../../lib/auth/crypto";
 import { createSession } from "../../../lib/auth/session";
 import { cookieName, cookieOptions } from "../../../lib/auth/auth-cookies";
 import { exchangeTokens, githubIdentity, githubGet, SignInError } from "../../../lib/auth/github-oauth";
-import { getUser } from "../../../lib/auth/auth";
 import { safeNext } from "../../../lib/auth/next-path";
 import { billingClient } from "../../../lib/github/billing";
 import { LAST_LOGIN_MAX_AGE, lastLogin } from "../../../lib/auth/last-login";
@@ -15,12 +14,9 @@ import { LAST_LOGIN_MAX_AGE, lastLogin } from "../../../lib/auth/last-login";
 export async function GET(request: NextRequest) {
   const store = await cookies();
   const expected = store.get(cookieName("state"))?.value;
-  const billing = store.get(cookieName("billing"))?.value === "1";
   const next = safeNext(store.get(cookieName("next"))?.value);
-  store.set(cookieName("billing"), "", cookieOptions(0));
   store.set(cookieName("next"), "", cookieOptions(0));
-  const current = billing ? await getUser() : null;
-  const failurePath = current ? "/app?billing=unavailable" : loginFailure("denied", next);
+  const failurePath = loginFailure("denied", next);
   // Clear on every result, including denial and malformed requests.
   store.set(cookieName("state"), "", cookieOptions(0));
   const state = request.nextUrl.searchParams.get("state");
@@ -31,10 +27,6 @@ export async function GET(request: NextRequest) {
   try {
     const pair = await exchangeTokens({ code, redirect_uri: `${env.baseUrl}/auth/callback` });
     const identity = await githubIdentity(pair.accessToken);
-    if (current) {
-      const existing = (await asyncDb().execute({ sql: "SELECT github_id FROM users WHERE id = ?", args: [current.id] })).rows[0];
-      if (existing?.github_id !== identity.githubId) return result(failurePath);
-    }
     const probe = await githubGet("/user/codespaces?per_page=1", pair.accessToken);
     if (probe.status !== 200) throw new SignInError("probe");
     await probe.body?.cancel();
@@ -61,7 +53,7 @@ export async function GET(request: NextRequest) {
     return result(next ?? "/app");
   } catch (error) {
     // Do not log the request, provider payload, authorization code, or exception.
-    return result(current ? failurePath : loginFailure(error instanceof SignInError ? error.code : "signin", next));
+    return result(loginFailure(error instanceof SignInError ? error.code : "signin", next));
   }
 }
 
