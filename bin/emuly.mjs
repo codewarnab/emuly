@@ -635,7 +635,7 @@ function runRelay(url, targets, onReady, stopSignal) {
 }
 
 /** DNS lookup with a 5 s limit, so a slow resolver does not hold a CONNECT open. */
-function lookupWithin(host, ms = 5000) {
+function lookupWithin(host, lookup = dnsLookup, ms = 5000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`DNS lookup for ${host} took longer than ${ms / 1000} s.`)), ms);
     lookup(host, { family: 0 }, (error, address) => { clearTimeout(timer); error ? reject(error) : resolve(address); });
@@ -1259,12 +1259,12 @@ function startLocalProxy({ via, allowLan, lookup = dnsLookup }) {
           else if (localName(host)) return refuse("403 Forbidden");
           else if (!via) {
             // Connect to the checked address, so a second lookup cannot point the name at the LAN.
-            target = await lookupWithin(host);
+            target = await lookupWithin(host, lookup);
             if (lanAddress(target)) return refuse("403 Forbidden");
           } else {
             // The upstream resolves the name itself. A name that this computer resolves to the LAN
             // is refused; a name it cannot resolve goes on, because the upstream may know it.
-            const address = await lookupWithin(host).catch(() => null);
+            const address = await lookupWithin(host, lookup).catch(() => null);
             if (address && lanAddress(address)) return refuse("403 Forbidden");
           }
         }
@@ -1350,7 +1350,7 @@ const usage = `Usage: emuly <command>
   up      Check gh, migrate the database and start Emuly (--prod adds --production)
   login   Sign in to GitHub through gh's device flow (codespace scope)
   doctor  Check gh, the token, the scope and the database directory
-  install emuly install <phone> <apk>... [-r] [-t] [-g] [-d]
+  install emuly install <phone> <apk>... [-r] [-t] [-g] [-d] [--abi <abi>]
           Install APKs. Checks the size and picks the upload route. Prints one line of JSON.
   link    emuly link <phone> <port>... [--to host[:port]] [--route ssh|relay]
           Get this file from your Emuly server: curl -fsSL "$EMULY_BASE_URL/v1/cli" -o emuly.mjs
