@@ -90,3 +90,14 @@ test("Installation only succeeds after Android confirms its version; committed i
     } finally { release(); await rm(directory, { recursive: true, force: true }); }
   }
 });
+test("A URL install on empty staging is accepted: the staging quota holds one full-size APK", async () => {
+  const root = await mkdtemp(join(tmpdir(), "apps-test-"));
+  try {
+    const apps = await createApps({ root, sdk: "/unavailable-sdk", run: async () => { throw new Error("Inspection unavailable"); },
+      adb: async () => "", booted: async () => true, exclusive: async (work: () => Promise<unknown>) => work() });
+    // Before the fix, this threw 507 staging_full on every phone, because MAX_APK (1 GiB) > the 512 MiB quota.
+    const created = await apps.create({ source: "url", key: randomUUID(), url: "https://example.invalid/app.apk" });
+    assert.equal(created.stage, "downloading");
+    await apps.cancel(created.id).catch(() => {});
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

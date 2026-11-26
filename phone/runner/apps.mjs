@@ -9,7 +9,9 @@ import { LOCAL_SERVER_URL, localServerUrls } from "./links-protocol.mjs";
 // Keep runner consumers compatible with the existing export names.
 export { MAX_APK, CHUNK_SIZE };
 const RESERVE = 1024 * 1024 * 1024;
-const STAGING_QUOTA = 512 * 1024 * 1024;
+// A URL install reserves MAX_APK before it knows the size, so the quota must hold at least one
+// MAX_APK, or every URL install fails with staging_full. Two leave room for one abandoned file.
+const STAGING_QUOTA = 2 * MAX_APK;
 const validPackage = value => typeof value === "string" && /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/.test(value) && value.length <= 255;
 const validId = value => typeof value === "string" && /^[0-9a-f-]{36}$/.test(value);
 
