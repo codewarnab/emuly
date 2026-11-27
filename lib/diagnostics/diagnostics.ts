@@ -133,24 +133,17 @@ function diagnosticQueries(database: DatabaseQueries, starts: Map<string, number
   }
   async function reconcile() {
     if (!allowed()) return;
+    const cutoff = new Date(Date.now() - ABANDONED_AFTER_MS).toISOString();
+    await closeQuietViewingSessions(cutoff);
     // On Vercel many instances run at once, each with its own observer id. Another observer's
     // record is abandoned only when no function could still be writing it: older than the
     // longest function run, with no step observed since.
-    const cutoff = new Date(Date.now() - ABANDONED_AFTER_MS).toISOString();
-    const abandoned = (await database.execute({ sql: `SELECT o.id, o.kind FROM diagnostic_operations o
-      WHERE o.observer_id != ? AND o.outcome = 'running' AND o.started_at < ?
+    const abandoned = (await database.execute({ sql: `SELECT o.id FROM diagnostic_operations o
+      WHERE o.observer_id != ? AND o.outcome = 'running' AND o.kind != 'viewing_session' AND o.started_at < ?
       AND NOT EXISTS (SELECT 1 FROM diagnostic_steps s WHERE s.operation_id = o.id AND s.observed_at >= ?) LIMIT 100`, args: [observer, cutoff, cutoff] })).rows;
     for (const row of abandoned) {
       await store.mark(String(row.id), "observer_restart", { outcome: "unknown", errorCode: "coverage_missing", quality: "missing" });
       await database.execute({ sql: "UPDATE diagnostic_operations SET observer_id = ? WHERE id = ?", args: [observer, row.id] });
-      if (row.kind === "viewing_session") {
-        await store.mark(String(row.id), "coverage_gap", { outcome: "unknown", errorCode: "coverage_missing", quality: "missing" });
-        for (const step of (await database.execute({ sql: "SELECT record FROM diagnostic_steps WHERE operation_id = ? AND producer = 'server' AND outcome = 'running' LIMIT 2048", args: [row.id] })).rows) {
-          const r = validateStep(JSON.parse(String(step.record)));
-          if (r) await write(String(row.id), { ...r, finishedAt: new Date().toISOString(), outcome: "interrupted", quality: "missing", errorCode: "observer_shutdown" });
-        }
-        await finish(String(row.id), "interrupted");
-      }
     }
     const rows = (await database.execute({ sql: `SELECT s.operation_id, s.record FROM diagnostic_steps s JOIN diagnostic_operations o ON o.id = s.operation_id
       WHERE s.producer = 'server' AND s.producer_run_id != ? AND s.outcome = 'running' AND o.outcome = 'running' AND s.observed_at < ? LIMIT 500`, args: [observer, cutoff] })).rows;
@@ -160,6 +153,31 @@ function diagnosticQueries(database: DatabaseQueries, starts: Map<string, number
         await write(String(row.operation_id), { ...r, finishedAt: new Date().toISOString(), outcome: "interrupted", errorCode: "observer_shutdown", quality: "missing" });
         await store.mark(String(row.operation_id), "observer_restart", { outcome: "unknown", errorCode: "coverage_missing", quality: "missing" });
       }
+    }
+  }
+  /**
+   * A viewing session ends when no step arrives for ABANDONED_AFTER_MS. The open session lives in the memory
+   * of one Vercel instance, and Vercel stops instances at any time, so the end is decided here from the
+   * stored steps, by any instance. A quiet end is the normal end: the viewer left. See docs/viewing-session-outcomes.md.
+   *   - a server step still running → "interrupted" (work was cut off)
+   *   - a failed step → "failed"
+   *   - otherwise → "succeeded"
+   */
+  async function closeQuietViewingSessions(cutoff: string) {
+    const quiet = (await database.execute({ sql: `SELECT o.id,
+        EXISTS (SELECT 1 FROM diagnostic_steps s WHERE s.operation_id = o.id AND s.producer = 'server' AND s.outcome = 'running') AS cut,
+        EXISTS (SELECT 1 FROM diagnostic_steps s WHERE s.operation_id = o.id AND s.outcome = 'failed') AS failed
+      FROM diagnostic_operations o WHERE o.kind = 'viewing_session' AND o.outcome = 'running' AND o.started_at < ?
+      AND NOT EXISTS (SELECT 1 FROM diagnostic_steps s WHERE s.operation_id = o.id AND s.observed_at >= ?) LIMIT 100`, args: [cutoff, cutoff] })).rows;
+    for (const row of quiet) {
+      const id = String(row.id);
+      if (Number(row.cut)) {
+        for (const step of (await database.execute({ sql: "SELECT record FROM diagnostic_steps WHERE operation_id = ? AND producer = 'server' AND outcome = 'running' LIMIT 2048", args: [id] })).rows) {
+          const r = validateStep(JSON.parse(String(step.record)));
+          if (r) await write(id, { ...r, finishedAt: new Date().toISOString(), outcome: "interrupted", quality: "missing", errorCode: "observer_shutdown" });
+        }
+      }
+      await finish(id, Number(row.cut) ? "interrupted" : Number(row.failed) ? "failed" : "succeeded");
     }
   }
   async function prune() {

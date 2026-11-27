@@ -83,7 +83,7 @@ Operations begin before provider mutations. Unconfirmed creation is reconciled w
 Setup attempts have durable retry deadlines and unique attempt IDs.
 Polling backoff also survives restarts. Retry intervals remain unchanged.
 Stop and deletion cancel applicable records. Stale completions cannot overwrite terminal results.
-Server observer attempts become interrupted after restart. Remote execution identities remain intact.
+Server observer attempts become interrupted after restart. Viewing sessions follow [viewing-session-outcomes.md](viewing-session-outcomes.md). Remote execution identities remain intact.
 Viewing windows rotate after 15 minutes and link to the current phone run.
 Account deletion cascades through linked diagnostic records.
 

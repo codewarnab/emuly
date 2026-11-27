@@ -140,3 +140,30 @@ test("a slow diagnostics database never slows the user or agent request", async 
     assert.equal((await f.database.execute({ sql: "SELECT count(*) AS n FROM diagnostic_steps WHERE code = 'github_create' AND outcome = 'succeeded'", args: [] })).rows[0]?.n, 1);
   } finally { f.close(); }
 });
+
+test("a quiet viewing session ends from stored steps: succeeded, failed, or interrupted only when work was cut off", async () => {
+  const f = await fixture();
+  try {
+    const old = new Date(Date.now() - 20 * 60000).toISOString();
+    const outcome = async (id: string) => (await f.database.execute({ sql: "SELECT outcome FROM diagnostic_operations WHERE id = ?", args: [id] })).rows[0]?.outcome;
+    const session = async (step?: Partial<Step>) => {
+      const id = (await f.store.operation(1, "phone-aaaa", "viewing_session", true))!;
+      if (step) await f.store.mark(id, "forwarded_probe", step);
+      await f.database.execute({ sql: "UPDATE diagnostic_operations SET started_at = ? WHERE id = ?", args: [old, id] });
+      await f.database.execute({ sql: "UPDATE diagnostic_steps SET observed_at = ? WHERE operation_id = ?", args: [old, id] });
+      return id;
+    };
+    const quiet = await session({});
+    const failed = await session({ outcome: "failed", errorCode: "provider_unavailable" });
+    const cut = await session({ outcome: "running", finishedAt: undefined });
+    const active = (await f.store.operation(1, "phone-aaaa", "viewing_session", true))!;
+    await f.store.mark(active, "forwarded_probe", {});
+    await f.database.execute({ sql: "UPDATE diagnostic_operations SET started_at = ? WHERE id = ?", args: [old, active] });
+    await f.store.reconcile();
+    assert.equal(await outcome(quiet), "succeeded");
+    assert.equal(await outcome(failed), "failed");
+    assert.equal(await outcome(cut), "interrupted");
+    assert.equal(await outcome(active), "running");
+    assert.equal((await f.database.execute({ sql: "SELECT count(*) AS n FROM diagnostic_steps WHERE code IN ('coverage_gap','observer_restart') AND operation_id = ?", args: [quiet] })).rows[0]?.n, 0);
+  } finally { f.close(); }
+});
