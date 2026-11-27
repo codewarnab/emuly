@@ -76,10 +76,13 @@ function createPhoneObservations(database: Client) {
       const a = attempts.get(r.attemptId);
       if (!a || a.expires < Date.now() || a.owner.userId !== phone.userId || a.owner.id !== phone.id || a.reports >= 180) return false;
       if (!await store.sameRun(a.window.operationId)) return false;
-      if (!["first_decoded", "first_painted", "presence", "reconnect", "screenshot_fallback"].includes(String(r.code))) return false;
+      if (!["first_decoded", "first_painted", "presence", "reconnect", "screenshot_fallback", "direct_path"].includes(String(r.code))) return false;
       if (!Number.isSafeInteger(r.durationMs) || Number(r.durationMs) < 0 || Number(r.durationMs) > 1800000
-        || typeof r.visible !== "boolean" || !["none", "socket_closed", "decoder_failed", "queue_full", "hidden", "stale", "phone_stopped"].includes(String(r.reason))) return false;
-      if (["first_decoded", "first_painted", "screenshot_fallback"].includes(String(r.code))) {
+        || typeof r.visible !== "boolean" || !["none", "socket_closed", "decoder_failed", "queue_full", "hidden", "stale", "phone_stopped", "timeout", "connection_failed"].includes(String(r.reason))) return false;
+      // The two direct reasons belong only to direct_path, and direct_path takes no other failure reason.
+      const directReason = r.reason === "timeout" || r.reason === "connection_failed";
+      if (directReason !== (r.code === "direct_path" && r.reason !== "none")) return false;
+      if (["first_decoded", "first_painted", "screenshot_fallback", "direct_path"].includes(String(r.code))) {
         if (a.milestones.has(String(r.code))) return true;
         a.milestones.add(String(r.code));
       } else if (Date.now() - a.lastPresence < 10000) return false;
@@ -88,7 +91,7 @@ function createPhoneObservations(database: Client) {
       const ts = new Date().toISOString();
       return store.write(a.window.operationId, { stepId: newDiagnosticId(), producer: "browser", producerRunId: a.runId, sequence: ++a.sequence,
         attempt: 1, startedAt: ts, finishedAt: ts, durationMs: r.durationMs, code: r.code, visible: r.visible,
-        outcome: "succeeded", errorCode: r.reason, quality: "observed_interval", ...(r.code === "presence" ? { presenceLeaseMs: 75000 } : {}) });
+        outcome: r.code === "direct_path" && r.reason !== "none" ? "failed" : "succeeded", errorCode: r.reason, quality: "observed_interval", ...(r.code === "presence" ? { presenceLeaseMs: 75000 } : {}) });
     },
   };
 }

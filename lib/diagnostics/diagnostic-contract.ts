@@ -7,6 +7,8 @@ export const stepCodes = [
   "android_boot", "stream_authorization", "stream_attach", "stream_detach", "first_decoded", "first_painted", "screenshot_fallback",
   "presence", "input_summary", "reconnect", "keep_awake", "awake_timer_start", "awake_timer_stop", "coverage_gap", "coverage_recovered",
   "observer_restart", "stop_intent", "provider_stop", "poll_backoff", "retry_wait", "collector",
+  // Browser: did the direct video path (codespace port 8791) open? errorCode none = opened, timeout = slow, connection_failed = blocked.
+  "direct_path",
 ] as const;
 export type StepCode = typeof stepCodes[number];
 export const outcomes = ["running", "succeeded", "failed", "cancelled", "interrupted", "skipped", "unknown"] as const;

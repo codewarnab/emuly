@@ -5,6 +5,12 @@ import { crossOrigin } from "../../../../../../lib/auth/origin";
 import { takeSharedStreamTicket } from "../../../../../../lib/phone/shared-stream-ticket";
 import { runnerStream } from "../../../../../../lib/phone/phone-runner";
 
+// TODO: move this relay off Vercel to a Cloudflare Worker. It is the video path for networks that
+// block *.app.github.dev (for example Reliance Jio DNS), so it cannot go away. On Vercel each viewer
+// holds a 2 GB function for up to 300 s and every video byte counts as Fast Origin Transfer.
+// A Worker that passes the WebSocket through bills mostly per request (waiting is not CPU time).
+// Check first: Cloudflare egress rules for WebSockets, latency from an Indian edge, and how the
+// Worker checks the stream ticket without a Turso round trip (for example a signed ticket, as on port 8791).
 export const maxDuration = 300;
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;

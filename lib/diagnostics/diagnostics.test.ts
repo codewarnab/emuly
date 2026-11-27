@@ -92,6 +92,12 @@ test("browser ingestion binds milestones to an owned server attempt and exposes 
     assert.equal((await api(request(), "phone-aaaa")).status, 204);
     assert.equal((await api(request(), "phone-aaaa")).status, 204);
     assert.equal((await f.database.execute({ sql: "SELECT count(*) AS n FROM diagnostic_steps WHERE code = 'first_painted'", args: [] })).rows[0]?.n, 1);
+    // direct_path: a failed open is stored as failed with its reason; direct reasons fit no other code.
+    assert.equal((await api(request({ code: "reconnect", reason: "timeout" }), "phone-aaaa")).status, 400);
+    assert.equal((await api(request({ code: "direct_path", reason: "stale" }), "phone-aaaa")).status, 400);
+    assert.equal((await api(request({ code: "direct_path", reason: "timeout" }), "phone-aaaa")).status, 204);
+    const direct = (await f.database.execute({ sql: "SELECT outcome, json_extract(record, '$.errorCode') AS error FROM diagnostic_steps WHERE code = 'direct_path'", args: [] })).rows;
+    assert.deepEqual(direct.map(row => [row.outcome, row.error]), [["failed", "timeout"]]);
     assert.equal((await api(new Request("https://app.invalid"), "phone-aaaa")).status, 405);
     await f.store.operation(1, "phone-aaaa", "resume", true);
     assert.equal((await api(request({ code: "first_decoded" }), "phone-aaaa")).status, 400);

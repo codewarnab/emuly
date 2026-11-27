@@ -234,6 +234,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
       const directFallback = () => {
         const result = performance.now() - directStarted < DIRECT_BLOCKED_MS ? "blocked" : "slow";
         markDirectFailed(id, result); options.onDirect?.(result); reportDirect(id, result);
+        report?.("direct_path", result === "blocked" ? "connection_failed" : "timeout");
         report?.("reconnect", "socket_closed"); stop(); void connect();
       };
       firstFrame = setTimeout(() => {
@@ -280,7 +281,7 @@ export function createPhoneVideoConnection(options: VideoConnectionOptions) {
       ws.onopen = () => {
         if (!current(ws, attempt)) return;
         opened = true; lastMessage = lastVideo = Date.now();
-        if (viaDirect) { options.onDirect?.("ok"); reportDirect(id, "ok"); }
+        if (viaDirect) { options.onDirect?.("ok"); reportDirect(id, "ok"); report?.("direct_path"); }
         onOpen?.();
         clearTimeout(firstFrame);
         firstFrame = setTimeout(() => { if (current(ws, attempt) && !painted) stale(); }, FIRST_FRAME_WAIT_MS);
