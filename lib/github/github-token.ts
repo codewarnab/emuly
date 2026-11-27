@@ -108,11 +108,22 @@ export function createAccessTokenProvider({ database, encrypt = seal, decrypt = 
   };
 }
 
+const logins = new Map<number, string>();
+/** The GitHub login of a self-host user. A user id never changes its account, so cache it. */
+async function selfHostLogin(userId: number): Promise<string> {
+  const known = logins.get(userId);
+  if (known) return known;
+  const row = (await asyncDb().execute({ sql: "SELECT login FROM users WHERE id = ?", args: [userId] })).rows[0];
+  if (!row || typeof row.login !== "string" || !row.login) throw new Error("This Emuly user is not in the local database. Run `emuly doctor`.");
+  logins.set(userId, row.login);
+  return row.login;
+}
+
 const providers = new WeakMap<Client, ReturnType<typeof createAccessTokenProvider>>();
 export function getAccessToken(userId: number, options: Options = {}): Promise<string> {
   // Self-host: the token lives in gh's own store and gh auto-refreshes it before printing.
-  // There is one user, so the userId is ignored; this also covers billingClient.
-  if (SELF_HOST) return ghToken();
+  // Ask gh for this user's own login, never the active account; this also covers billingClient.
+  if (SELF_HOST) return selfHostLogin(userId).then(login => ghToken(login));
   const database = asyncDb();
   let provider = providers.get(database);
   if (!provider) { provider = createAccessTokenProvider({ database }); providers.set(database, provider); }

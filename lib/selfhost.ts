@@ -46,9 +46,21 @@ function memoize(run: Run, args: string[], ttlMs: number, clock: () => number): 
 
 /** gh >= 2.103 auto-refreshes an expiring token before printing it, so this needs no
     refresh logic of our own and nothing token-shaped is stored in the database. The
-    timeout covers gh's cold-start network round-trips, not just the local exec. */
+    timeout covers gh's cold-start network round-trips, not just the local exec.
+    With a login, gh returns that account's token, not the active account's. A `gh auth switch`
+    while Emuly runs then cannot give one user's calls another account's codespaces: the sync
+    would read that other list and mark the user's phones deleted. */
 export function createGhTokenSource(run: Run, { ttlMs = 60_000, clock = Date.now } = {}) {
-  return memoize(run, ["auth", "token"], ttlMs, clock);
+  const sources = new Map<string, () => Promise<string>>();
+  return (login?: string) => {
+    const key = login?.toLowerCase() ?? "";
+    let source = sources.get(key);
+    if (!source) {
+      source = memoize(run, login ? ["auth", "token", "--hostname", "github.com", "--user", login] : ["auth", "token"], ttlMs, clock);
+      sources.set(key, source);
+    }
+    return source();
+  };
 }
 
 const ghToken = createGhTokenSource((file, args) => exec(file, args, 60_000));

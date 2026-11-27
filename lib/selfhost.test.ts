@@ -174,6 +174,21 @@ test("createGhTokenSource shares one in-flight read between concurrent callers",
   assert.equal(calls, 2);
 });
 
+test("createGhTokenSource asks gh for the named login, and caches each login apart", async () => {
+  const calls: string[] = [];
+  const run = async (_file: string, args: string[]) => {
+    calls.push(args.join(" "));
+    return args.includes("--user") ? `token-${args[args.length - 1]}` : "token-active";
+  };
+  const token = createGhTokenSource(run, { ttlMs: 60_000, clock: () => 1_000 });
+  assert.equal(await token("ditipriya02"), "token-ditipriya02", "the user's own account, not the active one");
+  assert.equal(await token("codewarnab"), "token-codewarnab");
+  assert.equal(await token("DitiPriya02"), "token-ditipriya02", "logins match without case");
+  assert.equal(await token(), "token-active");
+  assert.deepEqual(calls, ["auth token --hostname github.com --user ditipriya02",
+    "auth token --hostname github.com --user codewarnab", "auth token"]);
+});
+
 test("createGhTokenSource caches hits and rejections within the TTL and refetches after it", async () => {
   let time = 1_000;
   const clock = () => time;
