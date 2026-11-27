@@ -91,8 +91,8 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
   const diagnostics = createDiagnostics(database);
   // Diagnostics (anonymous): state-change counts. record() never waits; on Vercel, waitUntil keeps the flush alive.
   const states = createStateCounts(() => database, task => { if (process.env.VERCEL) waitUntil(task); });
-  void diagnostics.reconcile();
-  const iso = () => new Date(clock()).toISOString();
+  // diagnostics.reconcile() and prune() run once a minute in the scheduler (scheduler-parts.ts, reconcile.ts), not here.
+  const iso =() => new Date(clock()).toISOString();
   const setupWorking = new Map<string, number>();
   const SETUP_RETRY_MS = 10 * 60_000;
   const SETUP_CHECK_MS = 20_000;
@@ -924,8 +924,6 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     // the user adopt or delete them. Do not adopt them silently: a codespace from another project
     // can use the same name. Adopted phones lose their stored name, preset and idle timeout.
     async sync(userId: number) {
-      void diagnostics.reconcile();
-      void diagnostics.prune();
       const rows = (await database.execute({ sql: "SELECT id, codespace_name, state FROM phones WHERE user_id = ? AND state != 'deleted'", args: [userId] })).rows as unknown as { id: string; codespace_name: string; state: string }[];
       if (!rows.some(row => !row.codespace_name.startsWith("pending:")) && !(await unconfirmed(userId)).length) return;
       const spaces = await github.listCodespaces(userId);

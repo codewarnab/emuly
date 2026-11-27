@@ -471,4 +471,10 @@ export const MIGRATIONS = [
     PRIMARY KEY(day, release, from_state, to_state, reason, error_code, region, bucket_ms)
   );
   `,
+  // Diagnostics reconcile() reads only running rows. These partial indexes hold only those rows,
+  // so it no longer reads all of diagnostic_steps each run. The queries repeat these WHERE terms word for word.
+  `
+  CREATE INDEX diagnostic_operations_running ON diagnostic_operations(kind, started_at) WHERE outcome = 'running';
+  CREATE INDEX diagnostic_steps_server_running ON diagnostic_steps(observed_at) WHERE producer = 'server' AND outcome = 'running';
+  `,
 ];

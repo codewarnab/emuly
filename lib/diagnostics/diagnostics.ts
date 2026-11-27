@@ -133,13 +133,16 @@ function diagnosticQueries(database: DatabaseQueries, starts: Map<string, number
   }
   async function reconcile() {
     if (!allowed()) return;
+    // Every query below needs a running operation. The partial index diagnostic_operations_running makes this read 0 or 1 row.
+    if (!(await database.execute("SELECT 1 FROM diagnostic_operations WHERE outcome = 'running' LIMIT 1")).rows[0]) return;
     const cutoff = new Date(Date.now() - ABANDONED_AFTER_MS).toISOString();
     await closeQuietViewingSessions(cutoff);
     // On Vercel many instances run at once, each with its own observer id. Another observer's
     // record is abandoned only when no function could still be writing it: older than the
     // longest function run, with no step observed since.
+    // The unary + keeps SQLite off diagnostic_retention, so it uses the small diagnostic_operations_running index.
     const abandoned = (await database.execute({ sql: `SELECT o.id FROM diagnostic_operations o
-      WHERE o.observer_id != ? AND o.outcome = 'running' AND o.kind != 'viewing_session' AND o.started_at < ?
+      WHERE o.observer_id != ? AND o.outcome = 'running' AND o.kind != 'viewing_session' AND +o.started_at < ?
       AND NOT EXISTS (SELECT 1 FROM diagnostic_steps s WHERE s.operation_id = o.id AND s.observed_at >= ?) LIMIT 100`, args: [observer, cutoff, cutoff] })).rows;
     for (const row of abandoned) {
       await store.mark(String(row.id), "observer_restart", { outcome: "unknown", errorCode: "coverage_missing", quality: "missing" });
