@@ -31,6 +31,14 @@ export function runnerCurrent(health: RunnerHealth | null, version: number, scri
 }
 
 /**
+ * The runner is newer than this server's copy. This server is then an old deploy (for example the VM
+ * scheduler before its redeploy), and it must not install its older runner over the newer one.
+ */
+export function runnerNewer(health: RunnerHealth | null, version: number) {
+  return health?.ok === true && typeof health.version === "number" && health.version > version;
+}
+
+/**
  * The runner restarts only when nobody uses it: no stream viewer (a recording counts as one),
  * no link, no request in progress, and no request in the last RUNNER_UPDATE.runnerQuietMs.
  * A runner older than 17 does not report `busy`; then the server-side quiet time decides alone.
@@ -100,7 +108,14 @@ export function createRunnerUpdater({ database, version, scripts, health, androi
     return Boolean(row);
   }
 
-  type Result = "current" | "busy" | "updated" | "failed" | "waiting";
+  /** Keeps phones.runner_version at the last version /health reported. Writes only on a change. */
+  async function record(phone: UpdatePhone, runnerVersion: number | undefined) {
+    if (typeof runnerVersion !== "number") return;
+    await database.execute({ sql: "UPDATE phones SET runner_version = ? WHERE id = ? AND runner_version IS NOT ?",
+      args: [runnerVersion, phone.id, runnerVersion] }).catch(() => {});
+  }
+
+  type Result = "current" | "newer" | "busy" | "updated" | "failed" | "waiting";
   async function updateOne(phone: UpdatePhone): Promise<Result> {
     const now = clock();
     const backoff = failures.get(phone.id);
@@ -109,6 +124,8 @@ export function createRunnerUpdater({ database, version, scripts, health, androi
     const before = await health(phone).catch(() => null);
     // No answer: the phone may be booting or stopping; the sync and setup paths own that.
     if (!before) return "busy";
+    await record(phone, before.version);
+    if (runnerNewer(before, version)) { failures.delete(phone.id); return "newer"; }
     if (runnerCurrent(before, version, scripts(), keyFingerprint(phone.codespaceName))) { failures.delete(phone.id); return "current"; }
     if (!runnerIdle(before)) return "busy";
     const android = await androidIdleMs(phone).catch(() => null);
@@ -127,6 +144,7 @@ export function createRunnerUpdater({ database, version, scripts, health, androi
         for (;;) {
           if (runnerCurrent(await health(phone).catch(() => null), version, scripts(), keyFingerprint(phone.codespaceName))) {
             failures.delete(phone.id);
+            await record(phone, version);
             log(`[runner-update] ${phone.id}: runner ${version} answers; Android kept running`);
             return "updated";
           }

@@ -180,7 +180,9 @@ export function createPhoneSetup({ token, exec = codespaceExec }: {
   async function askHealth(userId: number, codespaceName: string, fetcher: typeof fetch) {
     const health = await readHealth(userId, codespaceName, fetcher);
     // A changed EMULY_DIRECT_SECRET leaves the old key on disk; a mismatch sends setup over SSH, which writes the new one.
-    return health?.ok === true && health.version === RUNNER_VERSION && health.scripts === scriptsVersion()
+    // A newer runner counts as ready: an old deploy (such as the VM scheduler before its redeploy) never installs its older runner.
+    return health?.ok === true && typeof health.version === "number"
+      && (health.version > RUNNER_VERSION || (health.version === RUNNER_VERSION && health.scripts === scriptsVersion()))
       && (health.key ?? null) === runnerKeyFingerprint(runnerSecret(codespaceName));
   }
   /** The runner's GET /health through GitHub's port forward, or null when it does not answer. */

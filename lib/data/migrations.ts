@@ -477,4 +477,6 @@ export const MIGRATIONS = [
   CREATE INDEX diagnostic_operations_running ON diagnostic_operations(kind, started_at) WHERE outcome = 'running';
   CREATE INDEX diagnostic_steps_server_running ON diagnostic_steps(observed_at) WHERE producer = 'server' AND outcome = 'running';
   `,
+  // The last runner version /health reported for each phone (lib/phone/runner-update.ts). Null: not seen yet.
+  `ALTER TABLE phones ADD COLUMN runner_version INTEGER;`,
 ];

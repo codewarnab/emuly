@@ -63,6 +63,24 @@ test("a quiet running phone with an old runner is updated in place and confirmed
   client.close();
 });
 
+test("an old deploy never installs its older runner over a newer one, and the version is recorded", async () => {
+  // 26 Nov 2026: a VM scheduler with runner 18 in its code replaced runner 25 with 18.
+  const client = await database([["p1", "running", "ready"]]);
+  const { updater, installs } = harness(client, { start: 25 });
+  assert.deepEqual([...await updater.pass()], [["p1", "newer"]]);
+  assert.deepEqual(installs, []);
+  assert.equal((await client.execute("SELECT runner_version FROM phones WHERE id = 'p1'")).rows[0]!.runner_version, 25);
+  client.close();
+});
+
+test("an update records the new runner version", async () => {
+  const client = await database([["p1", "running", "ready"]]);
+  const { updater } = harness(client);
+  await updater.pass();
+  assert.equal((await client.execute("SELECT runner_version FROM phones WHERE id = 'p1'")).rows[0]!.runner_version, 17);
+  client.close();
+});
+
 test("no update during a boot or a stop, or while Android is not ready", async () => {
   const client = await database([["boot", "booting", "idle"], ["stop", "stopping", "ready"], ["android", "running", "booting"], ["off", "stopped", "idle"]]);
   const { updater, installs } = harness(client);
