@@ -1,10 +1,12 @@
-// The direct (public) port. It serves `GET /stream` as a WebSocket and `PUT /adb` (a large file
-// for one adb command), each with its own kind of signed ticket.
+// The direct (public) port. It serves `GET /stream` as a WebSocket, `PUT /adb` (a large file
+// for one adb command) and `PUT /app-installs/<id>/content` (one browser APK chunk, with CORS),
+// each with its own kind of signed ticket.
 // Every other request gets 404. With no valid phone key it does not listen (fail closed).
 import { PORTS, isCodespaceName } from "./contracts.mjs";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { createNonceStore, createRateLimiter, TICKET_TTL_MS, UPLOAD_TICKET_TTL_MS, verifyTicket, verifyUploadTicket } from "./direct-ticket.mjs";
+import { CHUNK_TICKET_TTL_MS, createNonceStore, createRateLimiter, TICKET_TTL_MS, UPLOAD_TICKET_TTL_MS, verifyChunkTicket, verifyTicket, verifyUploadTicket } from "./direct-ticket.mjs";
+import { APK_CHUNK_BYTES } from "./contracts.mjs";
 
 const KEY = /^[0-9a-f]{64}$/;
 
@@ -26,13 +28,16 @@ export async function readPhoneKey(file) {
 /**
  * attach(client, quality, { audio }) connects an accepted socket to the shared video stream.
  * upload(req, ticketPayload) runs one adb file command with the request body as the files and returns JSON.
+ * chunk(operationId, bytes, offset, digest) stores one APK chunk of an Apps installation and returns its JSON view.
  * Returns { start, stop, revoke, clients, listening }.
  */
 export function createDirectServer({ ws, keyFile, port = /** @type {number} */ (PORTS.DIRECT), host = "127.0.0.1", attach, upload = /** @type {((req: any, ticket: any) => Promise<unknown>) | undefined} */ (undefined),
-  maxViewers = 8, upgradesPerMinute = 20, uploadsPerMinute = 10, keyPollMs = 5_000, qualities = /** @type {Record<string, unknown>} */ ({ auto: true }), log = () => {} }) {
+  chunk = /** @type {((id: string, bytes: Buffer, offset: number, digest: string) => Promise<unknown>) | undefined} */ (undefined),
+  maxViewers = 8, upgradesPerMinute = 20, uploadsPerMinute = 10, chunksPerMinute = 300, keyPollMs = 5_000, qualities = /** @type {Record<string, unknown>} */ ({ auto: true }), log = () => {} }) {
   const nonces = createNonceStore();
   const allow = createRateLimiter({ max: upgradesPerMinute, windowMs: 60_000 });
   const allowUpload = createRateLimiter({ max: uploadsPerMinute, windowMs: 60_000 });
+  const allowChunk = createRateLimiter({ max: chunksPerMinute, windowMs: 60_000 });
   const sockets = new ws.WebSocketServer({ noServer: true, maxPayload: 16_384, perMessageDeflate: false });
   const clients = new Map(); // client -> payload
   const revoked = { all: 0, users: new Map() };
@@ -50,9 +55,61 @@ export function createDirectServer({ ws, keyFile, port = /** @type {number} */ (
     return issued <= revoked.all || issued <= (revoked.users.get(payload.userId) ?? 0);
   }
 
+  /**
+   * `PUT /app-installs/<id>/content` with `Authorization: Emuly-Chunk <ticket>`, from the browser.
+   * The preflight carries no ticket, so it only names what the real request may send.
+   * The real request gets CORS headers only when the ticket's origin is the request's origin.
+   */
+  async function handleChunk(req, res, operationId) {
+    const origin = typeof req.headers.origin === "string" ? req.headers.origin : "";
+    const cors = origin ? { "access-control-allow-origin": origin, vary: "Origin" } : {};
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, { ...cors, "access-control-allow-methods": "PUT",
+        "access-control-allow-headers": "authorization, content-type, x-upload-offset, x-chunk-sha256",
+        "access-control-max-age": "600", "cache-control": "no-store" });
+      return res.end();
+    }
+    let allowed = false;
+    const send = (status, value, close = false) => {
+      res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", ...(allowed ? cors : {}), ...(close ? { connection: "close" } : {}) });
+      res.end(JSON.stringify(value));
+      if (close) res.once("finish", () => req.destroy());
+    };
+    if (!allowChunk(clientAddress(req))) return send(429, { error: "rate_limited", message: "Too many upload chunks. Wait one minute." }, true);
+    const match = /^Emuly-Chunk ([A-Za-z0-9_.-]+)$/.exec(req.headers.authorization ?? "");
+    const result = verifyChunkTicket(key, match?.[1], { codespace, operationId, origin });
+    if (!result.ok || isRevoked(result.payload, CHUNK_TICKET_TTL_MS)) {
+      log(`direct: chunk refused (${result.ok ? "revoked" : result.reason})`);
+      return send(401, { error: "invalid_ticket", message: "The upload ticket is missing, expired, or for another installation." }, true);
+    }
+    allowed = true;
+    const offsetText = String(req.headers["x-upload-offset"] ?? "");
+    const digest = String(req.headers["x-chunk-sha256"] ?? "");
+    if (req.headers["content-type"] !== "application/octet-stream" || !/^\d+$/.test(offsetText) || !/^[a-f0-9]{64}$/.test(digest))
+      return send(400, { error: "invalid_input", message: "Invalid upload offset, digest or content type." }, true);
+    if (Number(req.headers["content-length"]) > APK_CHUNK_BYTES) return send(413, { error: "upload_too_large", message: "Upload chunk too large." }, true);
+    req.setTimeout(30_000, () => req.destroy());
+    const parts = []; let size = 0;
+    try {
+      for await (const part of req) {
+        size += part.length;
+        if (size > APK_CHUNK_BYTES) return send(413, { error: "upload_too_large", message: "Upload chunk too large." }, true);
+        parts.push(part);
+      }
+    } catch { return; }
+    try { send(200, await chunk(operationId, Buffer.concat(parts), Number(offsetText), digest)); }
+    catch (error) {
+      const status = Number.isInteger(error?.status) ? error.status : 500;
+      send(status, { error: error?.code ?? (status < 500 ? "invalid_input" : "upload_failed"),
+        message: error?.status ? error.message : "The chunk could not be stored. Retry." });
+    }
+  }
+
   /** `PUT /adb` with `Authorization: Emuly-Ticket <ticket>`. The ticket, not the request, gives the args. */
   async function handle(req, res) {
     const url = new URL(req.url ?? "/", "http://localhost");
+    const chunkPath = /^\/app-installs\/([0-9a-f-]{36})\/content$/.exec(url.pathname);
+    if (chunkPath && key && chunk && (req.method === "PUT" || req.method === "OPTIONS")) return handleChunk(req, res, chunkPath[1]);
     if (req.method !== "PUT" || url.pathname !== "/adb" || !key || !upload) return notFound(req, res);
     const send = (status, value, close = false) => {
       res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", ...(close ? { connection: "close" } : {}) });

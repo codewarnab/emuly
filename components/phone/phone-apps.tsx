@@ -25,6 +25,32 @@ function withTimeout(signal: AbortSignal | null | undefined, ms: number): AbortS
   return controller.signal;
 }
 
+/** A direct chunk URL and ticket from the server (`direct` on an upload operation). */
+type DirectChunks = { url: string; ticket: string; exp: number };
+function parseDirect(value: unknown): DirectChunks | undefined {
+  const direct = (value as { direct?: Partial<DirectChunks> } | null)?.direct;
+  if (!direct || typeof direct.url !== "string" || !/^https:\/\/[a-z0-9-]+-8791\.app\.github\.dev$/.test(direct.url)
+    || typeof direct.ticket !== "string" || !Number.isSafeInteger(direct.exp)) return undefined;
+  return direct as DirectChunks;
+}
+/** After a failed direct chunk, this phone uses the Vercel path for 10 min, as the video does. */
+const DIRECT_RETRY_MS = 600_000;
+const directOffKey = (id: string) => `emuly:direct-upload-off:${id}`;
+/**
+ * True when the direct port answers within 5 s. A no-cors GET needs no preflight and no ticket:
+ * any answer (the runner's 404) resolves it, and a blocked or held connection rejects or times out.
+ */
+async function reachable(url: string, signal: AbortSignal) {
+  try { await fetch(`${url}/`, { mode: "no-cors", credentials: "omit", cache: "no-store", signal: withTimeout(signal, 5_000) }); return true; }
+  catch { signal.throwIfAborted(); return false; }
+}
+function directOff(id: string) {
+  try { return Number(sessionStorage.getItem(directOffKey(id)) ?? 0) > Date.now(); } catch { return false; }
+}
+function markDirectOff(id: string) {
+  try { sessionStorage.setItem(directOffKey(id), String(Date.now() + DIRECT_RETRY_MS)); } catch {}
+}
+
 export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
   const base = `/v1/phones/${encodeURIComponent(id)}`;
   const [apps, setApps] = useState<InstalledApp[] | null>(null);
@@ -118,14 +144,48 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
     return () => { clearInterval(timer); stream?.close(); document.removeEventListener("visibilitychange", connect); };
   }, [active, ready, base, refresh, refreshOperation]);
 
-  async function upload(file: File, initial: AppInstall, signal: AbortSignal) {
+  /** Asks the server for a new chunk ticket. Undefined means: use the Vercel path. */
+  async function renewDirect(operationId: string, signal: AbortSignal) {
+    try {
+      const response = await fetch(`${base}/app-installs/${operationId}?direct=1`, { cache: "no-store", signal: withTimeout(signal, 20_000) });
+      return response.ok ? parseDirect(await response.json()) : undefined;
+    } catch { signal.throwIfAborted(); return undefined; }
+  }
+  /** One chunk straight to the codespace. Returns the new state, or undefined when the chunk must go through Vercel. */
+  async function directChunk(ticket: DirectChunks, operationId: string, bytes: ArrayBuffer, offset: number, digest: string, signal: AbortSignal) {
+    try {
+      const response = await fetch(`${ticket.url}/app-installs/${operationId}/content`, { method: "PUT", body: bytes, mode: "cors", credentials: "omit",
+        cache: "no-store", signal: withTimeout(signal, 60_000),
+        headers: { authorization: `Emuly-Chunk ${ticket.ticket}`, "content-type": "application/octet-stream", "x-upload-offset": String(offset), "x-chunk-sha256": digest } });
+      if (response.status === 401) return "renew" as const;
+      return response.ok ? parseAppInstall(await response.json()) : undefined;
+    } catch { signal.throwIfAborted(); return undefined; }
+  }
+  async function upload(file: File, initial: AppInstall, signal: AbortSignal, firstTicket?: DirectChunks) {
     let current = initial;
+    let ticket = directOff(id) ? undefined : firstTicket;
+    let renewed = false;
+    // Some networks (for example Jio) block app.github.dev by holding the connection open, not by refusing it.
+    // A 5 s reach check finds that fast. A chunk time limit cannot, because a slow uplink needs long chunks.
+    if (ticket && !await reachable(ticket.url, signal)) { ticket = undefined; markDirectOff(id); }
     while (current.stage === "uploading" && current.bytesReceived < file.size) {
       const offset = current.bytesReceived;
       const bytes = await file.slice(offset, offset + APK_CHUNK_BYTES).arrayBuffer();
       const hash = await crypto.subtle.digest("SHA-256", bytes);
       const digest = Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, "0")).join("");
       let acknowledged = false;
+      // Direct first. Any failure sends this chunk, and the rest, through Vercel without a message.
+      if (ticket && ticket.exp - Date.now() < 15_000) ticket = renewed ? undefined : (renewed = true, await renewDirect(current.id, signal));
+      if (ticket) {
+        let result = await directChunk(ticket, current.id, bytes, offset, digest, signal);
+        if (result === "renew" && !renewed) {
+          renewed = true;
+          ticket = await renewDirect(current.id, signal);
+          result = ticket ? await directChunk(ticket, current.id, bytes, offset, digest, signal) : undefined;
+        }
+        if (result && result !== "renew") { current = result; acknowledged = true; }
+        else { ticket = undefined; markDirectOff(id); }
+      }
       for (let attempt = 0; attempt < 3 && !acknowledged; attempt++) {
         try {
           current = await api(`app-installs/${current.id}/content`, parseAppInstall, { method: "PUT", body: bytes, signal,
@@ -160,14 +220,16 @@ export function PhoneApps({ id, ready }: { id: string; ready: boolean }) {
     const abort = new AbortController(); controller.current = abort;
     try {
       let result: AppInstall;
-      if (request.id) result = await api(`app-installs/${request.id}`, parseAppInstall, { signal: abort.signal });
+      let ticket: DirectChunks | undefined;
+      const withDirect = (value: unknown) => { ticket = parseDirect(value); return parseAppInstall(value); };
+      if (request.id) result = await api(`app-installs/${request.id}${request.file && !directOff(id) ? "?direct=1" : ""}`, withDirect, { signal: abort.signal });
       else {
-        result = await api("app-installs", parseAppInstall, { ...json(request.file ? { source: "upload", key: request.key, filename: request.file.name, totalBytes: request.file.size }
+        result = await api("app-installs", withDirect, { ...json(request.file ? { source: "upload", key: request.key, filename: request.file.name, totalBytes: request.file.size }
           : { source: "url", key: request.key, url: request.url }), signal: abort.signal });
         request.id = result.id;
       }
       if (alive.current) setOperation(result);
-      if (request.file && result.stage === "uploading") await upload(request.file, result, abort.signal);
+      if (request.file && result.stage === "uploading") await upload(request.file, result, abort.signal, ticket);
       if (!request.file && alive.current) setUrl("");
     } catch (cause) {
       if (alive.current && !abort.signal.aborted) setError(cause instanceof Error ? cause.message : "Connection unavailable. Refresh status.");

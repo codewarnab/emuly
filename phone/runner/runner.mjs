@@ -399,7 +399,7 @@ function screenshot() {
 const ui = createUiReader({ adb });
 
 const routes = {
-  "GET /health": async () => ({ ok: true, version: RUNNER_VERSION, key: await runnerKey.fingerprint(), scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "pushEvents", "frameGrid", "screenshotScale", "fileFetch", "uiTree", "egress"], avd: "t", api_level: 36, booted: await booted(),
+  "GET /health": async () => ({ ok: true, version: RUNNER_VERSION, key: await runnerKey.fingerprint(), scripts: SCRIPTS_VERSION, capabilities: ["appsInventory", "apkUpload", "urlInstall", "appLaunch", "clipboard", "adbPassthrough", "adbFiles", "unicodeText", "links", "netCheck", "sharedStream", "directStream", "directUpload", "directChunk", "pushEvents", "frameGrid", "screenshotScale", "fileFetch", "uiTree", "egress"], avd: "t", api_level: 36, booted: await booted(),
     busy: { viewers: scrcpy.viewers(), links: links.count(), work: requestsInFlight + lifecycleWork + fetches.active() + (adbBusy ? 1 : 0) + (boot || stopping ? 1 : 0),
       idle_ms: Date.now() - lastRequestAt } }),
 
@@ -629,6 +629,8 @@ const direct = createDirectServer({ ws, keyFile: join(ROOT, ".direct-key"), port
   qualities: liveQualities, log: message => console.log(message),
   // Direct upload: the ticket carries the args. Only file commands get a ticket, so the result is JSON.
   upload: (req, ticket) => adbRoute(req, ticket),
+  // Browser APK chunks for one Apps installation (the chunk ticket names the operation).
+  chunk: (id, bytes, offset, digest) => apps.content(id, bytes, offset, digest),
   attach: (client, quality, options) => scrcpy.attach(client, quality, options) });
 void direct.start();
 const streams = new ws.WebSocketServer({ noServer: true, maxPayload: 16_384, perMessageDeflate: false });

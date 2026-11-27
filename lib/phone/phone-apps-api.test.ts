@@ -150,3 +150,32 @@ test("an agent's file fetch writes an activity row with its note and the host on
   assert.deepEqual(acted, [{ userId: 3, phoneId: "one", agentKeyId: 5, label: "Started a file download to the phone",
     command: "POST file-fetches files.example -> /sdcard/Download/a.json", note: "Get the test JSON" }]);
 });
+
+test("Apps gives a direct chunk ticket only to a signed-in browser upload, and a new one on GET ?direct=1", async () => {
+  const operation = { id: "11111111-1111-4111-8111-111111111111", source: "upload", filename: "app.apk",
+    stage: "uploading", bytesReceived: 0, totalBytes: 10, canCancel: true };
+  const ticket = { url: "https://cs-a-8791.app.github.dev", ticket: "t.s", exp: 1 };
+  const asked: { origin: string; operationId: string; codespaceName: string }[] = [];
+  const make = (authKind?: "agent", payload: Record<string, unknown> = operation) => createPhoneAppsApi({ user: async () => ({ id: 3, ...(authKind ? { authKind } : {}) }),
+    phone: () => ({ state: "running", android_state: "ready", codespace_name: "cs-a" }),
+    runner: async () => Response.json(payload),
+    direct: async input => { asked.push(input); return ticket; } });
+  const body = JSON.stringify({ source: "upload", key: "22222222-2222-4222-8222-222222222222", filename: "app.apk", totalBytes: 10 });
+
+  const browser = await (await make()(request("POST", body), "one", ["app-installs"])).json();
+  assert.deepEqual(browser.direct, ticket);
+  assert.deepEqual(asked.at(-1), { userId: 3, phoneId: "one", codespaceName: "cs-a", operationId: operation.id, origin: "https://emuly.test" });
+
+  // An agent key uses its own upload path, and a URL install or a finished stage has no chunks.
+  assert.equal((await (await make("agent")(request("POST", body), "one", ["app-installs"])).json()).direct, undefined);
+  assert.equal((await (await make(undefined, { ...operation, source: "url", totalBytes: null })(request("POST", body), "one", ["app-installs"])).json()).direct, undefined);
+  assert.equal((await (await make(undefined, { ...operation, stage: "validating" })(request("POST", body), "one", ["app-installs"])).json()).direct, undefined);
+
+  // Renewal: a same-origin GET (no Origin header) with ?direct=1. A plain status GET asks for nothing.
+  const count = asked.length;
+  const get = (query: string, site = "same-origin") => new Request(`https://emuly.test/v1/phones/one/app-installs/${operation.id}${query}`, { headers: { "sec-fetch-site": site } });
+  assert.equal((await (await make()(get(""), "one", ["app-installs", operation.id])).json()).direct, undefined);
+  assert.equal(asked.length, count);
+  assert.deepEqual((await (await make()(get("?direct=1"), "one", ["app-installs", operation.id])).json()).direct, ticket);
+  assert.equal((await (await make()(get("?direct=1", "cross-site"), "one", ["app-installs", operation.id])).json()).direct, undefined);
+});

@@ -1,7 +1,7 @@
 import "server-only";
 import { isCodespaceName } from "../shared/codespace-name.ts";
 import { createHash, createHmac, randomBytes } from "node:crypto";
-import { signTicket, signUploadTicket, TICKET_TTL_MS, UPLOAD_TICKET_TTL_MS } from "../../phone/runner/direct-ticket.mjs";
+import { CHUNK_TICKET_TTL_MS, signChunkTicket, signTicket, signUploadTicket, TICKET_TTL_MS, UPLOAD_TICKET_TTL_MS } from "../../phone/runner/direct-ticket.mjs";
 
 /**
  * The phone key for one codespace. It comes from EMULY_DIRECT_SECRET, so Emuly stores no
@@ -55,5 +55,20 @@ export function issueUploadTicket(input: UploadTicketInput, { secret, now = Date
   const ticket = signUploadTicket(key, { codespace: input.codespaceName, phoneId: input.phoneId, userId: input.userId,
     args: input.args, timeout_s: input.timeout_s, files: input.files.map(({ name, size, sha256 }) => ({ name, size, sha256 })),
     nonce: randomBytes(18).toString("base64url"), exp }) as string;
+  return { ticket, exp };
+}
+
+export type ChunkTicketInput = { codespaceName: string; phoneId: string; userId: number; operationId: string; origin: string };
+
+/**
+ * A ticket for `PUT https://<codespace>-8791.app.github.dev/app-installs/<operationId>/content` from the browser.
+ * Valid for 10 min and for every chunk of that one operation, from that one page origin.
+ */
+export function issueChunkTicket(input: ChunkTicketInput, { secret, now = Date.now() }: { secret?: string; now?: number } = {}) {
+  const key = phoneDirectKey(input.codespaceName, secret);
+  if (!key) return undefined;
+  const exp = now + CHUNK_TICKET_TTL_MS;
+  const ticket = signChunkTicket(key, { codespace: input.codespaceName, phoneId: input.phoneId, userId: input.userId,
+    operationId: input.operationId, origin: input.origin, exp }) as string;
   return { ticket, exp };
 }

@@ -8,7 +8,9 @@ import type { sharedAppAdmission } from "./app-admission.ts";
 import { readAgentNote } from "./agent-note.ts";
 import { PhoneResponseError, parseAppsResponse, parseFileFetch, parseFileFetches, parsePhoneError, parseRunnerUpdate, readPhoneResponse } from "./phone-response.ts";
 
-type Phone = { state: string; android_state: string };
+type Phone = { state: string; android_state: string; codespace_name?: string | null };
+/** A direct chunk URL and ticket for a browser upload (lib/phone/direct-stream.ts). */
+export type DirectChunkTicket = { url: string; ticket: string; exp: number };
 const global = globalThis as unknown as { __appAdmission?: Map<string, { userId: number; key: string; expires: number }>; __appTransfers?: number };
 const admission = global.__appAdmission ??= new Map();
 const headers = { "Cache-Control": NO_STORE, "X-Content-Type-Options": "nosniff" };
@@ -64,7 +66,7 @@ function fileFetchInput(input: unknown): Record<string, unknown> & { host: strin
 }
 
 /** One authorization boundary for inventory, operations, binary upload and launch. */
-export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmission, action }: {
+export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmission, action, direct }: {
   user: () => Promise<{ id: number; authKind?: "session" | "agent"; agentKeyId?: number } | null>;
   /** An activity row for an agent's file fetch, with its X-Emuly-Note. Agent keys only. */
   action?: (call: { userId: number; phoneId: string; agentKeyId: number; label: string; command: string; note: string | null }) => void | Promise<void>;
@@ -72,6 +74,11 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmissi
   runner: (userId: number, id: string, path: AppsPath, options: AppsRequest) => Promise<Response>;
   upgrade?: (userId: number, id: string) => Promise<{ status: string }>;
   sharedAdmission?: ReturnType<typeof sharedAppAdmission>;
+  /**
+   * A ticket so the browser can PUT chunks straight to the codespace, or undefined to keep the Vercel path.
+   * Asked only for a signed-in browser (session and Origin) and an upload still in the "uploading" stage.
+   */
+  direct?: (input: { userId: number; phoneId: string; codespaceName: string; operationId: string; origin: string }) => Promise<DirectChunkTicket | undefined>;
 }) {
   return async (request: Request, id: string, parts: string[]) => {
     let transfer = false;
@@ -183,7 +190,20 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmissi
       if (response.ok && route === "app-installs" && request.method === "GET"
         && "operations" in payload && payload.operations.every(item => installFinished(item.stage))) await release();
       if (!response.ok && route === "app-installs" && request.method === "POST" && response.status !== 409) await release();
-      return Response.json(payload, { status: response.ok && route === "app-installs" && request.method === "POST" ? 202 : response.status, headers });
+      // A browser upload gets a direct chunk ticket on create, and a new one on `GET app-installs/<id>?direct=1`.
+      const wantsDirect = (route === "app-installs" && request.method === "POST")
+        || (resource && !resource[2] && request.method === "GET" && new URL(request.url).searchParams.get("direct") === "1");
+      // A same-origin GET carries no Origin header. Then Sec-Fetch-Site proves the page origin.
+      const origin = request.headers.get("origin") && !crossOrigin(request, identity.authKind) ? request.headers.get("origin")
+        : request.method === "GET" && request.headers.get("sec-fetch-site") === "same-origin" ? new URL(request.url).origin : null;
+      let ticket: DirectChunkTicket | undefined;
+      if (direct && wantsDirect && response.ok && identity.authKind !== "agent" && origin && stored.codespace_name
+        && "stage" in payload && payload.stage === "uploading" && "source" in payload && payload.source === "upload" && "id" in payload) {
+        try { ticket = await direct({ userId: identity.id, phoneId: id, codespaceName: stored.codespace_name, operationId: String(payload.id), origin }); }
+        catch { ticket = undefined; }
+      }
+      return Response.json(ticket ? { ...payload, direct: ticket } : payload,
+        { status: response.ok && route === "app-installs" && request.method === "POST" ? 202 : response.status, headers });
     } catch (error) {
       // The claim named an operation the runner never created. Holding it would block
       // every retry on this account until the lease expired.

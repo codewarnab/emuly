@@ -2,7 +2,7 @@ import "server-only";
 import { PORTS, runnerHost } from "../../phone/runner/contracts.mjs";
 import { getAccessToken } from "../github/github-token.ts";
 import { makeDirectPortPublic } from "../github/codespace-tunnel.ts";
-import { issueDirectTicket } from "./direct-ticket.ts";
+import { issueChunkTicket, issueDirectTicket } from "./direct-ticket.ts";
 
 /** EMULY_DIRECT_STREAM: "off" (default), "all", or a comma list of user ids. */
 export function directStreamEnabled(userId: number, flag = process.env.EMULY_DIRECT_STREAM ?? "off") {
@@ -38,4 +38,20 @@ export async function directStream(input: { userId: number; phoneId: string; cod
   if (!ready) return undefined;
   const ticket = issueDirectTicket({ ...input });
   return ticket ? { url: `wss://${runnerHost(input.codespaceName, PORTS.DIRECT)}`, ticket } : undefined;
+}
+
+export type DirectChunks = { url: string; ticket: string; exp: number };
+
+/**
+ * The direct URL and chunk ticket for one browser APK upload, or undefined when the chunks must use Vercel.
+ * The caller checks that the runner reports the `directChunk` capability.
+ */
+export async function directChunks(input: { userId: number; phoneId: string; codespaceName: string; operationId: string; origin: string },
+  { ensure = ensureDirectPort, waitMs = PUBLIC_WAIT_MS }: { ensure?: typeof ensureDirectPort; waitMs?: number } = {}): Promise<DirectChunks | undefined> {
+  if (!directStreamEnabled(input.userId)) return undefined;
+  const ready = await Promise.race([ensure(input.userId, input.codespaceName),
+    new Promise<boolean>(resolve => setTimeout(() => resolve(false), waitMs))]);
+  if (!ready) return undefined;
+  const issued = issueChunkTicket(input);
+  return issued ? { url: `https://${runnerHost(input.codespaceName, PORTS.DIRECT)}`, ...issued } : undefined;
 }

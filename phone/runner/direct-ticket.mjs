@@ -114,3 +114,44 @@ export function verifyUploadTicket(phoneKey, ticket, { codespace, nonces, now = 
   }
   return { ok: true, payload };
 }
+
+// Chunk tickets: the browser PUTs APK chunks of one Apps installation to
+// `PUT /app-installs/<operationId>/content` on the direct port. A separate key label, so a
+// chunk ticket never opens a stream or an adb upload. One ticket covers every chunk of one
+// operation, so it has no nonce. It is bound to the operation, the codespace and the page origin.
+export const CHUNK_TICKET_TTL_MS = 600_000;
+const CHUNK_KEY_LABEL = "emuly-chunk-ticket-v1";
+
+function chunkKey(phoneKey) {
+  if (typeof phoneKey !== "string" || !/^[0-9a-f]{64}$/.test(phoneKey)) throw new Error("invalid phone key");
+  return createHmac("sha256", Buffer.from(phoneKey, "hex")).update(CHUNK_KEY_LABEL).digest();
+}
+
+/** payload: { codespace, phoneId, userId, operationId, origin, exp } */
+export function signChunkTicket(phoneKey, payload) {
+  const part = Buffer.from(JSON.stringify({ ...payload, kind: "chunk" })).toString("base64url");
+  return `${part}.${mac(chunkKey(phoneKey), part).toString("base64url")}`;
+}
+
+/**
+ * Checks signature, kind, expiry, codespace, operation and origin.
+ * Returns { ok: true, payload } or { ok: false, reason }. Callers never show the reason to the client.
+ */
+export function verifyChunkTicket(phoneKey, ticket, { codespace, operationId, origin, now = Date.now() }) {
+  if (typeof ticket !== "string" || ticket.length > MAX_TICKET_LENGTH) return { ok: false, reason: "format" };
+  const dot = ticket.indexOf(".");
+  if (dot < 1 || dot !== ticket.lastIndexOf(".")) return { ok: false, reason: "format" };
+  const part = ticket.slice(0, dot);
+  const given = Buffer.from(ticket.slice(dot + 1), "base64url");
+  const expected = mac(chunkKey(phoneKey), part);
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return { ok: false, reason: "signature" };
+  let payload;
+  try { payload = JSON.parse(Buffer.from(part, "base64url").toString("utf8")); }
+  catch { return { ok: false, reason: "format" }; }
+  if (!payload || typeof payload !== "object" || payload.kind !== "chunk") return { ok: false, reason: "format" };
+  if (!Number.isSafeInteger(payload.exp) || payload.exp <= now || payload.exp > now + CHUNK_TICKET_TTL_MS + 5_000) return { ok: false, reason: "expired" };
+  if (payload.codespace !== codespace) return { ok: false, reason: "phone" };
+  if (typeof operationId !== "string" || payload.operationId !== operationId) return { ok: false, reason: "operation" };
+  if (typeof payload.origin !== "string" || payload.origin !== origin) return { ok: false, reason: "origin" };
+  return { ok: true, payload };
+}

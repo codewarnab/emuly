@@ -11,11 +11,15 @@ import { recordPhoneAgentAction } from "../../../../../lib/phone/phone-activity"
 import { runnerUpdateMessage } from "@/lib/phone/phone-response";
 import { withApiUsage } from "@/lib/diagnostics/api-usage-route";
 import { createRunnerCapabilities } from "@/lib/phone/runner-capabilities";
+import { directChunks } from "@/lib/phone/direct-stream";
 
 const setup = createPhoneSetup({ token: getAccessToken });
 const capabilities = createRunnerCapabilities((userId, id) => runnerRequest(userId, id, "/health"));
 const upgrades = new Map<string, Promise<{ status: string }>>();
-const handle = createPhoneAppsApi({ user: getUser, phone: findPhone, action: recordPhoneAgentAction, sharedAdmission: {
+const handle = createPhoneAppsApi({ user: getUser, phone: findPhone, action: recordPhoneAgentAction,
+  // Old runners have no CORS on the direct port, so only a runner with `directChunk` gets a ticket.
+  direct: async input => (await capabilities.get(input.userId, input.phoneId)).includes("directChunk") ? directChunks(input) : undefined,
+  sharedAdmission: {
   current: (...args) => sharedAppAdmission(asyncDb()).current(...args),
   claim: (...args) => sharedAppAdmission(asyncDb()).claim(...args),
   release: (...args) => sharedAppAdmission(asyncDb()).release(...args),

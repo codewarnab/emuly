@@ -180,3 +180,72 @@ test("PUT /adb runs the ticket's command once and refuses a missing or used tick
     assert.equal(await httpStatus(server.port, "POST", "/adb"), 404);
   } finally { server.stop(); await rm(dir, { recursive: true, force: true }); }
 });
+
+function rawRequest(port: number, method: string, path: string, headers: Record<string, string>, body?: Buffer): Promise<{ status: number; headers: Record<string, unknown>; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = request({ host: "127.0.0.1", port, method, path, headers }, res => {
+      const chunks: Buffer[] = [];
+      res.on("data", chunk => chunks.push(chunk));
+      res.on("end", () => resolve({ status: res.statusCode!, headers: res.headers, body: Buffer.concat(chunks).toString() }));
+    });
+    req.on("error", reject);
+    req.end(body);
+  });
+}
+
+test("PUT /app-installs/<id>/content stores a browser chunk only with a chunk ticket for that operation and origin", async () => {
+  const { issueChunkTicket, issueUploadTicket } = await import("./direct-ticket.ts");
+  const dir = await mkdtemp(join(tmpdir(), "emuly-direct-"));
+  const keyFile = join(dir, ".direct-key");
+  await writeFile(keyFile, directKeyFile("phone-a", SECRET)!);
+  const seen: { id: string; bytes: string; offset: number; digest: string }[] = [];
+  const server = createDirectServer({ ws, keyFile, port: 0, keyPollMs: 50, attach: () => {},
+    chunk: async (id: string, bytes: Buffer, offset: number, digest: string) => { seen.push({ id, bytes: bytes.toString(), offset, digest }); return { id, bytesReceived: offset + bytes.length }; } });
+  await server.start();
+  const op = "11111111-2222-3333-4444-555555555555";
+  const other = "99999999-2222-3333-4444-555555555555";
+  const path = `/app-installs/${op}/content`;
+  const digest = "a".repeat(64);
+  const good = issueChunkTicket({ codespaceName: "phone-a", phoneId: "ph_a", userId: 7, operationId: op, origin: ORIGIN }, { secret: SECRET })!.ticket;
+  const headers = (ticket: string, origin = ORIGIN) => ({ origin, authorization: `Emuly-Chunk ${ticket}`, "content-type": "application/octet-stream", "x-upload-offset": "0", "x-chunk-sha256": digest });
+  try {
+    // The preflight names what the real request may send. It gives no access by itself.
+    const preflight = await rawRequest(server.port, "OPTIONS", path, { origin: ORIGIN, "access-control-request-method": "PUT" });
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers["access-control-allow-origin"], ORIGIN);
+    assert.match(String(preflight.headers["access-control-allow-headers"]), /authorization/);
+
+    const ok = await rawRequest(server.port, "PUT", path, headers(good), Buffer.from("hello"));
+    assert.equal(ok.status, 200);
+    assert.equal(ok.headers["access-control-allow-origin"], ORIGIN);
+    assert.deepEqual(seen, [{ id: op, bytes: "hello", offset: 0, digest }]);
+    // One ticket covers every chunk of the operation.
+    assert.equal((await rawRequest(server.port, "PUT", path, headers(good), Buffer.from("again"))).status, 200);
+
+    // Another origin, another operation, another phone, a stream or adb ticket, or no ticket: refused, with no CORS header.
+    const foreign = await rawRequest(server.port, "PUT", path, headers(good, "https://evil.example"), Buffer.from("x"));
+    assert.equal(foreign.status, 401);
+    assert.equal(foreign.headers["access-control-allow-origin"], undefined);
+    assert.equal((await rawRequest(server.port, "PUT", `/app-installs/${other}/content`, headers(good), Buffer.from("x"))).status, 401);
+    const otherPhone = issueChunkTicket({ codespaceName: "phone-b", phoneId: "ph_b", userId: 7, operationId: op, origin: ORIGIN }, { secret: SECRET })!.ticket;
+    assert.equal((await rawRequest(server.port, "PUT", path, headers(otherPhone), Buffer.from("x"))).status, 401);
+    assert.equal((await rawRequest(server.port, "PUT", path, headers(decodeURIComponent(ticket())), Buffer.from("x"))).status, 401);
+    const adb = issueUploadTicket({ codespaceName: "phone-a", phoneId: "ph_a", userId: 7, args: ["push", "@file0", "/sdcard/x"], timeout_s: 30,
+      files: [{ name: "x", size: 1, sha256: digest }] }, { secret: SECRET })!.ticket;
+    assert.equal((await rawRequest(server.port, "PUT", path, headers(adb), Buffer.from("x"))).status, 401);
+    const expired = issueChunkTicket({ codespaceName: "phone-a", phoneId: "ph_a", userId: 7, operationId: op, origin: ORIGIN }, { secret: SECRET, now: Date.now() - 700_000 })!.ticket;
+    assert.equal((await rawRequest(server.port, "PUT", path, headers(expired), Buffer.from("x"))).status, 401);
+    assert.equal((await rawRequest(server.port, "PUT", path, { ...headers(good), authorization: "" }, Buffer.from("x"))).status, 401);
+
+    // Bad input with a good ticket is refused before the chunk is stored.
+    assert.equal((await rawRequest(server.port, "PUT", path, { ...headers(good), "x-chunk-sha256": "nope" }, Buffer.from("x"))).status, 400);
+    // An oversize chunk is refused from Content-Length. The socket closes, so the client may see a reset instead of the 413.
+    const big = await rawRequest(server.port, "PUT", path, headers(good), Buffer.alloc(4 * 1024 * 1024 + 1)).catch((error: { code?: string }) => ({ status: error.code }));
+    assert.ok(big.status === 413 || big.status === "ECONNRESET" || big.status === "EPIPE");
+    assert.equal(seen.length, 2);
+
+    // A revoke for the user refuses the older chunk ticket.
+    server.revoke(7);
+    assert.equal((await rawRequest(server.port, "PUT", path, headers(good), Buffer.from("x"))).status, 401);
+  } finally { server.stop(); await rm(dir, { recursive: true, force: true }); }
+});
