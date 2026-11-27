@@ -35,5 +35,6 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     if (!actions) return undefined;
     if (actions.length > 0) after = actions[actions.length - 1].id;
     return { display, actions };
-  }, { intervalMs: 400 });
+  // 400 ms while an agent acts, 1.5 s after 30 s with no action (docs/vercel-and-response-hints-plan.md, B2).
+  }, { intervalMs: 400, quietIntervalMs: 1500, quietAfterMs: 30_000 });
 }
