@@ -35,7 +35,7 @@ function deps(client: ReturnType<typeof createClient>, { booted = true, checks =
 }
 
 const phone = async (client: ReturnType<typeof createClient>) =>
-  (await client.execute("SELECT android_state, last_activity_at FROM phones WHERE id = 'p1'")).rows[0]!;
+  (await client.execute("SELECT android_state, last_activity_at, android_ready_at FROM phones WHERE id = 'p1'")).rows[0]!;
 
 test("boot.ready from the phone, for the current attempt, marks it ready after /health confirms", async () => {
   const client = await database();
@@ -47,6 +47,7 @@ test("boot.ready from the phone, for the current attempt, marks it ready after /
   const row = await phone(client);
   assert.equal(row.android_state, "ready");
   assert.equal(row.last_activity_at, new Date(NOW).toISOString(), "Emuly's own clock starts the idle clock");
+  assert.equal(row.android_ready_at, new Date(NOW).toISOString(), "ready_at records when the boot ended");
   const step = (await client.execute("SELECT message FROM events WHERE phone_id = 'p1'")).rows[0]!;
   assert.equal(step.message, "Android ready (took 90 s)");
 });
@@ -86,7 +87,9 @@ test("boot.failed for the current attempt marks the boot failed", async () => {
   const client = await database();
   const response = await handleRunnerEvent(request({ type: "boot.failed", attempt: ATTEMPT }), deps(client));
   assert.equal((await response.json()).result, "applied");
-  assert.equal((await phone(client)).android_state, "failed");
+  const row = await phone(client);
+  assert.equal(row.android_state, "failed");
+  assert.equal(row.android_ready_at, null, "a failed boot does not set ready_at");
 });
 
 test("push and the boot call share one finish: the later one sees 'already', not a failure", async () => {

@@ -28,9 +28,11 @@ export async function finishBoot(database: Client, outcome: BootOutcome, now: nu
   return transaction(database, async queries => {
     // Android ready starts the idle clock, so a new phone does not count as idle at once.
     const result = await queries.execute({ sql: `UPDATE phones SET android_state = ?, android_error = ?,
-      last_activity_at = CASE WHEN ? THEN ? ELSE last_activity_at END
+      last_activity_at = CASE WHEN ? THEN ? ELSE last_activity_at END,
+      android_ready_at = CASE WHEN ? THEN ? ELSE android_ready_at END
       WHERE user_id = ? AND id = ? AND state = 'running' AND android_state = 'booting' AND android_started_at = ?`,
-    args: [state, booted ? null : BOOT_FAILED_DETAIL, booted ? 1 : 0, new Date(now).toISOString(), userId, id, attempt] });
+    args: [state, booted ? null : BOOT_FAILED_DETAIL, booted ? 1 : 0, new Date(now).toISOString(),
+      booted ? 1 : 0, new Date(now).toISOString(), userId, id, attempt] });
     if (result.rowsAffected) {
       const took = Math.round((now - Date.parse(outcome.firstStarted ?? attempt)) / 1000);
       const message = booted ? `Android ready (took ${took} s)` : `Android boot failed: ${BOOT_FAILED_DETAIL}`;

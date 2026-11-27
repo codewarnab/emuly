@@ -479,4 +479,6 @@ export const MIGRATIONS = [
   `,
   // The last runner version /health reported for each phone (lib/phone/runner-update.ts). Null: not seen yet.
   `ALTER TABLE phones ADD COLUMN runner_version INTEGER;`,
+  // When Android last became ready (lib/phone/boot-finish.ts), for the /v1 boot progress. Null: never ready.
+  `ALTER TABLE phones ADD COLUMN android_ready_at TEXT;`,
 ];

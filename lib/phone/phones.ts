@@ -31,6 +31,8 @@ export type Phone = {
   android_state: string;
   android_started_at: string | null;
   android_error: string | null;
+  /** When Android last became ready (lib/phone/boot-finish.ts). */
+  android_ready_at?: string | null;
   /** The last human or agent action (lib/phone/idle-stop.ts). */
   last_activity_at?: string | null;
   /** Screen preset id (lib/shared/device-presets.ts). */
@@ -40,7 +42,7 @@ export type Phone = {
 };
 
 const columns = `id, codespace_name, machine, state, state_detail, created_at, retention_at, idle_timeout_min,
-  last_started_at, last_stopped_at, cores, retention_min, android_state, android_started_at, android_error, device_preset, last_activity_at, location,
+  last_started_at, last_stopped_at, cores, retention_min, android_state, android_started_at, android_error, android_ready_at, device_preset, last_activity_at, location,
   EXISTS(SELECT 1 FROM phone_keeps WHERE phone_id = phones.id) AS keeping,
   EXISTS(SELECT 1 FROM phone_setup_attempts WHERE phone_id = phones.id AND failed = 1) AS setup_failed`;
 

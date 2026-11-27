@@ -24,7 +24,13 @@ when Android is ready, when the start fails, or after 60 s. The answer has
 
 - `done: true`: the phone is running and Android is ready.
 - `timed_out: true`: it still boots. Send a short progress line, then call the same URL again.
+  Use `boot.stage` and `boot.elapsed_s` in that line, for example "emulator_booting, 3 min".
 - `failed: true`: read `state` and `android_state`, and tell the user.
+
+Every phone read has `boot: {stage, elapsed_s, ready_at, step?, note?, hint?}`. The stages in order are
+`codespace_creating`, `codespace_starting`, `android_setup`, `emulator_booting`, then `ready`.
+`ready_at` is the time Android became ready. After 5 min, `note` and `hint` say if the wait is
+normal and what to do next. Follow `hint`.
 
 Booting can take several minutes. Do not create a second phone while the first one is booting.
 
