@@ -54,7 +54,8 @@ Only when the task needs it:
 | Install an APK, push or pull a file | `references/tasks/apps.md` |
 | Take a screenshot, or record the screen | `references/tasks/screenshots.md` |
 | Add captions to a video, or a before/after video for a PR | `references/tasks/annotate.md` |
-| Delete a phone, or an error you do not know | `references/tasks/delete-and-errors.md` |
+| Delete a phone | `references/tasks/delete-and-errors.md` |
+| An error code you do not know | `references/tasks/errors.md`, only that code's section |
 | The user asks for native adb or scrcpy, or hot reload with flutter, expo or Android Studio | `references/tasks/native-adb.md` |
 | The app calls a server (always check before a test) | `references/tasks/local-servers.md` |
 | Phone traffic must leave from the user's computer, network or a proxy they name | `references/tasks/proxy.md` |
@@ -98,6 +99,7 @@ Every error reply has `error` (a stable code) and `message`. Many also have:
 - `retry_after` and `max_retries`: wait that many seconds; stop after that many tries.
 - `needs_user: true`: only the user can do this step. Ask them in one line, with `user_url` if there is one.
 - `use_cli`: how to get the Emuly CLI. If Node 22+ is installed, run `install`, then `then`. Otherwise ignore it.
+- `docs`: a link to the section for this code in `references/tasks/errors.md`. Read it only when `fix` is not enough.
 
 ## How to talk to the user
 

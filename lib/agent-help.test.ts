@@ -135,3 +135,14 @@ test("refusals that are not bad input get their own code and a fitting fix", asy
   // An adb phone_conflict (a busy runner) keeps no state fix.
   assert.equal(addAgentHelp({ error: "phone_conflict", message: "x", ran: false }, ctx(409, "/v1/phones/p-1/adb", curl)).fix, undefined);
 });
+
+test("every error code has a section in the skill's errors page, and every section is a code", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { ERROR_CODES, ERRORS_DOC } = await import("./error-codes.ts");
+  const page = readFileSync(new URL(`../content/skills/emuly-playbook/${ERRORS_DOC}`, import.meta.url), "utf8");
+  const headings = [...page.matchAll(/^## (\S+)$/gm)].map(match => match[1]);
+  assert.deepEqual([...headings].sort(), [...ERROR_CODES].sort());
+  const helped = addAgentHelp({ error: "busy", message: "x" }, ctx(409, "/v1/phones/p-1/start", curl));
+  assert.equal(helped.docs, `${BASE}/.well-known/skills/emuly-playbook/${ERRORS_DOC}#busy`);
+  assert.equal(addAgentHelp({ error: "made_up", message: "x" }, ctx(409, "/v1/phones", curl)).docs, undefined);
+});

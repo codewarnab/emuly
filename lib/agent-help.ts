@@ -10,7 +10,10 @@
  *
  * The route wrapper (lib/diagnostics/api-usage-route.ts) calls `addAgentHelp` on each JSON error,
  * so new routes get the help without extra code. Fields a route already set are never replaced.
+ * `docs` links to the section for the code in the skill's errors page.
  */
+
+import { errorDocsUrl, isErrorCode } from "./error-codes.ts";
 
 export type Fix = {
   method: "GET" | "POST" | "PUT" | "DELETE";
@@ -179,6 +182,8 @@ export function addAgentHelp(body: Record<string, unknown>, context: {
       out.report ??= ISSUE_URL;
       break;
   }
+
+  if (isErrorCode(code) && !has(out, "docs")) out.docs = errorDocsUrl(context.baseUrl, code);
 
   if (caller !== "cli" && caller !== "browser" && !has(out, "use_cli")) {
     out.use_cli = useCli(caller, context.baseUrl, /\/adb(\/upload)?$/.test(context.pathname) || code === "upload_too_large"
