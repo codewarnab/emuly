@@ -134,7 +134,7 @@ test("adb requires a ready phone and the same Origin rule as the other routes", 
     origin: "https://emuly.test" }), stored.id);
   assert.equal(response.status, 409);
   const notReady = await response.json();
-  assert.match(notReady.message, /Start it/);
+  assert.match(notReady.hint, /Start it/);
   assert.deepEqual([notReady.fix.method, notReady.fix.path], ["POST", "/v1/phones/phone-quiet-falcon/start"]);
   assert.match(notReady.fix.then.path, /wait_for=ready/);
   assert.deepEqual(stoppedCalls, [`phone:7:${stored.id}`]);
@@ -507,6 +507,11 @@ test("an adb error says whether the command ran, and the Idempotency-Key reaches
   const lost = await (await tap()).json();
   assert.equal(lost.ran, "unknown");
   assert.match(lost.message, /may have run/);
+  // No `ran` from the runner: an old runner ignores the key, so even a keyed call checks the screen first.
+  const lostKeyed = await (await tap({ "idempotency-key": "tap-2" })).json();
+  assert.deepEqual(lostKeyed.fix, { method: "GET", path: `/v1/phones/${stored.id}/screenshot` });
+  assert.deepEqual(lostKeyed.if_fix_fails, { same_request: true, same_idempotency_key: true });
+  assert.equal(lostKeyed.max_retries, 1);
   reply = () => { throw new Error("socket hang up"); };
   const dropped = await tap();
   assert.equal(dropped.status, 502);

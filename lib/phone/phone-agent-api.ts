@@ -18,7 +18,7 @@ import type { RecordingAction } from "./phone-link.ts";
 import { notesVtt, type RecordingNote } from "./recording-notes.ts";
 import { runnerUpdateMessage } from "./phone-response.ts";
 import { bootProgress } from "./boot-progress.ts";
-import { phoneNotReady } from "../agent-help.ts";
+import { checkScreenFirst, phoneNotReady } from "../agent-help.ts";
 
 type Identity = { id: number; login?: string; authKind?: "session" | "agent"; agentKeyId?: number };
 type PhoneView = Pick<Phone, "id" | "name" | "state" | "android_state" | "idle_timeout_min"> & Partial<Pick<Phone, "codespace_name" | "last_activity_at" | "android_started_at" | "last_started_at" | "keeping" | "state_detail" | "setup_failed" | "created_at" | "android_ready_at">> & { device_preset?: string; location?: string | null };
@@ -465,13 +465,16 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
           }
           // ran: false = adb did not start, a retry is safe. true = it ran. "unknown" = it may have run:
           // check the phone before a retry, or retry with the same Idempotency-Key.
-          const ran = value.ran === true || value.ran === false || value.ran === "unknown" ? value.ran : "unknown";
+          // No `ran` means an old runner or a lost reply: the key may not be kept, so check the screen first.
+          const runnerSaid = value.ran === true || value.ran === false || value.ran === "unknown";
+          const ran = runnerSaid ? value.ran : "unknown";
           const message = typeof value.error === "string" ? value.error
             : `The phone's reply was lost (HTTP ${response.status}). The command may have run.`;
           const status = [400, 409, 413, 415, 503, 504].includes(response.status) ? response.status : 502;
           const error = status === 409 ? "phone_conflict" : status === 413 ? "output_too_large" : status === 415 ? "invalid_input"
             : status === 503 ? "adb_unavailable" : status === 504 ? "adb_timeout" : "adb_failed";
-          return json({ error, message, ran, ...(value.replayed === true ? { replayed: true } : {}) }, status === 415 ? 400 : status);
+          return json({ error, message, ran, ...(value.replayed === true ? { replayed: true } : {}),
+            ...(runnerSaid ? {} : checkScreenFirst(id, key !== undefined)) }, status === 415 ? 400 : status);
         }
         if (binary && download && response.body) {
           // Stream the file through. Buffering it here would hit the Vercel response limit again.

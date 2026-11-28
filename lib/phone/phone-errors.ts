@@ -23,6 +23,6 @@ export function phoneInputReply(error: PhoneInputError): { status: number; body:
   // Same reply as every other missing phone, so it says nothing about other accounts.
   const message = error.code === "not_found" ? "Phone not found." : error.message;
   const busy = error.code === "busy";
-  return { status: STATUS[error.code], body: { error: error.code, message, ...error.extra, ...(busy ? { retry_after: 5 } : {}) },
+  return { status: STATUS[error.code], body: { ...error.extra, error: error.code, message, ...(busy ? { retry_after: 5 } : {}) },
     ...(busy ? { headers: { "Retry-After": "5" } } : {}) };
 }

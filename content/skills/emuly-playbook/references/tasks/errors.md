@@ -108,6 +108,8 @@ pull the file, or ask for less output.
 ## phone_conflict
 The phone is in the wrong state for this step, or another step holds it. With a `fix`, read the phone,
 then do the step that fits its state. For adb, wait for the first command to finish, then retry.
+With `reason: "duplicate"`, GitHub has two codespaces for this phone: give the user `user_url` to delete
+the extra one. Do not retry before that.
 
 ## phone_not_ready
 The phone is not running with Android ready. `fix` depends on `state`: a stopped phone needs a start,

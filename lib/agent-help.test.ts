@@ -37,7 +37,7 @@ test("phone_not_ready says wait, not start, while the phone boots", () => {
   assert.equal(booting.body.fix && (booting.body.fix as { method: string }).method, "GET");
   assert.match(String((booting.body.fix as { path: string }).path), /wait_for=ready/);
   assert.equal(booting.headers?.["Retry-After"], "10");
-  assert.match(String(booting.body.message), /Do not start it again/);
+  assert.match(String(booting.body.hint), /Do not start it again/);
   for (const state of [["stopped", "stopped"], ["running", "booting"], ["stopping", "ready"], ["deleted", "stopped"], ["error", "stopped"], ["starting", "stopped"]]) {
     const { body } = phoneNotReady("p-1", { state: state[0]!, android_state: state[1]! });
     assert.equal(body.error, "phone_not_ready");
@@ -145,4 +145,13 @@ test("every error code has a section in the skill's errors page, and every secti
   const helped = addAgentHelp({ error: "busy", message: "x" }, ctx(409, "/v1/phones/p-1/start", curl));
   assert.equal(helped.docs, `${BASE}/.well-known/skills/emuly-playbook/${ERRORS_DOC}#busy`);
   assert.equal(addAgentHelp({ error: "made_up", message: "x" }, ctx(409, "/v1/phones", curl)).docs, undefined);
+});
+
+test("phone_not_ready keeps a short message for people and puts the agent steps in hint", () => {
+  const booting = phoneNotReady("p-1", { state: "running", android_state: "booting" }).body;
+  assert.equal(booting.message, "The phone is starting. Wait until it is ready.");
+  assert.match(String(booting.hint), /Do not start it again/);
+  const stopped = phoneNotReady("p-1", { state: "stopped", android_state: "stopped" }).body;
+  assert.equal(stopped.message, "Start the phone to use this.");
+  assert.match(String(stopped.hint), /Start it, wait until ready/);
 });

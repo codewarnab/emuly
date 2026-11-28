@@ -74,16 +74,33 @@ export function phoneNotReady(id: string, stored: Stored): { body: Record<string
   }
   if (stored.state === "stopped" || stored.state === "error" || (stored.state === "running" && stored.android_state === "failed")) {
     const start = { method: "POST", path: `${phonePath(id)}/start`, then: waitReady(id) };
-    return { body: { ...base, message: `The phone is ${stored.state} with Android ${stored.android_state}. Start it, wait until ready, then retry.`, fix: start } };
+    return { body: { ...base, message: "Start the phone to use this.", hint: `The phone is ${stored.state} with Android ${stored.android_state}. Start it, wait until ready, then retry.`, fix: start } };
   }
   if (stored.state === "stopping") {
-    return { body: { ...base, message: "The phone is stopping. Wait until it is stopped, then start it.", retry_after: 10,
+    return { body: { ...base, message: "The phone is stopping. Start it again when it has stopped.", hint: "Wait until it is stopped, then start it.", retry_after: 10,
       fix: { ...waitStopped(id), then: { method: "POST", path: `${phonePath(id)}/start`, then: waitReady(id) } } },
     headers: { "Retry-After": "10" } };
   }
   // Starting, or running while Android boots: only wait. Do not send another start.
-  return { body: { ...base, message: `The phone is ${stored.state} with Android ${stored.android_state}. Wait until ready, then retry. Do not start it again.`,
+  return { body: { ...base, message: "The phone is starting. Wait until it is ready.",
+    hint: `The phone is ${stored.state} with Android ${stored.android_state}. Wait until ready, then retry. Do not start it again.`,
     retry_after: 10, fix: waitReady(id) }, headers: { "Retry-After": "10" } };
+}
+
+/**
+ * Help for an adb command that may have run, when a retry key cannot be trusted: check the screen first.
+ * Used without a key, and when the runner gave no `ran` (an old runner ignores the key, so a retry
+ * with the same key would run the command again).
+ */
+export function checkScreenFirst(id: string, keyed: boolean): Record<string, unknown> {
+  return {
+    fix: { method: "GET", path: `${phonePath(id)}/screenshot` },
+    if_fix_fails: keyed ? { same_request: true, same_idempotency_key: true } : { send_again: true, new_idempotency_key: true },
+    max_retries: 1,
+    hint: keyed
+      ? "The command may have run, and this phone may not keep the Idempotency-Key. Check the screen first. Send it again only if the change is not there."
+      : "The command may have run. Check the screen first. Send it again only if the change is not there, with an Idempotency-Key header.",
+  };
 }
 
 /** The phone id in a /v1/phones/{id}/... path, or undefined. */
@@ -118,12 +135,7 @@ export function addAgentHelp(body: Record<string, unknown>, context: {
       out.fix ??= { same_request: true, same_idempotency_key: true };
       out.max_retries ??= 2;
       out.hint ??= "Retry with the same Idempotency-Key: the phone replays the first result and does not run the command again. After a phone restart the key is gone, so check the screen first.";
-    } else {
-      out.fix ??= { method: "GET", path: `${phonePath(id)}/screenshot` };
-      out.if_fix_fails ??= { send_again: true, new_idempotency_key: true };
-      out.max_retries ??= 1;
-      out.hint ??= "The command may have run. Check the screen first. Send it again only if the change is not there, with an Idempotency-Key header.";
-    }
+    } else Object.assign(out, { ...checkScreenFirst(id, false), ...out });
     if (out.retry_after === undefined && code === "request_failed") out.retry_after = 3;
   }
 

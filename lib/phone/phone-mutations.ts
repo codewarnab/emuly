@@ -784,9 +784,10 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       await database.execute({ sql: "UPDATE phone_creations SET outcome = 'failed' WHERE phone_id = ? AND outcome = 'unconfirmed'", args: [id] });
       return;
     }
-    throw new PhoneStateError("phone_conflict", matches.length === 0
-      ? "GitHub is still creating this phone. Try again in a few minutes."
-      : "GitHub has more than one codespace with this phone's name. Delete the extra one on GitHub first.", { reason: "unconfirmed" });
+    if (matches.length === 0) throw new PhoneStateError("phone_conflict", "GitHub is still creating this phone. Try again in a few minutes.", { reason: "unconfirmed" });
+    // Only the user can delete the extra codespace: reading the phone again never helps.
+    throw new PhoneStateError("phone_conflict", "GitHub has more than one codespace with this phone's name. Delete the extra one on GitHub first.",
+      { reason: "duplicate", needs_user: true, user_url: "https://github.com/codespaces" });
   }
 
   async function remove(userId: number, id: string) {
