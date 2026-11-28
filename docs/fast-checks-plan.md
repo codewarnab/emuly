@@ -106,7 +106,8 @@ Expected: setup ~13 s → ~3 s per job.
 
 ### Phase 4: the same check before push (local hook)
 
-- Add a pre-push hook (for example `hk`, or a plain `.githooks/pre-push`) that runs lint + test, the
+- **Decided (28 Nov 2026): a plain `.githooks/pre-push`**, turned on by `git config core.hooksPath` from a pnpm `prepare` script. `hk` was rejected: a new tool every clone must install.
+- Add a pre-push hook that runs lint + test, the
   same as CI. A hook, not a line in `AGENTS.md`, because agents skip steps.
 - Pre-commit: only fast checks on staged files (the type check, and shellcheck on changed `.sh`).
 - Budget: under 10 s for pre-commit. Pre-push takes as long as the full suite, about 30 s after Phase 1.
