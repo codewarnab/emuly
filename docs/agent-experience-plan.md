@@ -69,7 +69,7 @@ Done when: `old_client` shows up in the counts and write failures are near 0.
 - Done: CLI prints `emuly: next: <fix>` on stderr. Skill section "When a call fails"; `AGENT_RUNBOOK_VERSION` 2026-11-28.1.
 - Done (Phase 0 items): `clientOf` no longer counts PowerShell as a browser; `old_client` works with skill hash versions.
 - Tests: `lib/agent-help.test.ts` (each `fix.path` must be a real `/v1` route). Lint, 622 tests and build pass.
-- Not done: `github_refused` reasons, `invalid_input` `field`/`allowed`, the state-aware `phone_not_ready` in the apps, stream and diagnostics APIs, `docs` links, `if_fix_fails` for the timeout `ran: "unknown"` case.
+- Not done (researched, see Phase 1b): `github_refused` reasons, `invalid_input` `field`/`allowed`, the state-aware `phone_not_ready` in the apps, stream and diagnostics APIs, `docs` links, `if_fix_fails` for the timeout `ran: "unknown"` case.
 - Not done: checking it against a live phone.
 
 **Format** (keeps today's fields, so old clients don't break):
@@ -131,6 +131,212 @@ and RFC 9457 adds nothing that an agent uses.
 - Self-host vs hosted: paths are relative (`/v1/...`) so they work on any base URL. `docs` uses `baseUrl()`.
 - Old agents ignore the new fields. Nothing breaks.
 - Size: `fix` adds about 150 bytes to an error reply. Nothing is added to success replies in this phase.
+
+### Phase 1b: the 5 open items (researched 28 Nov 2026, not built)
+
+Each item lists what the code does today, the change, and the edge cases. Rules for all 5:
+- The reply must be the same for another user's phone, a deleted phone and a wrong id.
+- Never put a token, a key, an IP or raw GitHub text with secrets into a new field. All GitHub text
+  goes through `redact` first, as today.
+- Only add fields. Old CLI and skill versions read `error` and `message`, and those keep their values.
+- Every `fix.path` must match `V1_ROUTES` (the test in `lib/agent-help.test.ts` already checks this).
+- Each new field is small and fixed. The whole body stays under `HELP_BODY_LIMIT` (16 KB).
+
+#### 1. `github_refused`: a `reason` and a fix for each
+
+Today:
+- One body builder: `lib/phone/github-refused.ts` gives `{ error, message, github_login? }`. It is used by
+  `errorResponse` (`lib/http.ts:23`, always **409**) and `lib/phone/delete-phone.ts:21`.
+- `GitHubError` (`lib/github/github.ts:45`) keeps only `status`, `retryAfter`, `rateLimited` and the message.
+- The same GitHub error is sorted **3 times, in 3 ways**: `syncError` (`lib/shared/sync-error.ts`),
+  `shortMessage` (`lib/shared/short-message.ts`) and `stateErrorOf` (`lib/diagnostics/state-usage.ts:44`).
+  Their rules differ (for example a 403 with "rate limit" is "busy" in one and "github_auth" in another).
+- A GitHub rate limit comes back as 409 `github_refused`, not 429 `rate_limited`.
+
+GitHub does not document the 402/403 bodies for creating a codespace (web search). What we know from
+GitHub's API behavior and our own tests:
+
+| `reason` | How we know | Fix | Needs user |
+|---|---|---|---|
+| `billing` | 402, or message has "spending limit", "billing", "quota" | none for the agent; `user_url` = `GITHUB_BILLING_URL` (`lib/shared/plans.ts`) | yes |
+| `signed_out` | 401 | `POST /v1/agent/device` (sign in again) | yes |
+| `sso_required` | 403 and an `X-GitHub-SSO` header (SAML org) | `user_url` = the `url=` part of that header, only if it is a `https://github.com/` link | yes |
+| `org_blocked` | 403, "OAuth App access restrictions" | `user_url` = GitHub's page to request org access for the Emuly app | yes |
+| `no_access` | 404 on the template repo, or 403 with none of the above | ask for repo access; no agent fix | yes |
+| `rate_limited` | 429, or 403 with `rateLimited` / "rate limit" | same request after `retry_after` (from GitHub's header, default 60) | no |
+| `machine_unavailable` | 422 about the machine or the region | `GET /v1/phones` is wrong here; give the message only, no fix | yes |
+| `github_down` | 5xx | same request, `retry_after` 30, `max_retries` 2 | no |
+| `other` | anything else | none | — |
+
+Steps:
+1. `GitHubError` keeps two more things from the response: the `X-GitHub-SSO` header and
+   `X-Accepted-OAuth-Scopes` (names only). Never the token. `request` in `github.ts` already has both.
+2. Add one sorter, `githubReason(error)`, in a new `lib/github/github-reason.ts`. `syncError`,
+   `shortMessage` and `stateErrorOf` call it, so all 3 agree. Their outputs stay the same where they
+   agree today; the test pins the cases where they differ.
+3. `githubRefused` adds `reason`, `needs_user`, `user_url` and, for `rate_limited`/`github_down`,
+   `retry_after` plus the `Retry-After` header.
+4. `addAgentHelp` adds no new case: the body already has the fields, and the wrapper never replaces them.
+5. Skill: one table row per reason in `references/tasks/delete-and-errors.md`. Raise `AGENT_RUNBOOK_VERSION`.
+
+Edge cases:
+- Keep status **409** for every reason, also `rate_limited`. Old clients and the CLI may treat 409 as
+  "GitHub said no". A change to 429/503 is a later, separate decision.
+- `github_login` stays as today (only the caller's own login, which they already know).
+- The SSO URL comes from GitHub. Accept it only if it starts with `https://github.com/`; else drop it.
+- Words in GitHub's text can change. A miss falls to `other`, which is today's reply. No harm.
+- `usage.ts` `QUOTA_ERROR_SQL` matches stored messages with the same words. Keep it in step (a comment
+  already asks for this) — the test checks that every `billing` sample also matches the SQL words.
+
+#### 2. `invalid_input`: `field` and `allowed`
+
+Today: about 30 places return `invalid_input`, from 4 error classes: `PhoneInputError`
+(`lib/phone/phone-mutations.ts:31`), two private `InputError` classes (`phone-agent-api.ts:55`,
+`phone-apps-api.ts:20`, 35 `bad(400, …)` calls) and `WebhookInputError`. None of them says which field.
+
+**Found: `PhoneInputError` is not only bad input.** These all become **400 `invalid_input`** today:
+
+| Message | What it really is |
+|---|---|
+| "A phone request is already in progress. Try again shortly." (3 places) | busy: a retry fixes it |
+| "You can have up to N phones here. Delete a phone to make another." | a limit: needs the user (delete) |
+| "Phone creation is unconfirmed. Refresh…" (2) | wait, then `GET /v1/phones` |
+| "Wait until the phone is running." / "This phone is no longer stopped." / "Only a stopped phone can be kept." / "Keep it is in progress…" / transition reasons | wrong state: `phone_not_ready` style |
+| "Sign in again" (2) | `unauthorized` |
+| "Phone not found" | `not_found` |
+| "Android stop was not confirmed. Try Stop again." | a retry |
+| "EMULY_TEMPLATE_REPO needs…" | server setup, not the caller |
+
+An agent that sees 400 `invalid_input` is told "your request is wrong, don't retry". For the busy and
+state cases that is the wrong advice.
+
+Steps:
+1. One shared `InputError(message, { field?, allowed?, status? })` in `lib/http.ts`. The 2 private
+   classes and `WebhookInputError` become it (or extend it). `PhoneInputError` stays as a name for
+   real input errors and gets the same options.
+2. Every `bad(400, …)` call that checks one field passes `field` (the JSON key or query name, for example
+   `"timeout_s"`, `"wait_for"`, `"device_preset"`, `"Idempotency-Key"` header as `header: …`).
+   Where the values are a fixed list it passes `allowed` (`["stopped","running","ready"]`,
+   `DEVICE_PRESETS` ids, `["auto","sharp","saver"]`). For a number range: `allowed: { min, max }`.
+3. The non-input cases in the table above get a new class `PhoneStateError(code, message, extra)` with
+   the right code: `busy` (with `retry_after`), `phone_not_ready` (through `phoneNotReady`),
+   `limit_reached` (new code, `needs_user`, `fix: GET /v1/phones`), `unauthorized`, `not_found`.
+   **This changes the code and status for those cases. See ASK 2.**
+4. Add `limit_reached` and any other new code to `knownErrors` in `api-usage.ts`.
+
+Edge cases:
+- `field` is the caller's own key name, never their value. `allowed` is a fixed list from our code,
+  never user data (so no other user's phone ids or webhook URLs).
+- Bad JSON and wrong content type (`readJsonObject`) have no field: send no `field`.
+- The dashboard server actions also catch `PhoneInputError` and show the message. They keep working,
+  because the message text stays the same.
+- Phone ids in `allowed`: never. "Phone not found" stays `not_found` with today's same-for-all reply.
+
+#### 3. State-aware `phone_not_ready` in the apps, stream, screen and diagnostics APIs
+
+Today `phoneNotReady` is used in `phone-agent-api.ts` and `phone-links-api.ts`. These still answer a
+fixed line:
+
+| File | Today | Who calls it |
+|---|---|---|
+| `lib/phone/phone-apps-api.ts:93` | `bad(409, "Start the phone to use Apps.")` → `phone_not_ready` | agents (`/v1/phones/{id}/apps…`, `app-installs`, `file-fetches`) |
+| `lib/phone/phone-screen-api.ts:21` | 409 "Android is not ready." | the browser page |
+| `lib/phone/phone-stream-api.ts:38-39` | `{ errorCode: "phone_stopped" }` (not our shape) or 409 "The phone is not running." | the browser page only (session + same origin) |
+| `lib/diagnostics/diagnostic-browser-api.ts:29` | 409 "The phone is not running." | the browser page only |
+
+Steps:
+1. `phone-apps-api.ts`: use `phoneNotReady(id, stored)`, with its `Retry-After` header. This is the one
+   agents hit. Also check the runner's own 409 (`phone-apps-api.ts:192`): that is a busy runner, not a
+   stopped phone. It must not become `phone_not_ready` with a start fix.
+2. `phone-screen-api.ts`: use `phoneNotReady` too. Same reply shape for agents and the page.
+3. `phone-stream-api.ts`: keep `errorCode: "phone_stopped"` (the page reads it), and add the
+   `phoneNotReady` fields next to it. Do not drop the old key.
+4. `diagnostic-browser-api.ts`: it allows `booting`, so its rule differs. Use `phoneNotReady` only for
+   the refused states; keep `booting` allowed.
+
+Edge cases:
+- `stored` is only read after the owner check, so another user's phone still gets `not_found`.
+- `phoneNotReady` puts `state` and `android_state` in the body. Both are our own fixed words.
+- The browser page never follows `fix`; extra fields do not change what it shows. Check
+  `components/phone/` for code that compares the whole body.
+
+#### 4. `docs` links for each error code
+
+Today there are about 40 codes (the `knownErrors` list in `api-usage.ts:29` plus `adb_timeout`,
+`adb_failed`, `adb_unavailable`, `output_too_large`, `invalid_ticket`, `unavailable`, `bad_request`,
+`phone_stopped`). The adb codes are **missing from `knownErrors`**, so usage counts them as `other`.
+No skill page lists codes: `references/delete-and-errors.md` only says "Moved", and the real page is
+`references/tasks/delete-and-errors.md`.
+
+Where the pages live — **ASK 1** below. Steps after that choice:
+1. One page with one `## <code>` heading per code: what it means, what to do, an example body.
+2. `addAgentHelp` adds `docs: <base>/<page>#<code>` to every error whose code has a heading. A test
+   reads the page and fails when a code in `knownErrors` has no heading, or a heading has no code.
+3. Add the adb codes and every new code from items 1 and 2 to `knownErrors`.
+
+Edge cases:
+- The link uses the server's own base URL (`EMULY_BASE_URL`), so self-host links go to the self-host
+  server, not emuly.xyz.
+- One fixed string per code: about 80 bytes more per error. No user data.
+- Skill change, so raise `AGENT_RUNBOOK_VERSION`.
+
+#### 5. `if_fix_fails` for a lost adb reply (`ran: "unknown"`)
+
+Today (`phone-agent-api.ts:449-512`, runner `phone/runner/adb-replay.mjs`):
+- `ran: "unknown"` comes with `adb_timeout` (504), `adb_failed` (502) and `request_failed` (502).
+- The runner keeps a result per `Idempotency-Key` + same arguments for 10 minutes (200 entries max,
+  in memory). A retry with the same key gets the first result with `replayed: true`. A call still
+  running is shared, not run twice.
+- **Bug found: `addAgentHelp` makes this worse.** For `request_failed` it adds `retry_after: 3` and
+  `max_retries: 1`, with no word about the key. An agent that sent no key and follows that retry may
+  tap or type twice. `adb_timeout` and `adb_failed` get no help at all.
+- The CLI does not send an `Idempotency-Key` on adb today (`bin/emuly.mjs`).
+
+Steps:
+1. In `addAgentHelp`: when `ran === "unknown"`, never add a plain retry. Instead:
+   - If the request had an `Idempotency-Key`: `fix = { same_request: true, same_idempotency_key: true }`,
+     `max_retries: 2`. Safe: the runner replays, it does not run again.
+   - If not: `fix = { method: "GET", path: /v1/phones/{id}/screenshot }` (or `/ui`) to check first, and
+     `if_fix_fails` / a `then` note: "if the change is not there, send the command again with a new
+     `Idempotency-Key`". `max_retries: 1`.
+2. `ran: false` keeps today's plain retry. `ran: true` gets no retry (the command ran; only the reply
+   was lost or too big).
+3. CLI: send a random `Idempotency-Key` on every adb call, and reuse it for its own retry. Then a lost
+   reply is always safe for CLI users.
+4. Skill: `references/tasks/adb.md` already explains `ran`. Add "always send a key on taps and typing".
+
+Edge cases:
+- The replay store is per runner process. After a runner restart or a phone stop, the key is gone and
+  a retry runs again. The fix text must say "check first" for this reason, even with a key.
+- A key with other arguments runs the new command (by design). Do not tell agents to reuse a key for
+  a new command.
+- Reads (`screencap`, pull) are not kept, so their retry just runs again. That is harmless.
+- `fix.path` for the check is `GET /v1/phones/{id}/screenshot`, a real route.
+- The `Idempotency-Key` value is the caller's own; it is never echoed in `fix`.
+
+#### 6. Later: a live check
+
+Run each new reply on a live phone with curl, the CLI and PowerShell: a stopped phone (apps), a GitHub
+billing block (fake 402 in a test codespace is not possible, so test with a stub), a bad `timeout_s`,
+and an adb tap with a lost reply (kill the tunnel mid-call).
+
+#### Build order
+
+1 → 5 → 3 → 2 → 4. Item 5 fixes a real double-run risk. Item 4 goes last because its page lists the
+codes that 1 and 2 add. Each item is one commit with tests.
+
+**ASK 1: where the error pages live.**
+- A. One skill file, `references/tasks/errors.md`, served by the existing `/.well-known/` skill route
+  (recommended: no new route, versioned with the skill, agents with the skill already have it).
+- B. A `GET /v1/errors` JSON route: easy for code to read, but a new route, and prose in JSON.
+- C. `docs/ERRORS.md` on GitHub: easy to write, but self-host links and private forks break.
+
+**ASK 2: the `PhoneInputError` cases that are not bad input** (busy, limit, wrong state, signed out).
+- A. Give them the right code and status (`busy` 409, `limit_reached` 409, `phone_not_ready` 409,
+  `unauthorized` 401). Right advice for agents. Old clients that matched 400 `invalid_input` for these
+  see a new code (the CLI only prints messages, so it still works).
+- B. Keep 400 `invalid_input` and add `reason` (`busy`, `limit`, `state`). No break, but the code
+  still says "don't retry".
 
 ## Phase 2: hints on success when the agent works the slow way (high impact, medium effort)
 
