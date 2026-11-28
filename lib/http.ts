@@ -1,6 +1,6 @@
 import { GitHubError } from "./github/github.ts";
 import { RateLimitError } from "./data/rate-limit.ts";
-import { githubRefused } from "./phone/github-refused.ts";
+import { githubRefused, githubRefusedHeaders } from "./phone/github-refused.ts";
 
 /** Every API response is private to one account. */
 export const NO_STORE = "private, no-store";
@@ -20,7 +20,7 @@ export function apiError(code: string, message: string, status: number, headers?
  * GitHub refused. A rate limit is 429 with Retry-After. Any other error gets `fallback` and 502.
  */
 export function errorResponse(error: unknown, login: string | null | undefined, fallback: string): Response {
-  if (error instanceof GitHubError) return json(githubRefused(error, login), 409);
+  if (error instanceof GitHubError) { const body = githubRefused(error, login); return json(body, 409, githubRefusedHeaders(body)); }
   if (error instanceof RateLimitError) return apiError("rate_limited", error.message, 429, { "Retry-After": String(error.retryAfter) });
   // A token refresh that GitHub or the database did not finish: the sessions stay, so retry.
   if (error instanceof Error && error.name === "TokenUnavailableError") return apiError("unavailable", error.message, 503, { "Retry-After": "5" });

@@ -1,5 +1,6 @@
 import { apiError, NO_STORE } from "../http.ts";
 import "server-only";
+import { phoneNotReady } from "./phone-not-ready.ts";
 import { unknownRouteBody } from "../v1-routes.ts";
 import { crossOrigin } from "../auth/origin.ts";
 import { APK_CHUNK_BYTES, APK_MAX_BYTES, installFinished } from "./phone-apps-contract.ts";
@@ -90,7 +91,11 @@ export function createPhoneAppsApi({ user, phone, runner, upgrade, sharedAdmissi
       if (!identity) bad(401, "Sign in again.");
       const stored = await phone(identity.id, id);
       if (!stored) bad(404, "Phone not found.");
-      if (stored.state !== "running" || stored.android_state !== "ready") bad(409, "Start the phone to use Apps.");
+      if (stored.state !== "running" || stored.android_state !== "ready") {
+        // The next step depends on the state: a booting phone needs only a wait, not a start.
+        const notReady = phoneNotReady(id, stored);
+        return Response.json(notReady.body, { status: 409, headers: { ...headers, ...notReady.headers } });
+      }
       if (request.method !== "GET") {
         // Non-browser clients such as an agent send no Origin. A cookie request without
         // Origin, or any foreign Origin, is still rejected.

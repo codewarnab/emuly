@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { openDatabase } from "../data/database.ts";
 import { seal, open, contexts } from "../auth/crypto-core.ts";
 import { createWebhookService } from "./webhooks.ts";
-import { createWebhookOutbox } from "./webhook-outbox.ts";
+import { createWebhookOutbox, WEBHOOK_TIMEOUT_MS } from "./webhook-outbox.ts";
 import { createWebhookApi } from "./webhook-api.ts";
 import { signWebhook, verifyWebhook, webhookTarget, type ResolveHost, type SendWebhook } from "./webhook-security.ts";
 import { createStatePoller } from "../phone/poller.ts";
@@ -40,8 +40,8 @@ function fixture() {
     asyncDatabase, get database() { return database; }, clock, service, encrypt, decrypt,
     advance(ms: number) { time += ms; },
     reopen() { database.close(); database = openDatabase(filename); },
-    outbox(send?: SendWebhook, resolve = publicDns, baseUrl = "https://emuly.example") {
-      return createWebhookOutbox({ database: asyncDatabase, decrypt, clock, baseUrl, resolve, send });
+    outbox(send?: SendWebhook, resolve = publicDns, baseUrl = "https://emuly.example", timeoutMs?: number) {
+      return createWebhookOutbox({ database: asyncDatabase, decrypt, clock, baseUrl, resolve, send, timeoutMs });
     },
     async close() { asyncDatabase.close(); database.close(); globalThis.gc?.(); await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); },
   };
@@ -243,7 +243,7 @@ test("API enforces authentication, origin, ownership and validation; secrets app
   } finally { await f.close(); }
 });
 
-test("local receiver verifies wire signatures, refuses redirects, and aborts a stalled response after 10 seconds", async () => {
+test("local receiver verifies wire signatures, refuses redirects, and aborts a stalled response at its deadline", async () => {
   const f = fixture();
   let received = 0;
   let redirected = 0;
@@ -275,8 +275,8 @@ test("local receiver verifies wire signatures, refuses redirects, and aborts a s
     const stalled = await service.create(1, { url: `http://localhost:${address.port}/timeout` }); secret = stalled.secret;
     await service.test(1, stalled.id);
     const started = performance.now();
-    await f.outbox(undefined, resolve, "http://localhost:4321")();
-    assert.ok(performance.now() - started >= 9_500, "The request should receive its full 10-second deadline");
+    await f.outbox(undefined, resolve, "http://localhost:4321", 300)();
+    assert.ok(performance.now() - started >= 280, "The request should receive its full deadline");
     assert.equal((await service.deliveries(1, stalled.id))[0]?.status, null);
     assert.equal((await service.deliveries(1, stalled.id))[0]?.state, "pending");
     assert.equal((await service.deliveries(1, stalled.id))[0]?.attempt, 1);
@@ -453,4 +453,8 @@ test("delete removes delivery rows, disable cancels pending ones, and finished r
     assert.equal(count("webhook_id = ? AND created_at < ?", hook.id, new Date(f.clock() - 86_400_000).toISOString()), 0);
     assert.equal(count("webhook_id = ?", hook.id), 1, "the new pending row stays");
   } finally { await f.close(); }
+});
+
+test("a webhook delivery gets 10 s by default", () => {
+  assert.equal(WEBHOOK_TIMEOUT_MS, 10_000);
 });

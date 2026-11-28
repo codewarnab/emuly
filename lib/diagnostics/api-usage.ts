@@ -1,7 +1,8 @@
 import { releaseId } from "./release.ts";
 import type { Client } from "@libsql/client";
 import { V1_ROUTES } from "../v1-routes.ts";
-import { AGENT_RUNBOOK_VERSION } from "../agent-runbook.ts";
+import { ERROR_CODES } from "../error-codes.ts";
+import { AGENT_RUNBOOK_VERSION, skillVersion } from "../agent-runbook.ts";
 
 /**
  * Anonymous /v1 API usage counts, so we can see which routes agents use, how fast they are,
@@ -26,10 +27,7 @@ export const apiAuth = ["agent_key", "session", "none"] as const;
 export const apiPatterns = ["poll_after_wait", "retry_same_route", "screenshot_burst", "unknown_route", "old_client"] as const;
 export type ApiPattern = typeof apiPatterns[number];
 /** Error codes worth counting. Any other value in a response body becomes "other". */
-const knownErrors = new Set(["access_denied", "authorization_pending", "bad_event", "bad_signature", "busy", "connection_unavailable", "denied",
-  "direct_upload_unavailable", "expired_token", "forbidden", "github_refused", "invalid_code", "invalid_grant", "invalid_input",
-  "invalid_path", "invalid_request", "invalid_response", "method_not_allowed", "not_available", "not_found", "phone_conflict", "phone_not_ready",
-  "rate_limited", "request_failed", "runner_update_required", "slow_down", "staging_full", "storage_full", "timeout", "ui_unavailable", "unauthorized", "upload_too_large"]);
+const knownErrors = new Set<string>(ERROR_CODES);
 
 const templates = V1_ROUTES.map(route => {
   const [method, path] = route.split(" ") as [string, string];
@@ -53,9 +51,11 @@ export function clientOf(headers: Headers): { client: typeof apiClients[number];
   const skill = headers.get("x-emuly-skill"), cli = headers.get("x-emuly-client");
   // The CLI sends cli/<first 7 hex of its own SHA-256>, the same hash it uses to update itself.
   if (cli?.startsWith("cli")) return { client: "cli", version: /^cli\/([a-f0-9]{7})$/.exec(cli)?.[1] ?? "unknown" };
-  // Skill versions are dates shared by every user of that release, for example 2026-11-25.2.
-  if (skill) return { client: "skill", version: /^\d{4}-\d\d-\d\d(\.\d{1,3})?$/.test(skill) ? skill : "unknown" };
+  // The skill sends 12 hex digits of its own hash (lib/agent-runbook.ts skillVersion). Older skills sent a date.
+  if (skill) return { client: "skill", version: /^[0-9a-f]{12}$/.test(skill) || /^\d{4}-\d\d-\d\d(\.\d{1,3})?$/.test(skill) ? skill : "unknown" };
   const agent = headers.get("user-agent") ?? "";
+  // PowerShell's Invoke-RestMethod sends "Mozilla/5.0 (Windows NT …) WindowsPowerShell/5.1": not a browser.
+  if (/\b(Windows)?PowerShell\//i.test(agent)) return { client: "other", version: "unknown" };
   if (/^Mozilla\//.test(agent)) return { client: "browser", version: "unknown" };
   if (/^curl\//i.test(agent)) return { client: "curl", version: "unknown" };
   return { client: "other", version: "unknown" };
@@ -88,7 +88,8 @@ export function createApiUsage(database: () => Client, schedule: (task: Promise<
   function patterns(call: ApiCall, route: string, now: number, caller: string, client: string, version: string): ApiPattern[] {
     const found: ApiPattern[] = [];
     if (route.endsWith(" unknown")) found.push("unknown_route");
-    if (client === "skill" && version !== "unknown" && version < AGENT_RUNBOOK_VERSION) found.push("old_client");
+    if (client === "skill" && version !== "unknown"
+      && (/^[0-9a-f]{12}$/.test(version) ? version !== skillVersion() : version < AGENT_RUNBOOK_VERSION)) found.push("old_client");
     if (!caller) return found;
     const w: Window = windows.get(caller) ?? { shots: [], waitAt: new Map() };
     windows.set(caller, w);

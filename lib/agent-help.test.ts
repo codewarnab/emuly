@@ -1,0 +1,166 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { addAgentHelp, callerOf, withAgentHelp } from "./agent-help.ts";
+import { phoneNotReady } from "./phone/phone-not-ready.ts";
+import { V1_ROUTES } from "./v1-routes.ts";
+
+const BASE = "https://emuly.example";
+const ctx = (status: number, pathname: string, headers: Record<string, string> = {}, retryAfter?: string) =>
+  ({ status, pathname, headers: new Headers(headers), baseUrl: BASE, retryAfter });
+const curl = { "user-agent": "curl/8.5.0", authorization: "Bearer k" };
+
+/** Every fix path must be a real /v1 route, so an agent never follows a fix into a 404. */
+function assertRoute(fix: { method: string; path: string; then?: unknown } | undefined) {
+  if (!fix) return;
+  const path = fix.path.split("?")[0]!;
+  const known = V1_ROUTES.some(route => {
+    const [method, template] = route.split(" ") as [string, string];
+    const pattern = new RegExp(`^${template.split("/").map(part => part.startsWith("{")
+      ? (part.includes("|") ? `(?:${part.slice(1, -1)})` : "[^/]+") : part).join("/")}/?$`);
+    return method === fix.method && pattern.test(path);
+  });
+  assert.ok(known, `${fix.method} ${path} is not a /v1 route`);
+  assertRoute(fix.then as typeof fix | undefined);
+}
+
+test("callerOf tells the CLI, PowerShell, curl, the skill and the browser apart", () => {
+  assert.equal(callerOf(new Headers({ "x-emuly-client": "cli/abc1234" })), "cli");
+  assert.equal(callerOf(new Headers({ "user-agent": "Mozilla/5.0 (Windows NT 10.0; Microsoft Windows 10.0.22631; en-US) WindowsPowerShell/5.1.22621", authorization: "Bearer k" })), "powershell");
+  assert.equal(callerOf(new Headers({ "user-agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) PowerShell/7.4.1" })), "powershell");
+  assert.equal(callerOf(new Headers(curl)), "curl");
+  assert.equal(callerOf(new Headers({ ...curl, "x-emuly-skill": "0123456789ab" })), "skill");
+  assert.equal(callerOf(new Headers({ "user-agent": "Mozilla/5.0 (X11; Linux) Chrome/130" })), "browser");
+  assert.equal(callerOf(new Headers({ "user-agent": "python-requests/2.32", authorization: "Bearer k" })), "other");
+});
+
+test("phone_not_ready says wait, not start, while the phone boots", () => {
+  const booting = phoneNotReady("p-1", { state: "running", android_state: "booting" });
+  assert.equal(booting.body.fix && (booting.body.fix as { method: string }).method, "GET");
+  assert.match(String((booting.body.fix as { path: string }).path), /wait_for=ready/);
+  assert.equal(booting.headers?.["Retry-After"], "10");
+  assert.match(String(booting.body.hint), /Do not start it again/);
+  for (const state of [["stopped", "stopped"], ["running", "booting"], ["stopping", "ready"], ["deleted", "stopped"], ["error", "stopped"], ["starting", "stopped"]]) {
+    const { body } = phoneNotReady("p-1", { state: state[0]!, android_state: state[1]! });
+    assert.equal(body.error, "phone_not_ready");
+    assertRoute(body.fix as never);
+  }
+  const stopped = phoneNotReady("p-1", { state: "stopped", android_state: "stopped" }).body.fix as { method: string; path: string };
+  assert.deepEqual([stopped.method, stopped.path], ["POST", "/v1/phones/p-1/start"]);
+});
+
+test("unauthorized gets a reason and the device sign-in, the same for any bad key", () => {
+  const missing = addAgentHelp({ error: "unauthorized" }, ctx(401, "/v1/phones", { "user-agent": "curl/8" }));
+  assert.equal(missing.reason, "missing_credentials");
+  const bad = addAgentHelp({ error: "unauthorized" }, ctx(401, "/v1/phones", curl));
+  assert.equal(bad.reason, "invalid_credentials");
+  assert.equal(bad.needs_user, true);
+  assertRoute(bad.fix as never);
+});
+
+test("use_cli goes to every caller but the CLI and the browser, with the right shell", () => {
+  const help = addAgentHelp({ error: "unauthorized" }, ctx(401, "/v1/phones", curl));
+  assert.deepEqual((help.use_cli as { install: string }).install, `curl -fsSL ${BASE}/v1/cli -o emuly.mjs`);
+  const ps = addAgentHelp({ error: "busy" }, ctx(409, "/v1/phones/p-1/adb", { "user-agent": "Mozilla/5.0 WindowsPowerShell/5.1" }));
+  assert.match((ps.use_cli as { install: string }).install, /^Invoke-WebRequest /);
+  assert.equal((ps.use_cli as { then: string }).then, "node emuly.mjs install p-1 app.apk");
+  assert.equal(addAgentHelp({ error: "busy" }, ctx(409, "/v1/phones/p-1/adb", { "x-emuly-client": "cli/abc1234" })).use_cli, undefined);
+  assert.equal(addAgentHelp({ error: "busy" }, ctx(409, "/v1/phones/p-1/adb", { "user-agent": "Mozilla/5.0 Chrome" })).use_cli, undefined);
+});
+
+test("known codes get a fix that is a real route; a route's own fields are kept", () => {
+  const notFound = addAgentHelp({ error: "not_found", message: "Phone not found." }, ctx(404, "/v1/phones/p-9/adb", curl));
+  assertRoute(notFound.fix as never);
+  const runner = addAgentHelp({ error: "runner_update_required", message: "m" }, ctx(503, "/v1/phones/p-1/ui", curl));
+  assertRoute(runner.fix as never);
+  assertRoute(runner.if_fix_fails as never);
+  assert.deepEqual((runner.fix as { repeat_until: unknown }).repeat_until, { status: "ready" });
+  const own = addAgentHelp({ error: "busy", max_retries: 9 }, ctx(409, "/v1/phones/p-1/adb", curl, "5"));
+  assert.equal(own.max_retries, 9);
+  assert.equal(own.retry_after, 5);
+  const failed = addAgentHelp({ error: "request_failed", message: "x" }, ctx(502, "/v1/phones", curl));
+  assert.equal(failed.retry_after, 3);
+  assert.equal(failed.max_retries, 1);
+  // Not our error shape: unchanged.
+  assert.deepEqual(addAgentHelp({ message: "x" }, ctx(500, "/v1/phones", curl)), { message: "x" });
+});
+
+test("withAgentHelp keeps status and headers and skips non-errors and non-JSON", async () => {
+  const request = new Request(`${BASE}/v1/phones/p-1/adb`, { headers: curl });
+  const ok = Response.json({ a: 1 });
+  assert.equal(await withAgentHelp(ok, request, BASE), ok);
+  const png = new Response("x", { status: 500, headers: { "content-type": "image/png" } });
+  assert.equal(await withAgentHelp(png, request, BASE), png);
+  const busy = Response.json({ error: "busy", message: "m" }, { status: 409, headers: { "Retry-After": "5", "Cache-Control": "private, no-store" } });
+  const helped = await withAgentHelp(busy, request, BASE);
+  assert.equal(helped.status, 409);
+  assert.equal(helped.headers.get("retry-after"), "5");
+  assert.equal(helped.headers.get("cache-control"), "private, no-store");
+  const body = await helped.json() as Record<string, unknown>;
+  assert.equal(body.retry_after, 5);
+  assert.ok(body.use_cli);
+});
+
+test("a lost adb reply (ran unknown) never gets a plain retry", () => {
+  for (const code of ["adb_timeout", "adb_failed", "request_failed", "timeout"]) {
+    const bare = addAgentHelp({ error: code, message: "x", ran: "unknown" }, ctx(504, "/v1/phones/p-1/adb", curl));
+    assertRoute(bare.fix as never);
+    assert.deepEqual(bare.fix, { method: "GET", path: "/v1/phones/p-1/screenshot" }, code);
+    assert.deepEqual(bare.if_fix_fails, { send_again: true, new_idempotency_key: true });
+    assert.equal(bare.max_retries, 1);
+    const keyed = addAgentHelp({ error: code, message: "x", ran: "unknown" }, ctx(504, "/v1/phones/p-1/adb", { ...curl, "idempotency-key": "tap-1" }));
+    assert.deepEqual(keyed.fix, { same_request: true, same_idempotency_key: true }, code);
+    assert.equal(keyed.max_retries, 2);
+    assert.ok(!JSON.stringify(keyed).includes("tap-1"), "the key is never echoed");
+  }
+  const notRun = addAgentHelp({ error: "request_failed", message: "x", ran: false }, ctx(502, "/v1/phones/p-1/adb", curl));
+  assert.equal(notRun.retry_after, 3);
+  assert.equal(notRun.max_retries, 1);
+});
+
+test("refusals that are not bad input get their own code and a fitting fix", async () => {
+  const { PhoneInputError, PhoneStateError, phoneInputReply } = await import("./phone/phone-errors.ts");
+  const busy = phoneInputReply(new PhoneStateError("busy", "A phone request is already in progress. Try again shortly."));
+  assert.equal(busy.status, 409);
+  assert.equal(busy.headers?.["Retry-After"], "5");
+  const missing = phoneInputReply(new PhoneStateError("not_found", "Phone not found"));
+  assert.deepEqual([missing.status, missing.body.message], [404, "Phone not found."]);
+  assert.equal(phoneInputReply(new PhoneStateError("unauthorized", "Sign in again")).status, 401);
+  assert.equal(phoneInputReply(new PhoneInputError("Choose a valid phone type.")).body.error, "invalid_input");
+  const limit = phoneInputReply(new PhoneStateError("limit_reached", "You can have up to 2 phones here."));
+  const helped = addAgentHelp(limit.body, ctx(limit.status, "/v1/phones", curl));
+  assert.equal(helped.needs_user, true);
+  assertRoute(helped.fix as never);
+  const state = phoneInputReply(new PhoneStateError("phone_conflict", "Only a stopped phone can be kept.", { reason: "state" }));
+  const stateHelp = addAgentHelp(state.body, ctx(409, "/v1/phones/p-1/keep", curl));
+  assert.deepEqual(stateHelp.fix, { method: "GET", path: "/v1/phones/p-1" });
+  // An adb phone_conflict (a busy runner) keeps no state fix.
+  assert.equal(addAgentHelp({ error: "phone_conflict", message: "x", ran: false }, ctx(409, "/v1/phones/p-1/adb", curl)).fix, undefined);
+});
+
+test("every error code has a section in the skill's errors page, and every section is a code", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { ERROR_CODES, ERRORS_DOC } = await import("./error-codes.ts");
+  const page = readFileSync(new URL(`../content/skills/emuly-playbook/${ERRORS_DOC}`, import.meta.url), "utf8");
+  const headings = [...page.matchAll(/^## (\S+)$/gm)].map(match => match[1]);
+  assert.deepEqual([...headings].sort(), [...ERROR_CODES].sort());
+  const helped = addAgentHelp({ error: "busy", message: "x" }, ctx(409, "/v1/phones/p-1/start", curl));
+  assert.equal(helped.docs, `${BASE}/.well-known/skills/emuly-playbook/${ERRORS_DOC}#busy`);
+  assert.equal(addAgentHelp({ error: "made_up", message: "x" }, ctx(409, "/v1/phones", curl)).docs, undefined);
+});
+
+test("phone_not_ready keeps a short message for people and puts the agent steps in hint", () => {
+  const booting = phoneNotReady("p-1", { state: "running", android_state: "booting" }).body;
+  assert.equal(booting.message, "The phone is starting. Wait until it is ready.");
+  assert.match(String(booting.hint), /Do not start it again/);
+  const stopped = phoneNotReady("p-1", { state: "stopped", android_state: "stopped" }).body;
+  assert.equal(stopped.message, "Start the phone to use this.");
+  assert.match(String(stopped.hint), /Start it, wait until ready/);
+});
+
+test("a code that is an Object method name gets no helper", () => {
+  for (const code of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+    const out = addAgentHelp({ error: code, message: "x" }, ctx(400, "/v1/phones/p-1"));
+    assert.equal(out.error, code);
+    assert.equal(out.fix, undefined);
+  }
+});

@@ -368,6 +368,9 @@ async function emulyFetch(path, init) {
   let value = {};
   try { value = await response.json(); } catch {}
   if (!response.ok) {
+    // The API names the next step in `fix` (lib/agent-help.ts). People and agents read it on stderr.
+    const fix = value?.fix;
+    if (fix && typeof fix.method === "string" && typeof fix.path === "string") console.error(`emuly: next: ${fix.method} ${fix.path}`);
     throw Object.assign(new Error(value.message ?? value.error ?? `Emuly returned ${response.status}.`), { status: response.status, body: value });
   }
   return value;

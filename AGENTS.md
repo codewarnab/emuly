@@ -47,7 +47,7 @@ Use pnpm. The dev server is on http://localhost:4321.
 
 ```sh
 pnpm dev        # local SQLite migrations, then the server
-pnpm lint       # tsc --noEmit
+pnpm lint       # TypeScript 7 type check (about 1 s). pnpm build still checks with TypeScript 5
 pnpm test       # node --test, lib/**/*.test.ts
 pnpm build
 ```
@@ -56,7 +56,7 @@ Run one test file: `node --expose-gc --conditions=react-server --test --experime
 
 ## Rules
 
-- Before you push, run `pnpm lint`, `pnpm test` and `pnpm build`.
+- Before you push, run `pnpm lint`, `pnpm test` and `pnpm build`. The pre-push hook (`.githooks/pre-push`, on after `pnpm install`) runs lint and test for you.
 - Production is Vercel `bom1` with a Turso database in `aws-ap-south-1`. Pushes to `main` deploy.
 - **Schema:** add a new entry at the end of `MIGRATIONS` in `lib/data/migrations.ts`. Never edit an old entry.
 - **Migrate production before you push** code that reads a new column. Vercel does not run migrations. Use the Turso CLI:

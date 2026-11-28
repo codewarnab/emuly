@@ -1,5 +1,6 @@
 import { apiError, NO_STORE } from "../http.ts";
 import { crossOrigin } from "../auth/origin.ts";
+import { phoneNotReady } from "../phone/phone-not-ready.ts";
 import { diagnosticHealth } from "./diagnostics.ts";
 import type { phoneObservations } from "../phone/phone-observation.ts";
 
@@ -14,7 +15,7 @@ const EMPTY_ERRORS: Record<number, [string, string]> = {
 
 export function createDiagnosticBrowserApi({ user, phone, observations }: {
   user: () => Promise<{ id: number } | null>;
-  phone: (userId: number, phoneId: string) => { state: string } | undefined | Promise<{ state: string } | undefined>;
+  phone: (userId: number, phoneId: string) => { state: string; android_state?: string } | undefined | Promise<{ state: string; android_state?: string } | undefined>;
   observations: ReturnType<typeof phoneObservations>;
 }) {
   return async (request: Request, id: string) => {
@@ -26,7 +27,10 @@ export function createDiagnosticBrowserApi({ user, phone, observations }: {
     if (!owner) return response(401);
     const stored = await phone(owner.id, id);
     if (!stored) return response(404);
-    if (!["running", "booting"].includes(stored.state)) return response(409);
+    if (!["running", "booting"].includes(stored.state)) {
+      const notReady = phoneNotReady(id, { state: stored.state, android_state: stored.android_state ?? "unknown" });
+      return Response.json(notReady.body, { status: 409, headers: { "Cache-Control": NO_STORE, ...notReady.headers } });
+    }
     if (!request.headers.get("content-type")?.startsWith("application/json")) return response(415);
     const reader = request.body?.getReader();
     if (!reader) return response(400);

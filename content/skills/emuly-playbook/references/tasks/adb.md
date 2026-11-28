@@ -100,6 +100,8 @@ action that must not run twice, such as a `tap`, `swipe`, `text` or `install`. U
 for each new action. A retry with the same key within 10 minutes does not run the command
 again: it returns the first result with `"replayed": true`. A first call that did not start
 (`ran: false`) is not kept, so a retry with its key runs the command.
+The key lives in the phone's memory, so a phone restart forgets it: after a restart, check the
+screen before you retry. The error's `fix` follows these rules for you.
 
 The phone must be running with Android ready. Otherwise the route returns **409** with a
 message telling you to start it. A missing or stopped phone returns **404** or **409**;

@@ -3,6 +3,7 @@ import { crossOrigin } from "../auth/origin.ts";
 import { DEFAULT_DEVICE_PRESET, DEVICE_PRESETS, devicePreset } from "../shared/device-presets.ts";
 import type { createPhoneService } from "./phone-mutations.ts";
 import { PhoneInputError } from "./phone-mutations.ts";
+import { phoneInputReply } from "./phone-errors.ts";
 import { PHONE_MACHINE } from "../github/github.ts";
 import { IDLE_MAX, IDLE_MIN, validIdle } from "../shared/idle.ts";
 import type { Usage } from "../data/usage.ts";
@@ -28,7 +29,7 @@ export function createPhoneApi({ user, service, template, usage, defaults, clien
         await service.keep(identity.id, id);
         return json({ id, status: "keeping" }, 202);
       } catch (error) {
-        if (error instanceof PhoneInputError) return json({ error: "invalid_input", message: error.message }, 400);
+        if (error instanceof PhoneInputError) { const reply = phoneInputReply(error); return json(reply.body, reply.status, reply.headers); }
         return errorResponse(error, identity.login, "Keep it could not be confirmed. Refresh to check progress.");
       }
     },
@@ -57,17 +58,19 @@ export function createPhoneApi({ user, service, template, usage, defaults, clien
         const machine = PHONE_MACHINE.name;
         const idle = body.idle_timeout_min ?? settings.default_idle_min;
         if (!validIdle(idle)) {
-          throw new PhoneInputError(`Choose an idle timeout from ${IDLE_MIN} to ${IDLE_MAX} minutes.`);
+          return json({ error: "invalid_input", message: `Choose an idle timeout from ${IDLE_MIN} to ${IDLE_MAX} minutes.`,
+            field: "idle_timeout_min", allowed: { min: IDLE_MIN, max: IDLE_MAX } }, 400);
         }
         const preset = body.device_preset ?? DEFAULT_DEVICE_PRESET;
         if (!devicePreset(preset)) {
-          throw new PhoneInputError(`Choose device_preset from: ${DEVICE_PRESETS.map(p => p.id).join(", ")}.`);
+          return json({ error: "invalid_input", message: `Choose device_preset from: ${DEVICE_PRESETS.map(p => p.id).join(", ")}.`,
+            field: "device_preset", allowed: DEVICE_PRESETS.map(p => p.id) }, 400);
         }
         const id = await service.create(identity.id, { ...template(), machine, idleTimeoutMin: idle, devicePreset: preset as string,
           clientIp: clientIp?.(request) });
         return json({ id }, 201);
       } catch (error) {
-        if (error instanceof PhoneInputError) return json({ error: "invalid_input", message: error.message }, 400);
+        if (error instanceof PhoneInputError) { const reply = phoneInputReply(error); return json(reply.body, reply.status, reply.headers); }
         return errorResponse(error, identity.login, "The request could not be confirmed. Check GitHub before trying again.");
       }
     },

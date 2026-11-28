@@ -6,9 +6,10 @@ import { idleStopAt } from "./idle-stop.ts";
 import { crossOrigin } from "../auth/origin.ts";
 import { CoordinationBusyError } from "../data/coordination.ts";
 import {
-  ADB_FILES_MAX, ADB_UPLOAD_MAX_BYTES, AdbError, adbArguments, adbResult, adbTimeout, isDownload, isScreencap,
+  ADB_FILES_MAX, IDEMPOTENCY_KEY, ADB_UPLOAD_MAX_BYTES, AdbError, adbArguments, adbResult, adbTimeout, isDownload, isScreencap,
 } from "./phone-adb-contract.ts";
 import { PhoneInputError, type createPhoneService } from "./phone-mutations.ts";
+import { phoneInputReply } from "./phone-errors.ts";
 import { readAgentNote } from "./agent-note.ts";
 import { RunnerTimeoutError } from "./runner-errors.ts";
 import { agentDeviceBaseUrl, agentDeviceInfo, agentDeviceSession, agentDeviceUnavailable } from "./agent-device.ts";
@@ -17,6 +18,8 @@ import type { RecordingAction } from "./phone-link.ts";
 import { notesVtt, type RecordingNote } from "./recording-notes.ts";
 import { runnerUpdateMessage } from "./phone-response.ts";
 import { bootProgress } from "./boot-progress.ts";
+import { checkScreenFirst } from "../agent-help.ts";
+import { phoneNotReady } from "./phone-not-ready.ts";
 
 type Identity = { id: number; login?: string; authKind?: "session" | "agent"; agentKeyId?: number };
 type PhoneView = Pick<Phone, "id" | "name" | "state" | "android_state" | "idle_timeout_min"> & Partial<Pick<Phone, "codespace_name" | "last_activity_at" | "android_started_at" | "last_started_at" | "keeping" | "state_detail" | "setup_failed" | "created_at" | "android_ready_at">> & { device_preset?: string; location?: string | null };
@@ -46,11 +49,18 @@ export function waitResult(stored: Pick<PhoneView, "state" | "android_state">, t
   return { done, failed };
 }
 
+function notReady(id: string, stored: { state: string; android_state: string }) {
+  const { body, headers } = phoneNotReady(id, stored);
+  return json(body, 409, headers);
+}
+
 class InputError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) { super(message); this.status = status; }
+  /** `field` (the key the caller sent, never its value) and `allowed` (a fixed list from our code). */
+  readonly extra: { field?: string; header?: string; allowed?: unknown };
+  constructor(status: number, message: string, extra: InputError["extra"] = {}) { super(message); this.status = status; this.extra = extra; }
 }
-function bad(status: number, message: string): never { throw new InputError(status, message); }
+function bad(status: number, message: string, extra?: InputError["extra"]): never { throw new InputError(status, message, extra); }
 class InlineLimitError extends Error {}
 const inlineLimitBody = (id: string) => ({ error: "upload_too_large", limit_bytes: ADB_INLINE_MAX_BYTES,
   message: `This route takes at most ${ADB_INLINE_MAX_BYTES / (1024 * 1024)} MB of files. For larger files (up to ${ADB_UPLOAD_MAX_BYTES / (1024 * 1024)} MB), `
@@ -96,14 +106,14 @@ async function readAdbMultipart(request: Request): Promise<{ args: unknown; time
   try { form = await request.formData(); }
   catch { bad(400, "Send multipart/form-data with args and file0, file1, …"); }
   const rawArgs = form.get("args");
-  if (typeof rawArgs !== "string") bad(400, "The args field must be a JSON array of strings.");
+  if (typeof rawArgs !== "string") bad(400, "The args field must be a JSON array of strings.", { field: "args" });
   let args: unknown;
   try { args = JSON.parse(rawArgs); }
-  catch { bad(400, "The args field must be valid JSON."); }
+  catch { bad(400, "The args field must be valid JSON.", { field: "args" }); }
   const rawTimeout = form.get("timeout_s");
   let timeout: number | undefined;
   if (rawTimeout !== null) {
-    if (typeof rawTimeout !== "string" || !/^\d+$/.test(rawTimeout)) bad(400, "timeout_s must be a whole number.");
+    if (typeof rawTimeout !== "string" || !/^\d+$/.test(rawTimeout)) bad(400, "timeout_s must be a whole number.", { field: "timeout_s" });
     timeout = Number(rawTimeout);
   }
   const files: UploadedFile[] = [];
@@ -132,7 +142,7 @@ function gridQuery(query: URLSearchParams) {
   for (const name of ["fps", "cols", "width", "count", "page"]) {
     const value = query.get(name);
     if (value === null || value === "") continue;
-    if (!/^\d{1,5}(\.\d{1,3})?$/.test(value)) throw new InputError(400, `${name} must be a number.`);
+    if (!/^\d{1,5}(\.\d{1,3})?$/.test(value)) throw new InputError(400, `${name} must be a number.`, { field: name });
     body[name] = value;
   }
   return body;
@@ -185,8 +195,9 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
     // A slow phone (often just after boot) is not a broken one: say so, and say when to retry.
     if (error instanceof RunnerTimeoutError) return json({ error: "timeout", message: `${error.message} Retry in ${error.retryAfter} s.`,
       retry_after: error.retryAfter }, 504, { "Retry-After": String(error.retryAfter) });
-    if (error instanceof PhoneInputError || error instanceof AdbError) return json({ error: "invalid_input", message: error.message }, 400);
-    if (error instanceof InputError) return json({ error: "invalid_input", message: error.message }, error.status);
+    if (error instanceof PhoneInputError) { const reply = phoneInputReply(error); return json(reply.body, reply.status, reply.headers); }
+    if (error instanceof AdbError) return json({ error: "invalid_input", message: error.message }, 400);
+    if (error instanceof InputError) return json({ error: "invalid_input", message: error.message, ...error.extra }, error.status);
     return errorResponse(error, identity.login, fallback);
   };
   async function change(request: Request, id: string, operation: "start" | "stop") {
@@ -229,11 +240,11 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
       const params = new URL(request.url).searchParams;
       const waitFor = params.get("wait_for");
       if (waitFor !== null && !WAIT_STATES.has(waitFor)) {
-        return json({ error: "invalid_input", message: "wait_for is stopped, running or ready." }, 400);
+        return json({ error: "invalid_input", message: "wait_for is stopped, running or ready.", field: "wait_for", allowed: ["stopped", "running", "ready"] }, 400);
       }
       const timeoutRaw = params.get("timeout_s") ?? "60";
       if (!/^\d{1,3}$/.test(timeoutRaw) || Number(timeoutRaw) < 1 || Number(timeoutRaw) > 120) {
-        return json({ error: "invalid_input", message: "timeout_s is a whole number from 1 to 120." }, 400);
+        return json({ error: "invalid_input", message: "timeout_s is a whole number from 1 to 120.", field: "timeout_s", allowed: { min: 1, max: 120 } }, 400);
       }
       const deadline = Date.now() + Number(timeoutRaw) * 1000;
       try {
@@ -290,8 +301,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         const stored = await phone(identity.id, id);
         if (!stored) return json({ error: "not_found", message: "Phone not found." }, 404);
         if (stored.state !== "running" || (action === "start" && stored.android_state !== "ready")) {
-          return json({ error: "phone_not_ready",
-            message: `The phone is ${stored.state} with Android ${stored.android_state}. Start it with POST /v1/phones/${id}/start, then retry when GET /v1/phones/${id} shows running and ready.` }, 409);
+          return notReady(id, stored);
         }
         let body: Record<string, unknown> | undefined;
         if (route.action === "start") {
@@ -338,7 +348,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         }
         return json(value);
       } catch (error) {
-        if (error instanceof InputError) return json({ error: "invalid_input", message: error.message }, error.status);
+        if (error instanceof InputError) return json({ error: "invalid_input", message: error.message, ...error.extra }, error.status);
         return fail(identity, error, "The recording request could not be confirmed. Retry.");
       }
     },
@@ -354,14 +364,13 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
       const raw = new URL(request.url).searchParams.get("scale");
       const scale = raw === null || raw === "" ? undefined : Number(raw);
       if (scale !== undefined && (!Number.isFinite(scale) || scale < 0.1 || scale > 1)) {
-        return json({ error: "invalid_input", message: "scale must be a number from 0.1 to 1." }, 400);
+        return json({ error: "invalid_input", message: "scale must be a number from 0.1 to 1.", field: "scale", allowed: { min: 0.1, max: 1 } }, 400);
       }
       try {
         const stored = await phone(identity.id, id);
         if (!stored) return json({ error: "not_found", message: "Phone not found." }, 404);
         if (stored.state !== "running" || stored.android_state !== "ready") {
-          return json({ error: "phone_not_ready",
-            message: `The phone is ${stored.state} with Android ${stored.android_state}. Retry when GET /v1/phones/${id} shows running and ready.` }, 409);
+          return notReady(id, stored);
         }
         const response = await screenshot(identity.id, id, scale, stored.codespace_name);
         const bytes = await response.arrayBuffer();
@@ -382,14 +391,13 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
       if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden", message: "This request is not allowed from this origin." }, 403);
       if (!ui) return json({ error: "not_available", message: "The UI tree is not available on this server." }, 503);
       const raw = new URL(request.url).searchParams.get("all");
-      if (raw !== null && raw !== "0" && raw !== "1") return json({ error: "invalid_input", message: "all must be 0 or 1." }, 400);
+      if (raw !== null && raw !== "0" && raw !== "1") return json({ error: "invalid_input", message: "all must be 0 or 1.", field: "all", allowed: ["0", "1"] }, 400);
       const all = raw === "1";
       try {
         const stored = await phone(identity.id, id);
         if (!stored) return json({ error: "not_found", message: "Phone not found." }, 404);
         if (stored.state !== "running" || stored.android_state !== "ready") {
-          return json({ error: "phone_not_ready",
-            message: `The phone is ${stored.state} with Android ${stored.android_state}. Retry when GET /v1/phones/${id} shows running and ready.` }, 409);
+          return notReady(id, stored);
         }
         const response = await ui(identity.id, id, all, stored.codespace_name);
         let value: Record<string, unknown> = {};
@@ -419,8 +427,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         const stored = await phone(identity.id, id);
         if (!stored) return json({ error: "not_found", message: "Phone not found." }, 404);
         if (stored.state !== "running" || stored.android_state !== "ready") {
-          return json({ error: "phone_not_ready",
-            message: `The phone is ${stored.state} with Android ${stored.android_state}. Start it with POST /v1/phones/${id}/start, then retry when GET /v1/phones/${id} shows running and ready.` }, 409);
+          return notReady(id, stored);
         }
         const multipart = request.headers.get("content-type")?.startsWith("multipart/form-data") === true;
         let argsValue: unknown;
@@ -445,7 +452,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
           ? uploaded.map(file => ({ name: file.name, bytes: file.bytes }))
           : undefined;
         const key = request.headers.get("idempotency-key") ?? undefined;
-        if (key !== undefined && !/^[\w.:-]{1,100}$/.test(key)) bad(400, "Idempotency-Key must be 1 to 100 letters, digits, _ . : or -.");
+        if (key !== undefined && !IDEMPOTENCY_KEY.test(key)) bad(400, "Idempotency-Key must be 1 to 100 letters, digits, _ . : or -.", { header: "Idempotency-Key" });
         const response = await adb(identity.id, id, { args, timeout_s, binary, ...(files ? { files } : {}), ...(key ? { key } : {}) }, stored.codespace_name);
         if (!response.ok) {
           await record(identity, id, args, -1, note);
@@ -459,13 +466,16 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
           }
           // ran: false = adb did not start, a retry is safe. true = it ran. "unknown" = it may have run:
           // check the phone before a retry, or retry with the same Idempotency-Key.
-          const ran = value.ran === true || value.ran === false || value.ran === "unknown" ? value.ran : "unknown";
+          // No `ran` means an old runner or a lost reply: the key may not be kept, so check the screen first.
+          const runnerSaid = value.ran === true || value.ran === false || value.ran === "unknown";
+          const ran = runnerSaid ? value.ran : "unknown";
           const message = typeof value.error === "string" ? value.error
             : `The phone's reply was lost (HTTP ${response.status}). The command may have run.`;
           const status = [400, 409, 413, 415, 503, 504].includes(response.status) ? response.status : 502;
           const error = status === 409 ? "phone_conflict" : status === 413 ? "output_too_large" : status === 415 ? "invalid_input"
             : status === 503 ? "adb_unavailable" : status === 504 ? "adb_timeout" : "adb_failed";
-          return json({ error, message, ran, ...(value.replayed === true ? { replayed: true } : {}) }, status === 415 ? 400 : status);
+          return json({ error, message, ran, ...(value.replayed === true ? { replayed: true } : {}),
+            ...(runnerSaid ? {} : checkScreenFirst(id, key !== undefined)) }, status === 415 ? 400 : status);
         }
         if (binary && download && response.body) {
           // Stream the file through. Buffering it here would hit the Vercel response limit again.
@@ -503,7 +513,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
       } catch (error) {
         if (error instanceof InlineLimitError) return json(inlineLimitBody(id), 413);
         if (loggable) await record(identity, id, args, -1, note);
-        if (error instanceof InputError) return json({ error: "invalid_input", message: error.message, ran: false }, error.status);
+        if (error instanceof InputError) return json({ error: "invalid_input", message: error.message, ...error.extra, ran: false }, error.status);
         // A known refusal (busy, rate limit, bad input) came before adb. Any other failure may be after it.
         const failed = fail(identity, error, "The connection to the phone failed. The command may have run: check the phone, or retry with the same Idempotency-Key.");
         const body = await failed.json() as Record<string, unknown>;
@@ -522,7 +532,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
       if (crossOrigin(request, identity.authKind)) return json({ error: "forbidden", message: "This request is not allowed from this origin." }, 403);
       try {
         const body = await readJson(request, 64 * 1024);
-        if (!Array.isArray(body.files) || !body.files.length) bad(400, "files must be a list of {name, size, sha256}.");
+        if (!Array.isArray(body.files) || !body.files.length) bad(400, "files must be a list of {name, size, sha256}.", { field: "files" });
         if (body.files.length > ADB_FILES_MAX) bad(400, `Attach at most ${ADB_FILES_MAX} files.`);
         let total = 0;
         const files = body.files.map((file: unknown, index: number) => {
@@ -530,7 +540,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
           if (!item || typeof item !== "object" || typeof item.name !== "string" || !item.name || item.name.length > 255
             || !Number.isSafeInteger(item.size) || (item.size as number) < 0
             || typeof item.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(item.sha256)) {
-            bad(400, `files[${index}] needs name, size in bytes, and sha256 as 64 lowercase hex characters.`);
+            bad(400, `files[${index}] needs name, size in bytes, and sha256 as 64 lowercase hex characters.`, { field: `files[${index}]` });
           }
           total += item.size as number;
           return { name: item.name, size: item.size as number, sha256: item.sha256 };
@@ -540,13 +550,12 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
             message: `Attach at most ${ADB_UPLOAD_MAX_BYTES / (1024 * 1024)} MB in total.` }, 413);
         }
         const args = adbArguments(body.args, files.length);
-        if (!FILE_COMMANDS.has(args[0])) bad(400, "adb/upload runs only install, install-multiple or push. Send other commands to /adb.");
+        if (!FILE_COMMANDS.has(args[0])) bad(400, "adb/upload runs only install, install-multiple or push. Send other commands to /adb.", { field: "args", allowed: ["install", "install-multiple", "push"] });
         const timeout_s = adbTimeout(body.timeout_s, args);
         const stored = await phone(identity.id, id);
         if (!stored) return json({ error: "not_found", message: "Phone not found." }, 404);
         if (stored.state !== "running" || stored.android_state !== "ready") {
-          return json({ error: "phone_not_ready",
-            message: `The phone is ${stored.state} with Android ${stored.android_state}. Start it with POST /v1/phones/${id}/start, then retry when GET /v1/phones/${id} shows running and ready.` }, 409);
+          return notReady(id, stored);
         }
         const issued = await uploadTicket?.(identity.id, id, { args, timeout_s, files });
         if (!issued) {
@@ -559,7 +568,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
           headers: { Authorization: `Emuly-Ticket ${issued.ticket}`, "Content-Type": "application/octet-stream" },
           message: "PUT the bytes of file0, file1, … one after another as the body, before expires_at. The ticket works once." });
       } catch (error) {
-        if (error instanceof InputError) return json({ error: "invalid_input", message: error.message }, error.status);
+        if (error instanceof InputError) return json({ error: "invalid_input", message: error.message, ...error.extra }, error.status);
         return fail(identity, error, "The upload ticket could not be made. Retry.");
       }
     },

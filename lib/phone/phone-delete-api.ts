@@ -7,7 +7,7 @@ import { createPhoneDeleteRequest, getPhoneDeleteRequest } from "../data/phone-d
 
 type Identity = { id: number; login?: string; authKind?: "session" | "agent"; agentKeyId?: number };
 type PhoneView = { id: string; name: string };
-type Removal = { ok: true } | { ok: false; status: number; error: string; message: string; retryAfter?: string };
+type Removal = { ok: true } | { ok: false; status: number; error: string; message: string; retryAfter?: string; extra?: Record<string, unknown> };
 
 
 /** DELETE /v1/phones/<id>. A session always deletes; an agent key needs the user's switch. */
@@ -35,7 +35,7 @@ export function createPhoneDeleteApi({ user, phone, agentCanDelete, remove, reco
     const result = await remove(identity.id, id);
     if (!result.ok) {
       const owner = result.error === "github_refused" && identity.login ? { github_login: identity.login } : {};
-      return json({ error: result.error, message: result.message, ...owner }, result.status,
+      return json({ error: result.error, ...result.extra, message: result.message, ...owner }, result.status,
         result.retryAfter ? { "Retry-After": result.retryAfter } : undefined);
     }
     if (identity.authKind === "agent") {

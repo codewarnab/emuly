@@ -243,7 +243,7 @@ test("keep API authenticates, rejects foreign phones and cross-site calls, and r
     signedIn = true;
     assert.equal((await api.keep(request({ Origin: "https://foreign.invalid" }), "phone-aaaa")).status, 403);
     assert.equal((await api.keep(request({ "sec-fetch-site": "cross-site" }), "phone-aaaa")).status, 403);
-    assert.equal((await api.keep(request(), "phone-bbbb")).status, 400);
+    assert.equal((await api.keep(request(), "phone-bbbb")).status, 404); // another user's phone: the same not_found as a missing one
     assert.equal((await api.keep(request(), "generated-phone-aaaa")).status, 400);
     assert.equal(f.writes.length, 0);
     const response = await api.keep(request(), "phone-aaaa");

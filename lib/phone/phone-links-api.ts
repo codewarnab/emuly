@@ -5,6 +5,7 @@ import { classifyTarget, netCheckFix } from "./net-check.ts";
 import type { LinksPath } from "./phone-link.ts";
 import { runnerUpdateMessage } from "./phone-response.ts";
 import { EgressError, egressSetting } from "../../phone/runner/egress.mjs";
+import { phoneNotReady } from "./phone-not-ready.ts";
 
 type Identity = { id: number; authKind?: "session" | "agent" };
 type PhoneView = { id: string; state: string; android_state: string };
@@ -34,8 +35,8 @@ export function createPhoneLinksApi({ user, phone, runner, issue, baseUrl, owner
     const stored = await phone(identity.id, id);
     if (!stored) return json({ error: "not_found", message: "Phone not found." }, 404);
     if (stored.state !== "running" || (needAndroid && stored.android_state !== "ready")) {
-      return json({ error: "phone_not_ready", message: `The phone is ${stored.state} with Android ${stored.android_state}. `
-        + `Start it with POST /v1/phones/${id}/start, then retry when GET /v1/phones/${id} shows running and ready.` }, 409);
+      const { body, headers } = phoneNotReady(id, stored);
+      return json(body, 409, headers);
     }
     return identity;
   }

@@ -1,0 +1,3 @@
+#!/bin/sh
+# No repo check here. Only passes the call to the global hook, if any.
+exec "$(dirname "$0")/run-global" commit-msg "$@"

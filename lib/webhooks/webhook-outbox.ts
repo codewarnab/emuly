@@ -10,10 +10,14 @@ const FAILURE_WINDOW = 3 * 86_400_000;
 /** Finished deliveries are kept this long, then deleted. */
 export const DELIVERY_RETENTION_MS = 30 * 86_400_000;
 const PRUNE_EVERY_MS = 3_600_000;
+/** A delivery, DNS included, is aborted after this long. */
+export const WEBHOOK_TIMEOUT_MS = 10_000;
 
-export function createWebhookOutbox({ database, decrypt, baseUrl, resolve, send = sendWebhook, clock = Date.now }: {
+export function createWebhookOutbox({ database, decrypt, baseUrl, resolve, send = sendWebhook, clock = Date.now, timeoutMs = WEBHOOK_TIMEOUT_MS }: {
   database: Client; decrypt: (cipher: Uint8Array, context: string) => string; baseUrl: string;
   resolve?: ResolveHost; send?: SendWebhook; clock?: () => number;
+  /** Tests pass a short value; production uses the default. */
+  timeoutMs?: number;
 }) {
   let running = false, prunedAt = -Infinity;
   async function prune() {
@@ -45,7 +49,7 @@ export function createWebhookOutbox({ database, decrypt, baseUrl, resolve, send 
     const start = clock();
     let status: number | null = null;
     let canceled = false;
-    const signal = AbortSignal.timeout(10_000);
+    const signal = AbortSignal.timeout(timeoutMs);
     // The deadline covers DNS too. The transport uses the same signal for its socket.
     const deadline = new Promise<never>((_resolve, reject) => {
       signal.addEventListener("abort", () => reject(new Error("Webhook timed out")), { once: true });
