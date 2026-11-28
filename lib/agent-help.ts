@@ -150,6 +150,16 @@ export function addAgentHelp(body: Record<string, unknown>, context: {
         out.if_fix_fails ??= { method: "POST", path: `${phonePath(id)}/stop`, then: waitStopped(id) };
       }
       break;
+    case "limit_reached":
+      out.needs_user ??= true;
+      out.fix ??= { method: "GET", path: "/v1/phones" };
+      out.hint ??= "List the phones and reuse one. Ask the user before you delete a phone.";
+      break;
+    case "phone_conflict":
+      // A phone in the wrong state for this step: read its state, then do the step that fits it.
+      if (id && (out.reason === "state" || out.reason === "unconfirmed")) out.fix ??= { method: "GET", path: phonePath(id) };
+      else if (out.reason === "unconfirmed") out.fix ??= { method: "GET", path: "/v1/phones" };
+      break;
     case "busy":
       out.max_retries ??= 3;
       out.fix ??= { same_request: true };

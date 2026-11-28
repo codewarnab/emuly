@@ -28,7 +28,8 @@ type StoredPhone = {
   retention_at: string | null;
   stop_reason: string | null;
 };
-export class PhoneInputError extends Error {}
+import { PhoneInputError, PhoneStateError } from "./phone-errors.ts";
+export { PhoneInputError, PhoneStateError };
 
 /** After this time with no matching Codespace on GitHub, an unconfirmed creation is treated as failed. */
 export const UNCONFIRMED_CREATION_EXPIRY_MS = 30 * 60_000;
@@ -336,7 +337,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
   async function phone(userId: number, id: string, queries: DatabaseQueries = database): Promise<StoredPhone> {
     if (!PHONE_ID.test(id)) throw new PhoneInputError("Invalid phone ID");
     const row = (await queries.execute({ sql: "SELECT * FROM phones WHERE user_id = ? AND id = ? AND state != 'deleted'", args: [userId, id] })).rows[0] as unknown as StoredPhone | undefined;
-    if (!row) throw new PhoneInputError("Phone not found");
+    if (!row) throw new PhoneStateError("not_found", "Phone not found");
     return row;
   }
 
@@ -359,7 +360,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
   async function claim(userId: number, id: string | null, operation: string, reserve?: (queries: DatabaseQueries) => Promise<void>, bulk = false) {
     await transaction(database, async queries => {
       const user = (await queries.execute({ sql: "SELECT id FROM users WHERE id = ? AND blocked = 0", args: [userId] })).rows[0];
-      if (!user) throw new PhoneInputError("Sign in again");
+      if (!user) throw new PhoneStateError("unauthorized", "Sign in again");
       if (!bulk) await assertMutationRate(queries, userId, operation === "create", clock);
       await reserve?.(queries);
       // Bulk and automatic actions must not use up the user's own rate limit.
@@ -480,15 +481,15 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
   async function guardedChange(userId: number, id: string, operation: "start" | "stop", bulk: boolean, automatic: Automatic,
     work: (context: ChangeContext) => Promise<string>) {
     const stored = await phone(userId, id);
-    if ((await keeping(id))) throw new PhoneInputError("Keep it is in progress. Wait until the phone stops again.");
+    if ((await keeping(id))) throw new PhoneStateError("phone_conflict", "Keep it is in progress. Wait until the phone stops again.", { reason: "state" });
     if (operation === "stop" && stored.state === "stopping") return id;
-    if (stored.codespace_name.startsWith("pending:")) throw new PhoneInputError("This phone has no codespace yet. Create a new phone.");
+    if (stored.codespace_name.startsWith("pending:")) throw new PhoneStateError("phone_conflict", "This phone has no codespace yet. Create a new phone.", { reason: "state" });
     // A start now would reach GitHub before Shutdown and do nothing, so the phone would stop anyway.
     const transition = nextState(stored.state, operation);
     // Every refused cell of the table is refused here, not only the stopping row.
-    if (!transition.ok) throw new PhoneInputError(transition.reason);
+    if (!transition.ok) throw new PhoneStateError("phone_conflict", transition.reason, { reason: "state" });
     const lock = await busy.acquire(id);
-    if (!lock) throw new PhoneInputError("A phone request is already in progress. Try again shortly.");
+    if (!lock) throw new PhoneStateError("busy", "A phone request is already in progress. Try again shortly.");
     let claimed = false;
     /** True when a detached stop owns `busy` and the rest of the work. */
     let handedOff = false;
@@ -613,7 +614,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
               answer = await (await runner(userId, id, "/stop", {})).json();
               if (answer.pending !== true) break;
             }
-            if (answer.stopped !== true) throw new PhoneInputError("Android stop was not confirmed. Try Stop again.");
+            if (answer.stopped !== true) throw new PhoneStateError("busy", "Android stop was not confirmed. Try Stop again.");
             await event(userId, id, "step", "Android graceful stop completed");
           } catch {
             // A dead runner must not keep the codespace (and the user's hours) running.
@@ -716,15 +717,15 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     const stored = await phone(userId, id);
     if ((await keeping(id))) return id;
     if (stored.state !== "stopped" || stored.codespace_name.startsWith("pending:")) {
-      throw new PhoneInputError("Only a stopped phone can be kept.");
+      throw new PhoneStateError("phone_conflict", "Only a stopped phone can be kept.", { reason: "state" });
     }
     const lock = await busy.acquire(id);
-    if (!lock) throw new PhoneInputError("A phone request is already in progress. Try again shortly.");
+    if (!lock) throw new PhoneStateError("busy", "A phone request is already in progress. Try again shortly.");
     try {
       await claim(userId, id, "keep", undefined, automatic);
       const current = await github.getCodespace(userId, id);
       await apply(userId, id, current, "reconciled");
-      if (current.state !== "Shutdown") throw new PhoneInputError("This phone is no longer stopped. Refresh its state.");
+      if (current.state !== "Shutdown") throw new PhoneStateError("phone_conflict", "This phone is no longer stopped. Refresh its state.", { reason: "state" });
       await database.execute({ sql: "INSERT OR IGNORE INTO phone_keeps (phone_id, phase, requested_at) VALUES (?, 'starting', ?)", args: [id, iso()] });
       await advanceKeep(userId, id, current);
       return id;
@@ -783,15 +784,15 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       await database.execute({ sql: "UPDATE phone_creations SET outcome = 'failed' WHERE phone_id = ? AND outcome = 'unconfirmed'", args: [id] });
       return;
     }
-    throw new PhoneInputError(matches.length === 0
+    throw new PhoneStateError("phone_conflict", matches.length === 0
       ? "GitHub is still creating this phone. Try again in a few minutes."
-      : "GitHub has more than one codespace with this phone's name. Delete the extra one on GitHub first.");
+      : "GitHub has more than one codespace with this phone's name. Delete the extra one on GitHub first.", { reason: "unconfirmed" });
   }
 
   async function remove(userId: number, id: string) {
     await phone(userId, id);
     const lock = await busy.acquire(id);
-    if (!lock) throw new PhoneInputError("A phone request is already in progress. Try again shortly.");
+    if (!lock) throw new PhoneStateError("busy", "A phone request is already in progress. Try again shortly.");
     try {
       await claim(userId, id, "delete");
       if ((await phone(userId, id)).codespace_name.startsWith("pending:")) await confirmBeforeDelete(userId, id);
@@ -819,7 +820,7 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
     bootNow: (userId: number, id: string) => startBoot(userId, id),
     async retryBoot(userId: number, id: string) {
       const stored = await phone(userId, id);
-      if (stored.state !== "running" || (await keeping(id)) || (await busy.held(id)) || (await bootingNow(id))) throw new PhoneInputError("Wait until the phone is running.");
+      if (stored.state !== "running" || (await keeping(id)) || (await busy.held(id)) || (await bootingNow(id))) throw new PhoneStateError("phone_conflict", "Wait until the phone is running.", { reason: "state" });
       await claim(userId, id, "retry boot");
       void diagnostics.operation(userId, id, "boot_retry", true);
       kickBoot(userId, id);
@@ -840,20 +841,20 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
       const interrupted = await unconfirmed(userId);
       if (interrupted.length) {
         if (!(await database.execute({ sql: "SELECT id FROM users WHERE id = ? AND blocked = 0", args: [userId] })).rows[0]) {
-          throw new PhoneInputError("Sign in again");
+          throw new PhoneStateError("unauthorized", "Sign in again");
         }
         await recoverCreations(userId, await github.listCodespaces(userId));
         if ((await unconfirmed(userId)).length) {
-          throw new PhoneInputError("Phone creation is unconfirmed. Refresh to reconcile it before creating another phone.");
+          throw new PhoneStateError("phone_conflict", "Phone creation is unconfirmed. Refresh to reconcile it before creating another phone.", { reason: "unconfirmed" });
         }
       }
       const id = await newPhoneId();
       await claim(userId, id, "create", async queries => {
-        if ((await unconfirmed(userId, queries)).length) throw new PhoneInputError("Phone creation is unconfirmed. Refresh before trying again.");
+        if ((await unconfirmed(userId, queries)).length) throw new PhoneStateError("phone_conflict", "Phone creation is unconfirmed. Refresh before trying again.", { reason: "unconfirmed" });
         if (maxPhones !== undefined) {
           const count = (await queries.execute({ sql: `SELECT count(*) AS n FROM phones WHERE user_id = ? AND state != 'deleted'
             AND (state != 'error' OR codespace_name NOT LIKE 'pending:%')`, args: [userId] })).rows[0]!.n as number;
-          if (count >= maxPhones) throw new PhoneInputError(`You can have up to ${maxPhones} ${maxPhones === 1 ? "phone" : "phones"} here. Delete a phone to make another.`);
+          if (count >= maxPhones) throw new PhoneStateError("limit_reached", `You can have up to ${maxPhones} ${maxPhones === 1 ? "phone" : "phones"} here. Delete a phone to make another.`);
         }
         await queries.execute({ sql: `INSERT INTO phones (id, user_id, codespace_name, repo_full_name, machine, state,
           created_at, idle_timeout_min, provider_idle_min, retention_min, device_preset) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, 43200, ?)`, args: [id, userId, `pending:${id}`, input.repository, input.machine ?? "Choosing machine", iso(), input.idleTimeoutMin, PROVIDER_IDLE_MIN, input.devicePreset ?? DEFAULT_DEVICE_PRESET] });

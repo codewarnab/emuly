@@ -115,3 +115,23 @@ test("a lost adb reply (ran unknown) never gets a plain retry", () => {
   assert.equal(notRun.retry_after, 3);
   assert.equal(notRun.max_retries, 1);
 });
+
+test("refusals that are not bad input get their own code and a fitting fix", async () => {
+  const { PhoneInputError, PhoneStateError, phoneInputReply } = await import("./phone/phone-errors.ts");
+  const busy = phoneInputReply(new PhoneStateError("busy", "A phone request is already in progress. Try again shortly."));
+  assert.equal(busy.status, 409);
+  assert.equal(busy.headers?.["Retry-After"], "5");
+  const missing = phoneInputReply(new PhoneStateError("not_found", "Phone not found"));
+  assert.deepEqual([missing.status, missing.body.message], [404, "Phone not found."]);
+  assert.equal(phoneInputReply(new PhoneStateError("unauthorized", "Sign in again")).status, 401);
+  assert.equal(phoneInputReply(new PhoneInputError("Choose a valid phone type.")).body.error, "invalid_input");
+  const limit = phoneInputReply(new PhoneStateError("limit_reached", "You can have up to 2 phones here."));
+  const helped = addAgentHelp(limit.body, ctx(limit.status, "/v1/phones", curl));
+  assert.equal(helped.needs_user, true);
+  assertRoute(helped.fix as never);
+  const state = phoneInputReply(new PhoneStateError("phone_conflict", "Only a stopped phone can be kept.", { reason: "state" }));
+  const stateHelp = addAgentHelp(state.body, ctx(409, "/v1/phones/p-1/keep", curl));
+  assert.deepEqual(stateHelp.fix, { method: "GET", path: "/v1/phones/p-1" });
+  // An adb phone_conflict (a busy runner) keeps no state fix.
+  assert.equal(addAgentHelp({ error: "phone_conflict", message: "x", ran: false }, ctx(409, "/v1/phones/p-1/adb", curl)).fix, undefined);
+});
