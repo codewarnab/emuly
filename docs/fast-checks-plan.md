@@ -48,6 +48,7 @@ Done:
   Cause: a real race in `lib/phone/scheduler.ts`. If `stop()` ran while a loop was mid-work, the loop then
   started a new sleep that nothing woke. `pause` now returns at once after stop. 62 s → 3 s for that file.
 - `pnpm test` has `--test-timeout=5000`: any single test over 5 s fails. The slowest test is 1.3 s today.
+  5 s was chosen over 2 s, so a busy machine does not fail a test by chance.
 - Local result, 2 cores: `pnpm test` 229 s → 91 s wall (CPU about 69 s). The suite is now limited by CPU.
   Node runs (cores − 1) files at a time, so on 2 cores it runs 1 file at a time. A 16-core machine gets 15 by default.
 - CI numbers: measure after the first push.
@@ -81,7 +82,7 @@ Expected: typecheck 6 s → under 1 s in CI. Locally it's much faster for agents
 
 ### Phase 3: faster setup in CI
 
-- **ASK:** keep pnpm, or switch the package manager to bun.
+- **Decided (28 Nov 2026): keep pnpm** and cache better. bun was rejected: it changes too many files for about 6 s more.
   - bun: `oven-sh/setup-bun` is about 1 to 2 s, against 11 s for `setup-node` + `pnpm/action-setup`.
     `bun install` is fast, and Vercel supports it. But this changes the lockfile and the
     `packageManager` field, `AGENTS.md`, the self-host Docker file and the docs.
