@@ -5,6 +5,7 @@
  * - `fix`: the next call the agent can make alone, with real ids filled in. Never a key or a token.
  * - `needs_user` / `user_url`: when only the user can do the step.
  * - `retry_after` / `max_retries`: when a retry is the fix.
+ * - `if_fix_fails`: the step after a fix that did not work.
  * - `use_cli`: how to install the Emuly CLI, when the caller is not the CLI and not the browser.
  *
  * The route wrapper (lib/diagnostics/api-usage-route.ts) calls `addAgentHelp` on each JSON error,
@@ -106,6 +107,23 @@ export function addAgentHelp(body: Record<string, unknown>, context: {
   const retry = Number(context.retryAfter);
   if (!has(out, "retry_after") && Number.isFinite(retry) && retry > 0) out.retry_after = retry;
 
+  // A lost adb reply: the command may have run. A plain retry could tap or type twice.
+  if (out.ran === "unknown" && id) {
+    const keyed = /^[\w.:-]{1,100}$/.test(context.headers.get("idempotency-key") ?? "");
+    if (keyed) {
+      // The runner keeps the first result per key for 10 minutes, so the same key does not run it again.
+      out.fix ??= { same_request: true, same_idempotency_key: true };
+      out.max_retries ??= 2;
+      out.hint ??= "Retry with the same Idempotency-Key: the phone replays the first result and does not run the command again. After a phone restart the key is gone, so check the screen first.";
+    } else {
+      out.fix ??= { method: "GET", path: `${phonePath(id)}/screenshot` };
+      out.if_fix_fails ??= { send_again: true, new_idempotency_key: true };
+      out.max_retries ??= 1;
+      out.hint ??= "The command may have run. Check the screen first. Send it again only if the change is not there, with an Idempotency-Key header.";
+    }
+    if (out.retry_after === undefined && code === "request_failed") out.retry_after = 3;
+  }
+
   switch (code) {
     case "unauthorized": {
       const sent = /^Bearer\s+\S/i.test(context.headers.get("authorization") ?? "")
@@ -137,6 +155,7 @@ export function addAgentHelp(body: Record<string, unknown>, context: {
       out.fix ??= { same_request: true };
       break;
     case "timeout":
+      if (out.ran === "unknown") break;
       out.max_retries ??= 2;
       out.fix ??= { same_request: true };
       break;
@@ -144,6 +163,7 @@ export function addAgentHelp(body: Record<string, unknown>, context: {
       out.hint ??= "Wait retry_after seconds. To wait for a phone, use GET /v1/phones/{id}?wait_for=ready instead of starting it again.";
       break;
     case "request_failed":
+      if (out.ran === "unknown") { out.report ??= ISSUE_URL; break; }
       if (!has(out, "retry_after")) out.retry_after = 3;
       out.max_retries ??= 1;
       out.report ??= ISSUE_URL;

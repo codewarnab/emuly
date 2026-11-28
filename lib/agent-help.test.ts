@@ -98,3 +98,20 @@ test("withAgentHelp keeps status and headers and skips non-errors and non-JSON",
   assert.equal(body.retry_after, 5);
   assert.ok(body.use_cli);
 });
+
+test("a lost adb reply (ran unknown) never gets a plain retry", () => {
+  for (const code of ["adb_timeout", "adb_failed", "request_failed", "timeout"]) {
+    const bare = addAgentHelp({ error: code, message: "x", ran: "unknown" }, ctx(504, "/v1/phones/p-1/adb", curl));
+    assertRoute(bare.fix as never);
+    assert.deepEqual(bare.fix, { method: "GET", path: "/v1/phones/p-1/screenshot" }, code);
+    assert.deepEqual(bare.if_fix_fails, { send_again: true, new_idempotency_key: true });
+    assert.equal(bare.max_retries, 1);
+    const keyed = addAgentHelp({ error: code, message: "x", ran: "unknown" }, ctx(504, "/v1/phones/p-1/adb", { ...curl, "idempotency-key": "tap-1" }));
+    assert.deepEqual(keyed.fix, { same_request: true, same_idempotency_key: true }, code);
+    assert.equal(keyed.max_retries, 2);
+    assert.ok(!JSON.stringify(keyed).includes("tap-1"), "the key is never echoed");
+  }
+  const notRun = addAgentHelp({ error: "request_failed", message: "x", ran: false }, ctx(502, "/v1/phones/p-1/adb", curl));
+  assert.equal(notRun.retry_after, 3);
+  assert.equal(notRun.max_retries, 1);
+});
