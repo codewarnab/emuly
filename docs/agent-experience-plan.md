@@ -221,7 +221,7 @@ Steps:
 3. The non-input cases in the table above get a new class `PhoneStateError(code, message, extra)` with
    the right code: `busy` (with `retry_after`), `phone_not_ready` (through `phoneNotReady`),
    `limit_reached` (new code, `needs_user`, `fix: GET /v1/phones`), `unauthorized`, `not_found`.
-   **This changes the code and status for those cases. See ASK 2.**
+   This changes the code and status for those cases (decided, ASK 2: A).
 4. Add `limit_reached` and any other new code to `knownErrors` in `api-usage.ts`.
 
 Edge cases:
@@ -331,7 +331,7 @@ codes that 1 and 2 add. Each item is one commit with tests.
 - B. A `GET /v1/errors` JSON route: easy for code to read, but a new route, and prose in JSON.
 - C. `docs/ERRORS.md` on GitHub: easy to write, but self-host links and private forks break.
 
-**ASK 2: the `PhoneInputError` cases that are not bad input** (busy, limit, wrong state, signed out).
+**Decided (28 Nov 2026): A, the right code and status.** ASK 2: the `PhoneInputError` cases that are not bad input** (busy, limit, wrong state, signed out).
 - A. Give them the right code and status (`busy` 409, `limit_reached` 409, `phone_not_ready` 409,
   `unauthorized` 401). Right advice for agents. Old clients that matched 400 `invalid_input` for these
   see a new code (the CLI only prints messages, so it still works).
