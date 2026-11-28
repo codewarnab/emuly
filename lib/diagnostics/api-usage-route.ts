@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { waitUntil } from "@vercel/functions";
 import { asyncDb } from "../data/async-db";
 import { createApiUsage, errorOf } from "./api-usage";
+import { withAgentHelp } from "../agent-help";
+import { env } from "../env";
 
 // One recorder per function instance. On Vercel, waitUntil keeps the instance alive for the flush
 // after the response is sent, so a request never waits for it.
@@ -9,10 +11,15 @@ const usage = createApiUsage(asyncDb, task => { if (process.env.VERCEL) waitUnti
 
 /**
  * Wraps a /v1 route handler to count the call anonymously (see api-usage.ts).
- * The handler runs exactly as before. The wrapper only reads the status and the time,
+ * The wrapper reads the status and the time, adds agent help to JSON errors (lib/agent-help.ts),
  * and for a JSON error it reads the `error` code from a copy of the body, in the background.
  */
-export function withApiUsage<C>(handler: (request: Request, context: C) => Response | Promise<Response>) {
+export function withApiUsage<C>(route: (request: Request, context: C) => Response | Promise<Response>) {
+  // Every JSON error also gets agent help (lib/agent-help.ts): a fix, retry limits and the CLI install.
+  const handler = async (request: Request, context: C) => {
+    const response = await route(request, context);
+    try { return await withAgentHelp(response, request, env.baseUrl); } catch { return response; }
+  };
   return async (request: Request, context: C): Promise<Response> => {
     if (process.env.EMULY_DIAGNOSTICS !== "1") return handler(request, context);
     const started = performance.now();

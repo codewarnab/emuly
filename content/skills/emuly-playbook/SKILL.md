@@ -89,6 +89,16 @@ This skill is version `{{EMULY_SKILL_VERSION}}`. Send the header
 `network_hint` field, or a call returns `runner_update_required`, read
 `references/notices.md`.
 
+## When a call fails
+
+Every error reply has `error` (a stable code) and `message`. Many also have:
+- `fix`: the next call to make, with the ids filled in. Make it yourself. If it has `then`,
+  make that call next. If it has `repeat_until`, repeat it every `every_s` seconds, at most `max_tries` times.
+  `{"same_request": true}` means: send the same call again.
+- `retry_after` and `max_retries`: wait that many seconds; stop after that many tries.
+- `needs_user: true`: only the user can do this step. Ask them in one line, with `user_url` if there is one.
+- `use_cli`: how to get the Emuly CLI. If Node 22+ is installed, run `install`, then `then`. Otherwise ignore it.
+
 ## How to talk to the user
 
 - Keep every message short and easy to read. Never be verbose.

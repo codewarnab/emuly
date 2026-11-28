@@ -133,7 +133,10 @@ test("adb requires a ready phone and the same Origin rule as the other routes", 
   const response = await stopped.api.adb(post(`/v1/phones/${stored.id}/adb`, { args: ["shell", "input", "tap", "1", "2"] }, {
     origin: "https://emuly.test" }), stored.id);
   assert.equal(response.status, 409);
-  assert.match((await response.json()).message, /Start it with POST \/v1\/phones\/phone-quiet-falcon\/start/);
+  const notReady = await response.json();
+  assert.match(notReady.message, /Start it/);
+  assert.deepEqual([notReady.fix.method, notReady.fix.path], ["POST", "/v1/phones/phone-quiet-falcon/start"]);
+  assert.match(notReady.fix.then.path, /wait_for=ready/);
   assert.deepEqual(stoppedCalls, [`phone:7:${stored.id}`]);
 
   const cookie = await api.adb(post(`/v1/phones/${stored.id}/adb`, { args: ["shell", "input", "tap", "1", "2"] }), stored.id);

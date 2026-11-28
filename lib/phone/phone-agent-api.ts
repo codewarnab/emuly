@@ -17,6 +17,7 @@ import type { RecordingAction } from "./phone-link.ts";
 import { notesVtt, type RecordingNote } from "./recording-notes.ts";
 import { runnerUpdateMessage } from "./phone-response.ts";
 import { bootProgress } from "./boot-progress.ts";
+import { phoneNotReady } from "../agent-help.ts";
 
 type Identity = { id: number; login?: string; authKind?: "session" | "agent"; agentKeyId?: number };
 type PhoneView = Pick<Phone, "id" | "name" | "state" | "android_state" | "idle_timeout_min"> & Partial<Pick<Phone, "codespace_name" | "last_activity_at" | "android_started_at" | "last_started_at" | "keeping" | "state_detail" | "setup_failed" | "created_at" | "android_ready_at">> & { device_preset?: string; location?: string | null };
@@ -44,6 +45,11 @@ export function waitResult(stored: Pick<PhoneView, "state" | "android_state">, t
     || (target === "ready" && stored.state === "running" && stored.android_state === "failed")
     || (target !== "stopped" && stored.state === "stopped"));
   return { done, failed };
+}
+
+function notReady(id: string, stored: { state: string; android_state: string }) {
+  const { body, headers } = phoneNotReady(id, stored);
+  return json(body, 409, headers);
 }
 
 class InputError extends Error {
@@ -290,8 +296,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         const stored = await phone(identity.id, id);
         if (!stored) return json({ error: "not_found", message: "Phone not found." }, 404);
         if (stored.state !== "running" || (action === "start" && stored.android_state !== "ready")) {
-          return json({ error: "phone_not_ready",
-            message: `The phone is ${stored.state} with Android ${stored.android_state}. Start it with POST /v1/phones/${id}/start, then retry when GET /v1/phones/${id} shows running and ready.` }, 409);
+          return notReady(id, stored);
         }
         let body: Record<string, unknown> | undefined;
         if (route.action === "start") {
@@ -360,8 +365,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         const stored = await phone(identity.id, id);
         if (!stored) return json({ error: "not_found", message: "Phone not found." }, 404);
         if (stored.state !== "running" || stored.android_state !== "ready") {
-          return json({ error: "phone_not_ready",
-            message: `The phone is ${stored.state} with Android ${stored.android_state}. Retry when GET /v1/phones/${id} shows running and ready.` }, 409);
+          return notReady(id, stored);
         }
         const response = await screenshot(identity.id, id, scale, stored.codespace_name);
         const bytes = await response.arrayBuffer();
@@ -388,8 +392,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         const stored = await phone(identity.id, id);
         if (!stored) return json({ error: "not_found", message: "Phone not found." }, 404);
         if (stored.state !== "running" || stored.android_state !== "ready") {
-          return json({ error: "phone_not_ready",
-            message: `The phone is ${stored.state} with Android ${stored.android_state}. Retry when GET /v1/phones/${id} shows running and ready.` }, 409);
+          return notReady(id, stored);
         }
         const response = await ui(identity.id, id, all, stored.codespace_name);
         let value: Record<string, unknown> = {};
@@ -419,8 +422,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         const stored = await phone(identity.id, id);
         if (!stored) return json({ error: "not_found", message: "Phone not found." }, 404);
         if (stored.state !== "running" || stored.android_state !== "ready") {
-          return json({ error: "phone_not_ready",
-            message: `The phone is ${stored.state} with Android ${stored.android_state}. Start it with POST /v1/phones/${id}/start, then retry when GET /v1/phones/${id} shows running and ready.` }, 409);
+          return notReady(id, stored);
         }
         const multipart = request.headers.get("content-type")?.startsWith("multipart/form-data") === true;
         let argsValue: unknown;
@@ -545,8 +547,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
         const stored = await phone(identity.id, id);
         if (!stored) return json({ error: "not_found", message: "Phone not found." }, 404);
         if (stored.state !== "running" || stored.android_state !== "ready") {
-          return json({ error: "phone_not_ready",
-            message: `The phone is ${stored.state} with Android ${stored.android_state}. Start it with POST /v1/phones/${id}/start, then retry when GET /v1/phones/${id} shows running and ready.` }, 409);
+          return notReady(id, stored);
         }
         const issued = await uploadTicket?.(identity.id, id, { args, timeout_s, files });
         if (!issued) {

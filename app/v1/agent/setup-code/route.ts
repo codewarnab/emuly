@@ -12,10 +12,10 @@ import { withApiUsage } from "@/lib/diagnostics/api-usage-route";
 async function handlePOST(request: Request) {
   const user = await getUser();
   if (!user) return json({ error: "unauthorized", message: "Sign in to copy a setup prompt.", base_url: env.baseUrl, prompt: buildDevicePrompt(env.baseUrl) }, 401);
-  const denied = forbidAgent(user, "Agent keys cannot create setup codes. Open manage_url to do this yourself.", "/app");
+  const denied = forbidAgent(user, "Setup codes are for the browser. You already have a key: use it. To check it, GET /v1/me.", "/app");
   if (denied) return denied;
   if (crossOrigin(request, user.authKind)) {
-    return json({ error: "forbidden" }, 403);
+    return json({ error: "forbidden", message: "This request is not allowed from this origin." }, 403);
   }
   const { code, expiresAt } = await createSetupCode(asyncDb(), user.id);
   return json({ code, expires_at: expiresAt, prompt: buildAgentPrompt(env.baseUrl, code) });
