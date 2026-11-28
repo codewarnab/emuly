@@ -132,7 +132,16 @@ and RFC 9457 adds nothing that an agent uses.
 - Old agents ignore the new fields. Nothing breaks.
 - Size: `fix` adds about 150 bytes to an error reply. Nothing is added to success replies in this phase.
 
-### Phase 1b: the 5 open items (researched 28 Nov 2026, not built)
+### Phase 1b: the 5 open items (researched 28 Nov 2026, built 28 Nov 2026)
+
+**Built** (commits `2364a02`, `5e0eea7`, `0c1c5e0`, `2cd076e`, `13b6173`; lint, 632 tests and build pass; not pushed, not checked on a live phone).
+Changes from the plan below:
+- Item 1: `syncError` uses the new `githubReason`. `shortMessage` and `stateErrorOf` keep their own rules for now (they read
+  stored text, not a `GitHubError`).
+- Item 2: wrong-state refusals use the existing `phone_conflict` code (409) with `reason: "state"` and `fix: GET /v1/phones/{id}`,
+  not `phone_not_ready`: those throws do not have the stored state that `phoneNotReady` needs. Another user's phone on
+  keep now gives 404 `not_found`, the same as a missing phone (it gave 400 before).
+- Item 5: the CLI change was dropped. The CLI only calls `/adb` for small installs and never retries them, so a key adds nothing.
 
 Each item lists what the code does today, the change, and the edge cases. Rules for all 5:
 - The reply must be the same for another user's phone, a deleted phone and a wrong id.
