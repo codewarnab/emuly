@@ -89,9 +89,10 @@ export function createScheduler({ database, parts, clock = Date.now, limit = 8, 
   const inFlight = new Set<Promise<unknown>>();
   const syncing = new Set<number>();
 
-  /** Sleep that ends early on stop. */
+  /** Sleep that ends early on stop. A loop that was mid-work when stop ran must not start a new sleep. */
   function pause(ms: number) {
     return new Promise<void>(resolve => {
+      if (stopping) return resolve();
       const done = () => { clearTimeout(timer); sleepers.delete(done); resolve(); };
       const timer = setTimeout(done, ms);
       sleepers.add(done);

@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "../data/database.ts";
 import { createGitHubClient, GitHubError, PHONE_MACHINE, type Codespace } from "../github/github.ts";
-import { createPhoneService, PhoneInputError, UNCONFIRMED_CREATION_EXPIRY_MS } from "./phone-mutations.ts";
+import { createPhoneService, PhoneInputError, UNCONFIRMED_CREATION_EXPIRY_MS, USER_LOCK_WAIT_MS } from "./phone-mutations.ts";
 import { RateLimitError } from "../data/rate-limit.ts";
 import { updateSettings, userSettings } from "../data/settings.ts";
 import { readUsage, saveAllowance } from "../data/usage.ts";
@@ -22,6 +22,9 @@ const input = { repository: "fixture/template", repositoryId: 123, idleTimeoutMi
 const machine = { name: "fixture-machine", display_name: "2 CPU", cpus: 2, memory_in_bytes: 8 * 1024 ** 3 };
 const space = (name: string, state = "Shutdown"): Codespace => ({ id: 41, name, state, machine });
 
+/** Tests wait this long for the phone lock, not the 20 s default, so "already in progress" comes fast. */
+const TEST_LOCK_WAIT_MS = 200;
+
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
 function fixture(fetcher: typeof fetch) {
@@ -33,7 +36,8 @@ function fixture(fetcher: typeof fetch) {
     VALUES (?, ?, ?, ?, 'codespace', '2026-11-01', '2026-11-01')`).run(id, id, `fixture-${id}`, Buffer.from("encrypted"));
   let time = Date.parse("2026-11-07T00:00:00.000Z");
   const github = createGitHubClient({ database: asyncDatabase, accessToken: async id => `synthetic-${id}`, fetch: fetcher });
-  const service = createPhoneService({ database: asyncDatabase, github, encrypt: (plain, context) => seal(plain, key, context), clock: () => time });
+  const service = createPhoneService({ database: asyncDatabase, github, encrypt: (plain, context) => seal(plain, key, context), clock: () => time,
+    userLockWaitMs: TEST_LOCK_WAIT_MS });
   return {
     asyncDatabase, database, github, service, advance: (ms: number) => { time += ms; },
     add(id: string, user = 1, name = `generated-${id}`) {
@@ -1133,7 +1137,7 @@ test("the per-phone lease lets only one server instance change a phone, and an e
   });
   // A second instance: its own service object on the same database, with no shared memory.
   const other = createPhoneService({ database: f.asyncDatabase, github: f.github, encrypt: (plain, context) => seal(plain, key, context),
-    clock: () => Date.parse("2026-11-07T00:00:00.000Z") });
+    clock: () => Date.parse("2026-11-07T00:00:00.000Z"), userLockWaitMs: TEST_LOCK_WAIT_MS });
   try {
     f.add("phone-aaaa");
     const first = f.service.start(1, "phone-aaaa");
@@ -1151,4 +1155,8 @@ test("the per-phone lease lets only one server instance change a phone, and an e
     assert.ok(lock, "an expired lease can be taken again");
     await lock!.release();
   } finally { await f.close(); }
+});
+
+test("user actions wait 20 s for the phone lock by default", () => {
+  assert.equal(USER_LOCK_WAIT_MS, 20_000);
 });

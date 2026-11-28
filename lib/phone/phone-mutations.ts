@@ -50,8 +50,10 @@ const STOP_ATTEMPTS = 3;
 /** How long a wake asks the autostarted runner before setup falls back to SSH. */
 const WAKE_CHECK_MS = 20_000;
 
-export function createPhoneService({ database, github, clock = Date.now, maxPhones, setup, collectProgress, runner, dispatchBoot, disconnect, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), emit = (event, queries = database) => emitEvent(event, queries) }: {
+export function createPhoneService({ database, github, clock = Date.now, maxPhones, setup, collectProgress, runner, dispatchBoot, disconnect, userLockWaitMs = USER_LOCK_WAIT_MS, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), emit = (event, queries = database) => emitEvent(event, queries) }: {
   database: Client;
+  /** How long a user action waits for the phone lock. Tests pass a short value; production uses the default. */
+  userLockWaitMs?: number;
   /** Installs the emulator and runner in an Available codespace. Without it, phones stay booting. */
   /** Starts or checks phone setup. "working" means: ask again later. */
   setup?: ((userId: number, codespaceName: string, preset?: string) => Promise<"ready" | "working" | SetupResult>) & {
@@ -965,19 +967,19 @@ export function createPhoneService({ database, github, clock = Date.now, maxPhon
   };
   return {
     ...service,
-    create: (...args: Parameters<typeof service.create>) => withLease(database, `phones:${args[0]}`, () => service.create(...args), USER_LOCK_WAIT_MS),
-    start: (...args: Parameters<typeof service.start>) => withLease(database, `phones:${args[0]}`, () => service.start(...args), USER_LOCK_WAIT_MS),
-    stop: (...args: Parameters<typeof service.stop>) => withLease(database, `phones:${args[0]}`, () => service.stop(...args), USER_LOCK_WAIT_MS),
-    requestStop: (...args: Parameters<typeof service.requestStop>) => withLease(database, `phones:${args[0]}`, () => service.requestStop(...args), USER_LOCK_WAIT_MS),
-    remove: (...args: Parameters<typeof service.remove>) => withLease(database, `phones:${args[0]}`, () => service.remove(...args), USER_LOCK_WAIT_MS),
-    keep: (...args: Parameters<typeof service.keep>) => withLease(database, `phones:${args[0]}`, () => service.keep(...args), USER_LOCK_WAIT_MS),
+    create: (...args: Parameters<typeof service.create>) => withLease(database, `phones:${args[0]}`, () => service.create(...args), userLockWaitMs),
+    start: (...args: Parameters<typeof service.start>) => withLease(database, `phones:${args[0]}`, () => service.start(...args), userLockWaitMs),
+    stop: (...args: Parameters<typeof service.stop>) => withLease(database, `phones:${args[0]}`, () => service.stop(...args), userLockWaitMs),
+    requestStop: (...args: Parameters<typeof service.requestStop>) => withLease(database, `phones:${args[0]}`, () => service.requestStop(...args), userLockWaitMs),
+    remove: (...args: Parameters<typeof service.remove>) => withLease(database, `phones:${args[0]}`, () => service.remove(...args), userLockWaitMs),
+    keep: (...args: Parameters<typeof service.keep>) => withLease(database, `phones:${args[0]}`, () => service.keep(...args), userLockWaitMs),
     sync: (...args: Parameters<typeof service.sync>) => withLease(database, `phones:${args[0]}`, () => service.sync(...args)),
-    stopAll: (...args: Parameters<typeof service.stopAll>) => withLease(database, `phones:${args[0]}`, () => service.stopAll(...args), USER_LOCK_WAIT_MS),
+    stopAll: (...args: Parameters<typeof service.stopAll>) => withLease(database, `phones:${args[0]}`, () => service.stopAll(...args), userLockWaitMs),
     autoStop: (...args: Parameters<typeof service.autoStop>) => withLease(database, `phones:${args[0]}`, () => service.autoStop(...args)),
     idleStop: (...args: Parameters<typeof service.idleStop>) => withLease(database, `phones:${args[0]}`, () => service.idleStop(...args)),
     observeCodespace: (...args: Parameters<typeof service.observeCodespace>) => withLease(database, `phones:${args[0]}`, () => service.observeCodespace(...args)),
     autoKeep: (...args: Parameters<typeof service.autoKeep>) => withLease(database, `phones:${args[0]}`, () => service.autoKeep(...args)),
-    retryBoot: (...args: Parameters<typeof service.retryBoot>) => withLease(database, `phones:${args[0]}`, () => service.retryBoot(...args), USER_LOCK_WAIT_MS),
+    retryBoot: (...args: Parameters<typeof service.retryBoot>) => withLease(database, `phones:${args[0]}`, () => service.retryBoot(...args), userLockWaitMs),
   };
 }
 

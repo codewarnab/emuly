@@ -1,6 +1,6 @@
 # Plan: fast tests, lint, build and CI
 
-Status: plan only. Nothing is built yet.
+Status: Phase 1 done (local numbers below). Phases 2 to 5 not started.
 
 Why: agents run these checks many times per task. Every second of waiting is time the agent and the
 user wait too. Goal: CI result in under 1 minute at p50 and under 2 minutes at p95. Local
@@ -38,7 +38,20 @@ Together that's about 70 s. Every other test takes 1.2 s or less.
 
 ## 2. The phases
 
-### Phase 1: stop the 4 tests waiting on real time (biggest win)
+### Phase 1: stop the 4 tests waiting on real time (biggest win) — DONE
+
+Done:
+- `createPhoneService` takes `userLockWaitMs` (default `USER_LOCK_WAIT_MS` = 20 s). Phone tests pass 200 ms.
+- `createWebhookOutbox` takes `timeoutMs` (default `WEBHOOK_TIMEOUT_MS` = 10 s). The stalled-receiver test passes 300 ms.
+- Two tests check the defaults stay 20 s and 10 s.
+- Found while measuring: `lib/phone/scheduler.test.ts` kept its process alive about 60 s after its tests ended.
+  Cause: a real race in `lib/phone/scheduler.ts`. If `stop()` ran while a loop was mid-work, the loop then
+  started a new sleep that nothing woke. `pause` now returns at once after stop. 62 s → 3 s for that file.
+- `pnpm test` has `--test-timeout=5000`: any single test over 5 s fails. The slowest test is 1.3 s today.
+- Local result, 2 cores: `pnpm test` 229 s → 91 s wall (CPU about 69 s). The suite is now limited by CPU.
+  Node runs (cores − 1) files at a time, so on 2 cores it runs 1 file at a time. A 16-core machine gets 15 by default.
+- CI numbers: measure after the first push.
+
 
 **ASK:** make the waits injectable (recommended) or use `node:test` mock timers.
 - Injectable: `createPhoneService` takes `userLockWaitMs` (default `USER_LOCK_WAIT_MS`), and the webhook

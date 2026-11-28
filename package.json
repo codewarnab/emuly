@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "node bin/server.mjs --production",
     "lint": "tsc --noEmit",
-    "test": "node --expose-gc --conditions=react-server --test --experimental-strip-types \"lib/**/*.test.ts\"",
+    "test": "node --expose-gc --conditions=react-server --test --test-timeout=5000 --experimental-strip-types \"lib/**/*.test.ts\"",
     "emuly": "node bin/emuly.mjs",
     "db:migrate": "node --experimental-strip-types scripts/migrate-database.ts",
     "db:rotate-key": "node --experimental-strip-types scripts/rotate-token-key.ts"
