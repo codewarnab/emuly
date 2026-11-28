@@ -1,6 +1,6 @@
 # Plan: fast tests, lint, build and CI
 
-Status: Phase 1 done (local numbers below). Phases 2 to 5 not started.
+Status: Phases 1 and 2 done (local numbers below). Phases 3 to 5 not started.
 
 Why: agents run these checks many times per task. Every second of waiting is time the agent and the
 user wait too. Goal: CI result in under 1 minute at p50 and under 2 minutes at p95. Local
@@ -68,7 +68,19 @@ Steps:
 
 Expected: CI test step 73 s → about 10 to 15 s. Local `pnpm test` 229 s → about 30 s.
 
-### Phase 2: TypeScript 7 (native) for the type check
+### Phase 2: TypeScript 7 (native) for the type check — DONE
+
+Done:
+- `typescript7` (an alias for `typescript@7.0.2`) is a dev dependency next to `typescript@5`.
+- `pnpm lint` runs TypeScript 7. `pnpm lint:ts5` runs TypeScript 5 when you want to compare.
+- `next build` still loads `typescript` 5.9.3, so every build and deploy is still checked by TypeScript 5.
+  This is the side-by-side check, with no extra step.
+- Same result: 0 errors on the repo for both. 3 planted errors (a wrong type, a missing export, an unknown
+  name in a .tsx file) gave the same 3 errors, with the same lines and codes, in both.
+- Gotcha: both packages have a `tsc` command, and `node_modules/.bin/tsc` is now TypeScript 7. Scripts call
+  each one by its path.
+- Local result, 2 cores: type check 16 s → 4.3 s cold, 1.1 s warm.
+
 
 - TypeScript 7.0 (July 2026) is the Go port. It is about 8 to 12 times faster.
 - It has no compiler API until 7.1, and `next build` uses that API. So keep TypeScript 5 for `next build`,

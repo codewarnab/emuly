@@ -47,7 +47,7 @@ Use pnpm. The dev server is on http://localhost:4321.
 
 ```sh
 pnpm dev        # local SQLite migrations, then the server
-pnpm lint       # tsc --noEmit
+pnpm lint       # TypeScript 7 type check (about 1 s). pnpm build still checks with TypeScript 5
 pnpm test       # node --test, lib/**/*.test.ts
 pnpm build
 ```
