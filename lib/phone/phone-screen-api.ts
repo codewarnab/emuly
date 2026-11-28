@@ -1,6 +1,7 @@
 import "server-only";
 import { NO_STORE, apiError, json as okJson } from "../http.ts";
 import { crossOrigin } from "../auth/origin.ts";
+import { phoneNotReady } from "../agent-help.ts";
 import type { RunnerPath } from "./phone-link.ts";
 
 type ScreenPhone = { state: string; android_state: string };
@@ -18,7 +19,10 @@ export function createPhoneScreenApi({ user, phone, runner }: {
     if (!identity) return json("Sign in again.", 401);
     const stored = await phone(identity.id, id);
     if (!stored) return json("Phone not found.", 404);
-    if (stored.state !== "running" || stored.android_state !== "ready") return json("Android is not ready.", 409);
+    if (stored.state !== "running" || stored.android_state !== "ready") {
+      const notReady = phoneNotReady(id, stored);
+      return okJson(notReady.body, 409, notReady.headers);
+    }
     if (request.method === "POST") {
       if (crossOrigin(request, identity.authKind)) return json("Forbidden.", 403);
       if (!request.headers.get("content-type")?.startsWith("application/json")) return json("Expected JSON.", 415);

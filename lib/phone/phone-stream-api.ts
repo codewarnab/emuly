@@ -1,6 +1,7 @@
 import "server-only";
 import { NO_STORE, apiError } from "../http.ts";
 import { crossOrigin } from "../auth/origin.ts";
+import { phoneNotReady } from "../agent-help.ts";
 import { issueStreamTicket } from "./phone-stream-ticket.ts";
 
 type Identity = { id: number; sessionId: string };
@@ -35,8 +36,15 @@ export function createPhoneStreamApi({ user, phone, open, observation, issue, di
     if (!stored) return apiError(...EMPTY_ERRORS[404]!, 404);
     // GitHub reports ShuttingDown/Shutdown/Queued while the forwarded port may still answer /health.
     // A retry or tunnel cannot work then, so give the page a distinct code it can show as "Phone stopped".
-    if (stored.state !== "running") return Response.json({ errorCode: "phone_stopped" }, { status: 409 });
-    if (stored.android_state !== "ready") return apiError(...EMPTY_ERRORS[409]!, 409);
+    // The page reads errorCode; the phoneNotReady fields next to it give the next step.
+    if (stored.state !== "running") {
+      const notReady = phoneNotReady(id, stored);
+      return Response.json({ errorCode: "phone_stopped", ...notReady.body }, { status: 409, headers: { "Cache-Control": NO_STORE, ...notReady.headers } });
+    }
+    if (stored.android_state !== "ready") {
+      const notReady = phoneNotReady(id, stored);
+      return Response.json(notReady.body, { status: 409, headers: { "Cache-Control": NO_STORE, ...notReady.headers } });
+    }
     try {
       const cookie = request.headers.get("cookie") ?? "";
       const asked = new URL(request.url).searchParams.get("quality") ?? "auto";
