@@ -1,6 +1,6 @@
 # Plan: fast tests, lint, build and CI
 
-Status: Phases 1 and 2 done (local numbers below). Phases 3 to 5 not started.
+Status: all 5 phases built (local numbers below). CI numbers wait for the first push.
 
 Why: agents run these checks many times per task. Every second of waiting is time the agent and the
 user wait too. Goal: CI result in under 1 minute at p50 and under 2 minutes at p95. Local
@@ -92,7 +92,11 @@ Done:
 
 Expected: typecheck 6 s → under 1 s in CI. Locally it's much faster for agents.
 
-### Phase 3: faster setup in CI
+### Phase 3: faster setup in CI — DONE (small)
+
+Done: `pnpm install --frozen-lockfile --prefer-offline`. Little else is safe to gain with pnpm: the pnpm store
+is already cached, and the runners don't ship Node 26, so `setup-node` stays. Expect about 1 to 3 s, not 10 s.
+
 
 - **Decided (28 Nov 2026): keep pnpm** and cache better. bun was rejected: it changes too many files for about 6 s more.
   - bun: `oven-sh/setup-bun` is about 1 to 2 s, against 11 s for `setup-node` + `pnpm/action-setup`.
@@ -104,7 +108,17 @@ Expected: typecheck 6 s → under 1 s in CI. Locally it's much faster for agents
 
 Expected: setup ~13 s → ~3 s per job.
 
-### Phase 4: the same check before push (local hook)
+### Phase 4: the same check before push (local hook) — DONE
+
+Done:
+- `.githooks/pre-push` runs `pnpm lint` and `pnpm test`. `pnpm install` turns it on (`prepare` →
+  `scripts/install-hooks.mjs`), and does nothing outside a git checkout (Vercel, Docker).
+- A repo `core.hooksPath` hides hooks from a global `core.hooksPath`. So each repo hook first runs the global
+  hook of the same name (`.githooks/run-global`). `.githooks/commit-msg` only does that.
+- CI shellcheck now checks `.githooks/*` too.
+- No pre-commit hook: lint is about 1 s now, so there is no need for staged-files-only tricks.
+- Local result, 2 cores: the hook takes about 104 s. On 16 cores, expect much less (not measured).
+
 
 - **Decided (28 Nov 2026): a plain `.githooks/pre-push`**, turned on by `git config core.hooksPath` from a pnpm `prepare` script. `hk` was rejected: a new tool every clone must install.
 - Add a pre-push hook that runs lint + test, the
@@ -112,7 +126,12 @@ Expected: setup ~13 s → ~3 s per job.
 - Pre-commit: only fast checks on staged files (the type check, and shellcheck on changed `.sh`).
 - Budget: under 10 s for pre-commit. Pre-push takes as long as the full suite, about 30 s after Phase 1.
 
-### Phase 5: budgets so it stays fast
+### Phase 5: budgets so it stays fast — DONE
+
+Done: `timeout-minutes` is 2 for typecheck, 3 for test, 1 for shellcheck (was 10, 15, 5). Test got 3, not 2,
+because GitHub runners have 2 cores (local test run: about 91 s, plus setup). A "10 slowest tests" step prints
+after every test run, even when tests fail.
+
 
 - Each CI job gets a `timeout-minutes` close to its budget (test 2, typecheck 1, shellcheck 1).
   A job over budget fails, and we fix the cause, never the limit.

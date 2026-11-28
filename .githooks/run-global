@@ -1,0 +1,9 @@
+#!/bin/sh
+# Setting core.hooksPath for this repo hides hooks from a global core.hooksPath.
+# Each hook here first runs the global hook of the same name, if there is one.
+name="$1"; shift
+global=$(git config --global --get core.hooksPath 2>/dev/null) || exit 0
+case "$global" in "~/"*) global="$HOME/${global#"~/"}" ;; esac
+[ -x "$global/$name" ] || exit 0
+[ "$(cd "$global" && pwd -P)" = "$(cd "$(dirname "$0")" && pwd -P)" ] && exit 0
+exec "$global/$name" "$@"

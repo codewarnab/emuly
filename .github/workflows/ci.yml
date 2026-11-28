@@ -14,9 +14,11 @@ permissions:
   contents: read
 
 jobs:
+  # Time limits sit close to each job's budget (docs/fast-checks-plan.md, Phase 5).
+  # A job over its limit fails: fix the cause, never raise the limit.
   typecheck:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 2
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (version from packageManager)
@@ -24,14 +26,14 @@ jobs:
         with:
           node-version: 26
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --prefer-offline
       # tsc needs the global route types (RouteContext, LayoutProps) that Next.js generates.
       - run: pnpm exec next typegen
       - run: pnpm lint
 
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 3
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -39,13 +41,16 @@ jobs:
         with:
           node-version: 26
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test
+      - run: pnpm install --frozen-lockfile --prefer-offline
+      - run: pnpm test | tee test.log
+      - name: 10 slowest tests
+        if: always()
+        run: grep -E '^\s*✔ .*\(([0-9.]+)ms\)$' test.log | sed -E 's/.*\(([0-9.]+)ms\)$/\1 &/' | sort -rn | head -10 | cut -d' ' -f2- || true
 
   shellcheck:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # shellcheck is installed on GitHub's Ubuntu runners. -x follows `source` lines.
-      - run: shellcheck --version && git ls-files -z '*.sh' | xargs -0 shellcheck -x --severity=warning
+      - run: shellcheck --version && git ls-files -z '*.sh' '.githooks/*' | xargs -0 shellcheck -x --severity=warning

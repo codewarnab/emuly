@@ -56,7 +56,7 @@ Run one test file: `node --expose-gc --conditions=react-server --test --experime
 
 ## Rules
 
-- Before you push, run `pnpm lint`, `pnpm test` and `pnpm build`.
+- Before you push, run `pnpm lint`, `pnpm test` and `pnpm build`. The pre-push hook (`.githooks/pre-push`, on after `pnpm install`) runs lint and test for you.
 - Production is Vercel `bom1` with a Turso database in `aws-ap-south-1`. Pushes to `main` deploy.
 - **Schema:** add a new entry at the end of `MIGRATIONS` in `lib/data/migrations.ts`. Never edit an old entry.
 - **Migrate production before you push** code that reads a new column. Vercel does not run migrations. Use the Turso CLI:

@@ -7,6 +7,7 @@
     "dev": "node --experimental-strip-types scripts/migrate-database.ts --local-only && node bin/server.mjs",
     "build": "next build",
     "start": "node bin/server.mjs --production",
+    "prepare": "node scripts/install-hooks.mjs",
     "lint": "node node_modules/typescript7/bin/tsc --noEmit",
     "lint:ts5": "node node_modules/typescript/bin/tsc --noEmit",
     "test": "node --expose-gc --conditions=react-server --test --test-timeout=5000 --experimental-strip-types \"lib/**/*.test.ts\"",
