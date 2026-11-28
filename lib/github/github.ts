@@ -14,6 +14,7 @@
  */
 import "server-only";
 import type { DatabaseQueries } from "../data/async-database.ts";
+import { ssoUrl } from "./github-reason.ts";
 
 /** The only GitHub HTTP transport, including OAuth. Tests supply a fake fetch. */
 export function githubFetch(url: string, init: RequestInit, fetcher: typeof fetch = fetch) {
@@ -46,8 +47,11 @@ export class GitHubError extends Error {
   readonly status: number;
   readonly retryAfter?: number;
   readonly rateLimited: boolean;
-  constructor(message: string, status: number, retryAfter?: number, rateLimited = false) {
+  /** The org SSO link from X-GitHub-SSO (a github.com page), when GitHub asks for SAML sign-in. */
+  readonly sso?: string;
+  constructor(message: string, status: number, retryAfter?: number, rateLimited = false, sso?: string) {
     super(message); this.status = status; this.retryAfter = retryAfter; this.rateLimited = rateLimited;
+    if (sso !== undefined) this.sso = sso;
   }
 }
 
@@ -106,7 +110,8 @@ export function createGitHubClient({ database, accessToken, fetch: fetcher = fet
       const data = await response.json().catch(() => null);
       const message = typeof data?.message === "string" ? data.message : `GitHub request failed (${response.status})`;
       throw new GitHubError(message.replaceAll(token, "[redacted]"), response.status, retryDelay(response.headers),
-        response.headers.get("x-ratelimit-remaining") === "0" || response.headers.has("retry-after"));
+        response.headers.get("x-ratelimit-remaining") === "0" || response.headers.has("retry-after"),
+        response.headers.has("x-github-sso") ? ssoUrl(response.headers.get("x-github-sso")) ?? "" : undefined);
     }
     return response;
   }

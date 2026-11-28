@@ -579,7 +579,7 @@ test("phone HTTP API authenticates, rejects cross-site creation, passes defaults
     assert.equal((await api.create(request(undefined, "[]"))).status, 400);
     const response = await api.create(request());
     assert.equal(response.status, 409);
-    assert.deepEqual(await response.json(), { error: "github_refused", message: "Your spending limit has been reached.", github_login: "octo-cat" });
+    assert.deepEqual(await response.json(), { error: "github_refused", reason: "billing", needs_user: true, user_url: "https://github.com/settings/billing/usage", hint: "GitHub refused for billing: the Codespaces hours or spending limit ran out. Ask the user to raise the limit or wait for next month.", message: "Your spending limit has been reached.", github_login: "octo-cat" });
     const me = await api.me();
     assert.equal(me.headers.get("cache-control"), "private, no-store");
     assert.deepEqual(await me.json(), { github_login: "octo-cat", name: "Octo", avatar_url: null });

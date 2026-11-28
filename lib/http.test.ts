@@ -17,7 +17,7 @@ test("json and apiError are private and use the one error shape", async () => {
 test("errorResponse maps a GitHub refusal to 409 with the account", async () => {
   const response = errorResponse(new GitHubError("Your spending limit has been reached.", 403), "octo", "fallback");
   assert.equal(response.status, 409);
-  assert.deepEqual(await response.json(), { error: "github_refused", message: "Your spending limit has been reached.", github_login: "octo" });
+  assert.deepEqual(await response.json(), { error: "github_refused", reason: "billing", needs_user: true, user_url: "https://github.com/settings/billing/usage", hint: "GitHub refused for billing: the Codespaces hours or spending limit ran out. Ask the user to raise the limit or wait for next month.", message: "Your spending limit has been reached.", github_login: "octo" });
 });
 
 test("errorResponse maps a rate limit to 429 with Retry-After", async () => {

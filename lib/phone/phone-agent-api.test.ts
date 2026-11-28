@@ -552,7 +552,7 @@ test("a GitHub refusal names the GitHub account, so the agent can point at its b
   });
   const response = await api.start(post(`/v1/phones/${stored.id}/start`), stored.id);
   assert.equal(response.status, 409);
-  assert.deepEqual(await response.json(), { error: "github_refused",
+  assert.deepEqual(await response.json(), { error: "github_refused", reason: "billing", needs_user: true, user_url: "https://github.com/settings/billing/usage", hint: "GitHub refused for billing: the Codespaces hours or spending limit ran out. Ask the user to raise the limit or wait for next month.", 
     message: "There is a billing issue that is preventing you from starting this codespace.", github_login: "octo-cat" });
   const anonymous = fixture({ service: { start: async () => { throw new GitHubError("refused", 403); }, stop: async (_userId, id) => id } });
   const without = await anonymous.api.start(post(`/v1/phones/${stored.id}/start`, undefined, { origin: "https://emuly.test" }), stored.id);

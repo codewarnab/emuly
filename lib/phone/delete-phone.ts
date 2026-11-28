@@ -8,7 +8,7 @@ import { githubRefused } from "./github-refused.ts";
 
 export type PhoneRemovalResult =
   | { ok: true }
-  | { ok: false; status: number; error: string; message: string; retryAfter?: string };
+  | { ok: false; status: number; error: string; message: string; retryAfter?: string; extra?: Record<string, unknown> };
 
 /** The one deletion path for the session route and an approved request. */
 export async function removePhone(userId: number, id: string): Promise<PhoneRemovalResult> {
@@ -18,7 +18,10 @@ export async function removePhone(userId: number, id: string): Promise<PhoneRemo
     await phoneControl().remove(userId, id);
     return { ok: true };
   } catch (error) {
-    if (error instanceof GitHubError) return { ok: false, status: 409, ...githubRefused(error) };
+    if (error instanceof GitHubError) {
+      const { error: code, message, ...extra } = githubRefused(error) as { error: string; message: string; retry_after?: number };
+      return { ok: false, status: 409, error: code, message, extra, ...(extra.retry_after ? { retryAfter: String(extra.retry_after) } : {}) };
+    }
     if (error instanceof RateLimitError) return { ok: false, status: 429, error: "rate_limited", message: error.message,
       retryAfter: String(error.retryAfter) };
     if (error instanceof PhoneInputError) return { ok: false, status: 400, error: "invalid_input", message: error.message };
