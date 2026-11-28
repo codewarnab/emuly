@@ -268,7 +268,7 @@ Today there are about 40 codes (the `knownErrors` list in `api-usage.ts:29` plus
 No skill page lists codes: `references/delete-and-errors.md` only says "Moved", and the real page is
 `references/tasks/delete-and-errors.md`.
 
-Where the pages live — **ASK 1** below. Steps after that choice:
+Pages live in the skill file `references/tasks/errors.md` (decided, ASK 1). Steps after that choice:
 1. One page with one `## <code>` heading per code: what it means, what to do, an example body.
 2. `addAgentHelp` adds `docs: <base>/<page>#<code>` to every error whose code has a heading. A test
    reads the page and fails when a code in `knownErrors` has no heading, or a heading has no code.
@@ -325,7 +325,7 @@ and an adb tap with a lost reply (kill the tunnel mid-call).
 1 → 5 → 3 → 2 → 4. Item 5 fixes a real double-run risk. Item 4 goes last because its page lists the
 codes that 1 and 2 add. Each item is one commit with tests.
 
-**ASK 1: where the error pages live.**
+**Decided (28 Nov 2026): A, one skill file.** ASK 1: where the error pages live.
 - A. One skill file, `references/tasks/errors.md`, served by the existing `/.well-known/` skill route
   (recommended: no new route, versioned with the skill, agents with the skill already have it).
 - B. A `GET /v1/errors` JSON route: easy for code to read, but a new route, and prose in JSON.
