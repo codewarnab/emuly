@@ -1,6 +1,6 @@
 import { apiError, NO_STORE } from "../http.ts";
 import "server-only";
-import { phoneNotReady } from "../agent-help.ts";
+import { phoneNotReady } from "./phone-not-ready.ts";
 import { unknownRouteBody } from "../v1-routes.ts";
 import { crossOrigin } from "../auth/origin.ts";
 import { APK_CHUNK_BYTES, APK_MAX_BYTES, installFinished } from "./phone-apps-contract.ts";

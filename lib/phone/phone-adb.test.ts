@@ -195,3 +195,10 @@ test("text takes exactly one Unicode argument and no line breaks", () => {
   assert.throws(() => adbArguments(["text", "line one\nline two"]), /line break/);
   assert.throws(() => adbArguments(["text", "@file0"], 1), /placeholders/);
 });
+
+test("the server and the runner check the same Idempotency-Key rule", async () => {
+  const { IDEMPOTENCY_KEY } = await import("./phone-adb-contract.ts");
+  const { readFile } = await import("node:fs/promises");
+  const runner = await readFile(new URL("../../phone/runner/runner.mjs", import.meta.url), "utf8");
+  assert.ok(runner.includes(`${IDEMPOTENCY_KEY.source}/.test(key)`), "runner.mjs adbKeyed must use the same pattern as IDEMPOTENCY_KEY");
+});

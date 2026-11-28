@@ -9,11 +9,14 @@
  * - `use_cli`: how to install the Emuly CLI, when the caller is not the CLI and not the browser.
  *
  * The route wrapper (lib/diagnostics/api-usage-route.ts) calls `addAgentHelp` on each JSON error,
- * so new routes get the help without extra code. Fields a route already set are never replaced.
+ * so new routes get the help without extra code. Fields a route already set are never replaced,
+ * with one exception: the generic "Phone not found." message gets the phone id (see `not_found`).
  * `docs` links to the section for the code in the skill's errors page.
  */
 
 import { errorDocsUrl, isErrorCode } from "./error-codes.ts";
+import { phonePath, waitStopped } from "./phone/phone-not-ready.ts";
+import { IDEMPOTENCY_KEY } from "./phone/phone-adb-contract.ts";
 
 export type Fix = {
   method: "GET" | "POST" | "PUT" | "DELETE";
@@ -28,9 +31,6 @@ export type Fix = {
 export type Caller = "cli" | "skill" | "browser" | "powershell" | "curl" | "other";
 
 const ISSUE_URL = "https://github.com/codewarnab/emuly/issues/new";
-const phonePath = (id: string) => `/v1/phones/${encodeURIComponent(id)}`;
-const waitReady = (id: string): Fix => ({ method: "GET", path: `${phonePath(id)}?wait_for=ready&timeout_s=60` });
-const waitStopped = (id: string): Fix => ({ method: "GET", path: `${phonePath(id)}?wait_for=stopped&timeout_s=60` });
 
 /**
  * The caller, from headers only. A wrong guess costs one extra field, never a different status.
@@ -61,32 +61,6 @@ export function useCli(caller: Caller, baseUrl: string, then = "node emuly.mjs l
   };
 }
 
-type Stored = { state: string; android_state: string };
-
-/**
- * The phone_not_ready reply. The next step depends on the state: a booting phone needs only a wait,
- * and a start sent then is wasted and counts toward the rate limit.
- */
-export function phoneNotReady(id: string, stored: Stored): { body: Record<string, unknown>; headers?: Record<string, string> } {
-  const base = { error: "phone_not_ready", state: stored.state, android_state: stored.android_state };
-  if (stored.state === "deleted") {
-    return { body: { ...base, message: "This phone was deleted. Create a new phone.", fix: { method: "POST", path: "/v1/phones" } } };
-  }
-  if (stored.state === "stopped" || stored.state === "error" || (stored.state === "running" && stored.android_state === "failed")) {
-    const start = { method: "POST", path: `${phonePath(id)}/start`, then: waitReady(id) };
-    return { body: { ...base, message: "Start the phone to use this.", hint: `The phone is ${stored.state} with Android ${stored.android_state}. Start it, wait until ready, then retry.`, fix: start } };
-  }
-  if (stored.state === "stopping") {
-    return { body: { ...base, message: "The phone is stopping. Start it again when it has stopped.", hint: "Wait until it is stopped, then start it.", retry_after: 10,
-      fix: { ...waitStopped(id), then: { method: "POST", path: `${phonePath(id)}/start`, then: waitReady(id) } } },
-    headers: { "Retry-After": "10" } };
-  }
-  // Starting, or running while Android boots: only wait. Do not send another start.
-  return { body: { ...base, message: "The phone is starting. Wait until it is ready.",
-    hint: `The phone is ${stored.state} with Android ${stored.android_state}. Wait until ready, then retry. Do not start it again.`,
-    retry_after: 10, fix: waitReady(id) }, headers: { "Retry-After": "10" } };
-}
-
 /**
  * Help for an adb command that may have run, when a retry key cannot be trusted: check the screen first.
  * Used without a key, and when the runner gave no `ran` (an old runner ignores the key, so a retry
@@ -112,97 +86,97 @@ function phoneIdOf(pathname: string) {
 
 const has = (body: Record<string, unknown>, key: string) => body[key] !== undefined;
 
+type HelpContext = { status: number; pathname: string; headers: Headers; baseUrl: string; retryAfter?: string | null };
+/** One code's help. `out` is the body being built; `id` is the phone in the path, if any. */
+type Helper = (out: Record<string, unknown>, id: string | undefined, context: HelpContext) => void;
+
 /**
  * Adds help fields to one JSON error body. Pure: the same input gives the same output.
- * `retryAfter` is the Retry-After header of the reply, if any.
+ * Order: Retry-After, then the lost-adb-reply help, then the code's own helper, then docs and use_cli.
  */
-export function addAgentHelp(body: Record<string, unknown>, context: {
-  status: number; pathname: string; headers: Headers; baseUrl: string; retryAfter?: string | null;
-}): Record<string, unknown> {
+export function addAgentHelp(body: Record<string, unknown>, context: HelpContext): Record<string, unknown> {
   const code = typeof body.error === "string" ? body.error : undefined;
   if (!code) return body;
   const out: Record<string, unknown> = { ...body };
   const id = phoneIdOf(context.pathname);
-  const caller = callerOf(context.headers);
   const retry = Number(context.retryAfter);
   if (!has(out, "retry_after") && Number.isFinite(retry) && retry > 0) out.retry_after = retry;
-
-  // A lost adb reply: the command may have run. A plain retry could tap or type twice.
-  if (out.ran === "unknown" && id) {
-    const keyed = /^[\w.:-]{1,100}$/.test(context.headers.get("idempotency-key") ?? "");
-    if (keyed) {
-      // The runner keeps the first result per key for 10 minutes, so the same key does not run it again.
-      out.fix ??= { same_request: true, same_idempotency_key: true };
-      out.max_retries ??= 2;
-      out.hint ??= "Retry with the same Idempotency-Key: the phone replays the first result and does not run the command again. After a phone restart the key is gone, so check the screen first.";
-    } else Object.assign(out, { ...checkScreenFirst(id, false), ...out });
-    if (out.retry_after === undefined && code === "request_failed") out.retry_after = 3;
-  }
-
-  switch (code) {
-    case "unauthorized": {
-      const sent = /^Bearer\s+\S/i.test(context.headers.get("authorization") ?? "")
-        || /(^|;\s*)(__Host-)?emuly_session=/.test(context.headers.get("cookie") ?? "");
-      // A bad, revoked or expired key all look the same, on purpose: say nothing about other keys.
-      out.reason ??= sent ? "invalid_credentials" : "missing_credentials";
-      out.message ??= sent
-        ? "This key or session is not valid any more. Sign in again with the device sign-in."
-        : "No key was sent. Send Authorization: Bearer <key>, or sign in with the device sign-in.";
-      out.fix ??= { method: "POST", path: "/v1/agent/device" };
-      out.needs_user ??= true;
-      break;
-    }
-    case "not_found":
-      // Same reply for a deleted phone, a wrong id and another user's phone.
-      if (id && out.message === "Phone not found.") {
-        out.message = `No phone ${id} on this account. List your phones and use one of their ids.`;
-        out.fix ??= { method: "GET", path: "/v1/phones" };
-      }
-      break;
-    case "runner_update_required":
-      if (id) {
-        out.fix ??= { method: "POST", path: `${phonePath(id)}/apps/update`, repeat_until: { status: "ready" }, every_s: 3, max_tries: 20 };
-        out.if_fix_fails ??= { method: "POST", path: `${phonePath(id)}/stop`, then: waitStopped(id) };
-      }
-      break;
-    case "limit_reached":
-      out.needs_user ??= true;
-      out.fix ??= { method: "GET", path: "/v1/phones" };
-      out.hint ??= "List the phones and reuse one. Ask the user before you delete a phone.";
-      break;
-    case "phone_conflict":
-      // A phone in the wrong state for this step: read its state, then do the step that fits it.
-      if (id && (out.reason === "state" || out.reason === "unconfirmed")) out.fix ??= { method: "GET", path: phonePath(id) };
-      else if (out.reason === "unconfirmed") out.fix ??= { method: "GET", path: "/v1/phones" };
-      break;
-    case "busy":
-      out.max_retries ??= 3;
-      out.fix ??= { same_request: true };
-      break;
-    case "timeout":
-      if (out.ran === "unknown") break;
-      out.max_retries ??= 2;
-      out.fix ??= { same_request: true };
-      break;
-    case "rate_limited":
-      out.hint ??= "Wait retry_after seconds. To wait for a phone, use GET /v1/phones/{id}?wait_for=ready instead of starting it again.";
-      break;
-    case "request_failed":
-      if (out.ran === "unknown") { out.report ??= ISSUE_URL; break; }
-      if (!has(out, "retry_after")) out.retry_after = 3;
-      out.max_retries ??= 1;
-      out.report ??= ISSUE_URL;
-      break;
-  }
-
+  if (out.ran === "unknown" && id) ranUnknown(out, id, code, context.headers);
+  if (Object.hasOwn(HELPERS, code)) HELPERS[code]!(out, id, context);
   if (isErrorCode(code) && !has(out, "docs")) out.docs = errorDocsUrl(context.baseUrl, code);
-
+  const caller = callerOf(context.headers);
   if (caller !== "cli" && caller !== "browser" && !has(out, "use_cli")) {
     out.use_cli = useCli(caller, context.baseUrl, /\/adb(\/upload)?$/.test(context.pathname) || code === "upload_too_large"
       ? `node emuly.mjs install ${id ?? "<phone>"} app.apk` : "node emuly.mjs login");
   }
   return out;
 }
+
+/** A lost adb reply: the command may have run. A plain retry could tap or type twice. */
+function ranUnknown(out: Record<string, unknown>, id: string, code: string, headers: Headers) {
+  if (IDEMPOTENCY_KEY.test(headers.get("idempotency-key") ?? "")) {
+    // The runner keeps the first result per key for 10 minutes, so the same key does not run it again.
+    out.fix ??= { same_request: true, same_idempotency_key: true };
+    out.max_retries ??= 2;
+    out.hint ??= "Retry with the same Idempotency-Key: the phone replays the first result and does not run the command again. After a phone restart the key is gone, so check the screen first.";
+  } else Object.assign(out, { ...checkScreenFirst(id, false), ...out });
+  if (out.retry_after === undefined && code === "request_failed") out.retry_after = 3;
+}
+
+/** The help for each code. A code with no entry gets only docs and use_cli. */
+const HELPERS: Record<string, Helper> = {
+  unauthorized(out, _id, { headers }) {
+    const sent = /^Bearer\s+\S/i.test(headers.get("authorization") ?? "")
+      || /(^|;\s*)(__Host-)?emuly_session=/.test(headers.get("cookie") ?? "");
+    // A bad, revoked or expired key all look the same, on purpose: say nothing about other keys.
+    out.reason ??= sent ? "invalid_credentials" : "missing_credentials";
+    out.message ??= sent
+      ? "This key or session is not valid any more. Sign in again with the device sign-in."
+      : "No key was sent. Send Authorization: Bearer <key>, or sign in with the device sign-in.";
+    out.fix ??= { method: "POST", path: "/v1/agent/device" };
+    out.needs_user ??= true;
+  },
+  not_found(out, id) {
+    // Same reply for a deleted phone, a wrong id and another user's phone. The one replaced field:
+    // the generic message becomes one with the id, which the caller sent, so it leaks nothing.
+    if (!id || out.message !== "Phone not found.") return;
+    out.message = `No phone ${id} on this account. List your phones and use one of their ids.`;
+    out.fix ??= { method: "GET", path: "/v1/phones" };
+  },
+  runner_update_required(out, id) {
+    if (!id) return;
+    out.fix ??= { method: "POST", path: `${phonePath(id)}/apps/update`, repeat_until: { status: "ready" }, every_s: 3, max_tries: 20 };
+    out.if_fix_fails ??= { method: "POST", path: `${phonePath(id)}/stop`, then: waitStopped(id) };
+  },
+  limit_reached(out) {
+    out.needs_user ??= true;
+    out.fix ??= { method: "GET", path: "/v1/phones" };
+    out.hint ??= "List the phones and reuse one. Ask the user before you delete a phone.";
+  },
+  phone_conflict(out, id) {
+    // A phone in the wrong state for this step: read its state, then do the step that fits it.
+    if (id && (out.reason === "state" || out.reason === "unconfirmed")) out.fix ??= { method: "GET", path: phonePath(id) };
+    else if (out.reason === "unconfirmed") out.fix ??= { method: "GET", path: "/v1/phones" };
+  },
+  busy(out) {
+    out.max_retries ??= 3;
+    out.fix ??= { same_request: true };
+  },
+  timeout(out) {
+    if (out.ran === "unknown") return;
+    out.max_retries ??= 2;
+    out.fix ??= { same_request: true };
+  },
+  rate_limited(out) {
+    out.hint ??= "Wait retry_after seconds. To wait for a phone, use GET /v1/phones/{id}?wait_for=ready instead of starting it again.";
+  },
+  request_failed(out) {
+    out.report ??= ISSUE_URL;
+    if (out.ran === "unknown") return;
+    if (!has(out, "retry_after")) out.retry_after = 3;
+    out.max_retries ??= 1;
+  },
+};
 
 /** Error bodies larger than this are passed through unchanged: they are not ours to rewrite. */
 export const HELP_BODY_LIMIT = 16 * 1024;

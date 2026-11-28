@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addAgentHelp, callerOf, phoneNotReady, withAgentHelp } from "./agent-help.ts";
+import { addAgentHelp, callerOf, withAgentHelp } from "./agent-help.ts";
+import { phoneNotReady } from "./phone/phone-not-ready.ts";
 import { V1_ROUTES } from "./v1-routes.ts";
 
 const BASE = "https://emuly.example";
@@ -154,4 +155,12 @@ test("phone_not_ready keeps a short message for people and puts the agent steps 
   const stopped = phoneNotReady("p-1", { state: "stopped", android_state: "stopped" }).body;
   assert.equal(stopped.message, "Start the phone to use this.");
   assert.match(String(stopped.hint), /Start it, wait until ready/);
+});
+
+test("a code that is an Object method name gets no helper", () => {
+  for (const code of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+    const out = addAgentHelp({ error: code, message: "x" }, ctx(400, "/v1/phones/p-1"));
+    assert.equal(out.error, code);
+    assert.equal(out.fix, undefined);
+  }
 });

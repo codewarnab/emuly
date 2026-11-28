@@ -1,5 +1,5 @@
 import { GitHubError } from "../github/github.ts";
-import { githubReason } from "../github/github-reason.ts";
+import { githubReason, githubRetryAfter } from "../github/github-reason.ts";
 import { redact } from "../phone/phone-mutations.ts";
 import { shortMessage } from "./short-message.ts";
 
@@ -17,6 +17,6 @@ export function syncError(error: unknown): SyncError {
   const reason = githubReason(error);
   if (reason === "signed_out") return { kind: "signin", message: "GitHub sign-in expired." };
   if (reason === "billing") return { kind: "quota", message: "Your Codespaces hours or spending limit ran out." };
-  if (reason === "rate_limited") return { kind: "busy", message: "GitHub is busy.", retryAfter: error.retryAfter ?? 60 };
+  if (reason === "rate_limited") return { kind: "busy", message: "GitHub is busy.", retryAfter: githubRetryAfter(error) };
   return { kind: "other", message: shortMessage(redact(error.message)) };
 }

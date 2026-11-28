@@ -1,6 +1,6 @@
 import { apiError, NO_STORE } from "../http.ts";
 import { crossOrigin } from "../auth/origin.ts";
-import { phoneNotReady } from "../agent-help.ts";
+import { phoneNotReady } from "../phone/phone-not-ready.ts";
 import { diagnosticHealth } from "./diagnostics.ts";
 import type { phoneObservations } from "../phone/phone-observation.ts";
 

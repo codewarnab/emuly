@@ -25,7 +25,7 @@ test("sync maps rate limits to busy and preserves the delay or defaults to one m
   }
   for (const seconds of [0, 15, 120]) {
     assert.deepEqual(syncError(new GitHubError("Forbidden", 403, seconds)), {
-      kind: "busy", message: "GitHub is busy.", retryAfter: seconds,
+      kind: "busy", message: "GitHub is busy.", retryAfter: seconds > 0 ? seconds : 60,
     });
   }
 });

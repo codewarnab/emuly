@@ -5,7 +5,7 @@ import { classifyTarget, netCheckFix } from "./net-check.ts";
 import type { LinksPath } from "./phone-link.ts";
 import { runnerUpdateMessage } from "./phone-response.ts";
 import { EgressError, egressSetting } from "../../phone/runner/egress.mjs";
-import { phoneNotReady } from "../agent-help.ts";
+import { phoneNotReady } from "./phone-not-ready.ts";
 
 type Identity = { id: number; authKind?: "session" | "agent" };
 type PhoneView = { id: string; state: string; android_state: string };

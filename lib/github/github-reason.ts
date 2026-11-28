@@ -25,6 +25,11 @@ export function githubReason(error: Pick<GitHubError, "status" | "message" | "ra
   return "other";
 }
 
+/** Seconds to wait after a GitHub rate limit: GitHub's own value when it gave one above 0, else 60. */
+export function githubRetryAfter(error: Pick<GitHubError, "retryAfter">) {
+  return error.retryAfter && error.retryAfter > 0 ? error.retryAfter : 60;
+}
+
 /** The SSO link from GitHub's X-GitHub-SSO header, only when it is a github.com page. */
 export function ssoUrl(header: string | null | undefined) {
   const url = /url=(\S+)/.exec(header ?? "")?.[1];

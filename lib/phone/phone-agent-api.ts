@@ -6,7 +6,7 @@ import { idleStopAt } from "./idle-stop.ts";
 import { crossOrigin } from "../auth/origin.ts";
 import { CoordinationBusyError } from "../data/coordination.ts";
 import {
-  ADB_FILES_MAX, ADB_UPLOAD_MAX_BYTES, AdbError, adbArguments, adbResult, adbTimeout, isDownload, isScreencap,
+  ADB_FILES_MAX, IDEMPOTENCY_KEY, ADB_UPLOAD_MAX_BYTES, AdbError, adbArguments, adbResult, adbTimeout, isDownload, isScreencap,
 } from "./phone-adb-contract.ts";
 import { PhoneInputError, type createPhoneService } from "./phone-mutations.ts";
 import { phoneInputReply } from "./phone-errors.ts";
@@ -18,7 +18,8 @@ import type { RecordingAction } from "./phone-link.ts";
 import { notesVtt, type RecordingNote } from "./recording-notes.ts";
 import { runnerUpdateMessage } from "./phone-response.ts";
 import { bootProgress } from "./boot-progress.ts";
-import { checkScreenFirst, phoneNotReady } from "../agent-help.ts";
+import { checkScreenFirst } from "../agent-help.ts";
+import { phoneNotReady } from "./phone-not-ready.ts";
 
 type Identity = { id: number; login?: string; authKind?: "session" | "agent"; agentKeyId?: number };
 type PhoneView = Pick<Phone, "id" | "name" | "state" | "android_state" | "idle_timeout_min"> & Partial<Pick<Phone, "codespace_name" | "last_activity_at" | "android_started_at" | "last_started_at" | "keeping" | "state_detail" | "setup_failed" | "created_at" | "android_ready_at">> & { device_preset?: string; location?: string | null };
@@ -451,7 +452,7 @@ export function createPhoneAgentApi({ user, phones, phone, service, adb, uploadT
           ? uploaded.map(file => ({ name: file.name, bytes: file.bytes }))
           : undefined;
         const key = request.headers.get("idempotency-key") ?? undefined;
-        if (key !== undefined && !/^[\w.:-]{1,100}$/.test(key)) bad(400, "Idempotency-Key must be 1 to 100 letters, digits, _ . : or -.", { header: "Idempotency-Key" });
+        if (key !== undefined && !IDEMPOTENCY_KEY.test(key)) bad(400, "Idempotency-Key must be 1 to 100 letters, digits, _ . : or -.", { header: "Idempotency-Key" });
         const response = await adb(identity.id, id, { args, timeout_s, binary, ...(files ? { files } : {}), ...(key ? { key } : {}) }, stored.codespace_name);
         if (!response.ok) {
           await record(identity, id, args, -1, note);

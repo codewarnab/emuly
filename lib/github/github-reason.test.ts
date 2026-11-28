@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { GitHubError } from "./github.ts";
-import { BILLING_WORDS, githubReason, ssoUrl } from "./github-reason.ts";
+import { BILLING_WORDS, githubReason, ssoUrl, githubRetryAfter } from "./github-reason.ts";
 import { githubRefused, githubRefusedHeaders } from "../phone/github-refused.ts";
 import { QUOTA_ERROR_SQL } from "../data/usage.ts";
 
@@ -54,4 +54,10 @@ test("githubRefused gives a reason, user steps, and a retry only when a retry he
   assert.equal(sso.user_url, "https://github.com/orgs/acme/sso");
   assert.deepEqual(githubRefused(new GitHubError("Bad credentials", 401)).fix, { method: "POST", path: "/v1/agent/device" });
   assert.equal(githubRefused(new GitHubError("Validation Failed", 422)).reason, "other");
+});
+
+test("githubRetryAfter uses GitHub's wait only when it is above 0", () => {
+  assert.equal(githubRetryAfter({ retryAfter: 12 }), 12);
+  assert.equal(githubRetryAfter({ retryAfter: 0 }), 60);
+  assert.equal(githubRetryAfter({ retryAfter: undefined }), 60);
 });

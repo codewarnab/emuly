@@ -1,5 +1,5 @@
 import type { GitHubError } from "../github/github.ts";
-import { githubReason } from "../github/github-reason.ts";
+import { githubReason, githubRetryAfter } from "../github/github-reason.ts";
 import { GITHUB_BILLING_URL } from "../shared/plans.ts";
 import { redact } from "./phone-mutations.ts";
 
@@ -31,7 +31,7 @@ export function githubRefused(error: GitHubError, login?: string | null) {
       body.needs_user = true;
       break;
     case "rate_limited":
-      Object.assign(body, { retry_after: error.retryAfter && error.retryAfter > 0 ? error.retryAfter : 60, max_retries: 2, fix: { same_request: true } });
+      Object.assign(body, { retry_after: githubRetryAfter(error), max_retries: 2, fix: { same_request: true } });
       break;
     case "github_down":
       Object.assign(body, { retry_after: 30, max_retries: 2, fix: { same_request: true } });
